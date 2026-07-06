@@ -1,0 +1,9 @@
+{
+  "name": "솜솜 부자재 검수",
+  "short_name": "솜솜검수",
+  "start_url": "/mobile",
+  "display": "standalone",
+  "background_color": "#f8fbff",
+  "theme_color": "#e8f7ff",
+  "icons": []
+}

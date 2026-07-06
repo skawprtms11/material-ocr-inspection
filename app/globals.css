@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+  --background: #f8fbff;
+  --foreground: #253044;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family:
+    Arial,
+    "Apple SD Gothic Neo",
+    "Noto Sans KR",
+    sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+::selection {
+  background: #bae6fd;
+  color: #0f172a;
+}
+
+.cloud-dots {
+  background-image:
+    radial-gradient(circle at 16px 18px, rgba(125, 211, 252, 0.26) 0 5px, transparent 6px),
+    radial-gradient(circle at 48px 32px, rgba(196, 181, 253, 0.2) 0 4px, transparent 5px);
+  background-size: 70px 56px;
+}

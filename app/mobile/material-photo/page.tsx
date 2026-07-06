@@ -1,0 +1,651 @@
+"use client";
+
+import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, Camera, CheckCircle2, ImagePlus, Pencil, Plus, RotateCcw, Save, ScanText, Trash2, XCircle } from "lucide-react";
+import { CloudButton } from "@/components/common/CloudButton";
+import { CuteCard } from "@/components/common/CuteCard";
+import { appRepository } from "@/lib/repositories/app-repository";
+import type { MaterialMaster } from "@/lib/types/domain";
+import { cn } from "@/lib/utils/cn";
+
+type RegisterMode = "OCR" | "VISION" | null;
+type RegistrationMethod = Exclude<RegisterMode, null>;
+type StatusFilter = "all" | "registered" | "unregistered";
+type Rect = { x: number; y: number; width: number; height: number };
+
+const defaultRect: Rect = { x: 18, y: 24, width: 56, height: 22 };
+const statusFilters: { value: StatusFilter; label: string }[] = [
+  { value: "all", label: "전체" },
+  { value: "registered", label: "등록" },
+  { value: "unregistered", label: "미등록" }
+];
+
+function accuracyText(count: number) {
+  if (count >= 5) return "정확도 상승: 매우 높음";
+  if (count === 4) return "정확도 상승: 높음";
+  if (count === 3) return "정확도 상승: 보통";
+  return "3장 이상 촬영하면 정확도 상승 표시";
+}
+
+function hasAnyRegistration(status: Record<RegistrationMethod, Set<string>>, materialId: string) {
+  return status.OCR.has(materialId) || status.VISION.has(materialId);
+}
+
+function hasMethodRegistration(status: Record<RegistrationMethod, Set<string>>, method: RegistrationMethod, materialId: string) {
+  return status[method].has(materialId);
+}
+
+function RegionBox({ rect, children }: { rect: Rect; children?: ReactNode }) {
+  return (
+    <div className="relative aspect-[4/3] overflow-hidden rounded-[1.4rem] bg-slate-100">
+      {children}
+      <div
+        className="absolute rounded-xl border-2 border-sky-500 bg-sky-200/20"
+        style={{ left: `${rect.x}%`, top: `${rect.y}%`, width: `${rect.width}%`, height: `${rect.height}%` }}
+      />
+    </div>
+  );
+}
+
+function RegionControls({ rect, onChange }: { rect: Rect; onChange: (rect: Rect) => void }) {
+  const update = (key: keyof Rect, value: number) => onChange({ ...rect, [key]: value });
+
+  return (
+    <div className="mt-3 grid gap-2">
+      {([
+        ["x", "X"],
+        ["y", "Y"],
+        ["width", "가로"],
+        ["height", "세로"]
+      ] as [keyof Rect, string][]).map(([key, label]) => (
+        <label key={key} className="grid grid-cols-[42px_1fr_38px] items-center gap-2 text-xs font-black text-slate-500">
+          {label}
+          <input
+            type="range"
+            min={key === "width" || key === "height" ? 8 : 0}
+            max={key === "width" || key === "height" ? 90 : 80}
+            value={rect[key]}
+            onChange={(event) => update(key, Number(event.target.value))}
+            className="accent-sky-500"
+          />
+          <span className="text-right">{rect[key]}</span>
+        </label>
+      ))}
+    </div>
+  );
+}
+
+export default function MobileMaterialRegistrationPage() {
+  const materials = useMemo(() => appRepository.listMaterials({}), []);
+  const initialRegistrationStatus = useMemo(() => {
+    return materials.reduce<Record<RegistrationMethod, Set<string>>>(
+      (acc, material) => {
+        appRepository.listMaterialRegions(material.id).forEach((region) => {
+          acc[region.method].add(material.id);
+        });
+        return acc;
+      },
+      { OCR: new Set<string>(), VISION: new Set<string>() }
+    );
+  }, [materials]);
+  const [filter, setFilter] = useState<StatusFilter>("all");
+  const [productCodeFilter, setProductCodeFilter] = useState("");
+  const [productNameFilter, setProductNameFilter] = useState("");
+  const [lotFilter, setLotFilter] = useState("");
+  const [registrationStatus, setRegistrationStatus] = useState<Record<RegistrationMethod, Set<string>>>(initialRegistrationStatus);
+  const [selectedMaterialId, setSelectedMaterialId] = useState("");
+  const [mode, setMode] = useState<RegisterMode>(null);
+  const [editing, setEditing] = useState(false);
+
+  const selectedMaterial = materials.find((material) => material.id === selectedMaterialId) ?? materials[0];
+  const filteredMaterials = materials.filter((material) => {
+    const registered = hasAnyRegistration(registrationStatus, material.id);
+    const statusMatched =
+      filter === "registered" ? registered : filter === "unregistered" ? !registered : true;
+    const productCodeMatched = material.code.toLowerCase().includes(productCodeFilter.trim().toLowerCase());
+    const productNameMatched = material.name.toLowerCase().includes(productNameFilter.trim().toLowerCase());
+    const lotMatched = (material.lot ?? "").toLowerCase().includes(lotFilter.trim().toLowerCase());
+
+    return statusMatched && productCodeMatched && productNameMatched && lotMatched;
+  });
+
+  useEffect(() => {
+    const queryMaterialId = new URLSearchParams(window.location.search).get("materialId");
+    if (queryMaterialId && materials.some((material) => material.id === queryMaterialId)) {
+      setSelectedMaterialId(queryMaterialId);
+      setEditing(hasAnyRegistration(initialRegistrationStatus, queryMaterialId));
+    }
+  }, [initialRegistrationStatus, materials]);
+
+  const openRegistration = (material: MaterialMaster, isEdit: boolean) => {
+    setSelectedMaterialId(material.id);
+    setEditing(isEdit);
+    setMode(null);
+  };
+
+  const markRegistered = (method: RegistrationMethod) => {
+    if (!selectedMaterialId) return;
+
+    setRegistrationStatus((current) => ({
+      ...current,
+      [method]: new Set(current[method]).add(selectedMaterialId)
+    }));
+    setEditing(true);
+  };
+
+  const backToList = () => {
+    setSelectedMaterialId("");
+    setMode(null);
+    setEditing(false);
+  };
+
+  const deleteRegistration = () => {
+    if (!selectedMaterialId) return;
+
+    setRegistrationStatus((current) => {
+      const nextOcr = new Set(current.OCR);
+      const nextVision = new Set(current.VISION);
+      nextOcr.delete(selectedMaterialId);
+      nextVision.delete(selectedMaterialId);
+      return { OCR: nextOcr, VISION: nextVision };
+    });
+    setMode(null);
+    setEditing(false);
+  };
+
+  if (mode === "OCR" && selectedMaterial) {
+    return (
+      <OcrRegistration
+        material={selectedMaterial}
+        alreadyRegistered={hasMethodRegistration(registrationStatus, "OCR", selectedMaterial.id)}
+        onSaved={() => markRegistered("OCR")}
+        onCancel={() => setMode(null)}
+        onBack={() => setMode(null)}
+      />
+    );
+  }
+
+  if (mode === "VISION" && selectedMaterial) {
+    return (
+      <VisionRegistration
+        material={selectedMaterial}
+        alreadyRegistered={hasMethodRegistration(registrationStatus, "VISION", selectedMaterial.id)}
+        onSaved={() => markRegistered("VISION")}
+        onCancel={() => setMode(null)}
+        onBack={() => setMode(null)}
+      />
+    );
+  }
+
+  if (selectedMaterialId && selectedMaterial) {
+    const ocrRegistered = hasMethodRegistration(registrationStatus, "OCR", selectedMaterial.id);
+    const visionRegistered = hasMethodRegistration(registrationStatus, "VISION", selectedMaterial.id);
+
+    return (
+      <div className="space-y-4">
+        <button
+          type="button"
+          onClick={backToList}
+          className="inline-flex min-h-10 items-center gap-2 rounded-full bg-white/85 px-4 text-sm font-black text-slate-600 shadow-sm ring-1 ring-white/80"
+        >
+          <ArrowLeft className="size-4" />
+          목록으로
+        </button>
+
+        <CuteCard className="p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-black text-sky-600">{editing ? "수정등록" : "신규등록"}</p>
+              <h1 className="mt-1 text-2xl font-black text-slate-800">{selectedMaterial.name}</h1>
+              <p className="mt-2 text-sm font-bold text-slate-500">
+                {selectedMaterial.code} / LOT {selectedMaterial.lot ?? "-"}
+              </p>
+              <div className="mt-3 flex gap-1 text-[10px] font-black">
+                <span className={cn("rounded-full px-2 py-1", ocrRegistered ? "bg-emerald-100 text-emerald-700" : "bg-sky-100 text-sky-700")}>
+                  OCR {ocrRegistered ? "등록완료" : "대기"}
+                </span>
+                <span className={cn("rounded-full px-2 py-1", visionRegistered ? "bg-emerald-100 text-emerald-700" : "bg-violet-100 text-violet-700")}>
+                  비전 {visionRegistered ? "등록완료" : "대기"}
+                </span>
+              </div>
+            </div>
+            {editing && (
+              <button
+                type="button"
+                onClick={deleteRegistration}
+                aria-label="등록 삭제"
+                className="inline-flex size-10 items-center justify-center rounded-full bg-rose-100 text-rose-700"
+              >
+                <Trash2 className="size-5" />
+              </button>
+            )}
+          </div>
+        </CuteCard>
+
+        <CuteCard className="p-4">
+          <p className="text-sm font-black text-slate-800">등록 방식을 선택하세요</p>
+          <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
+            선택하면 목록 아래가 아니라 별도 등록 화면으로 전환됩니다.
+          </p>
+          <div className="mt-4 grid gap-2">
+            <CloudButton onClick={() => setMode("OCR")}>
+              <ScanText className="size-4" />
+              {ocrRegistered ? "OCR 수정 화면으로" : "OCR 신규등록"}
+            </CloudButton>
+            <CloudButton tone="soft" onClick={() => setMode("VISION")}>
+              <ImagePlus className="size-4" />
+              {visionRegistered ? "비전 수정 화면으로" : "비전 신규등록"}
+            </CloudButton>
+          </div>
+        </CuteCard>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <CuteCard className="p-4">
+        <p className="text-xs font-black text-sky-600">부자재등록</p>
+        <h1 className="mt-1 text-2xl font-black text-slate-800">부자재 목록</h1>
+        <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">관리자웹에서 등록한 부자재 목록 중 하나를 선택합니다.</p>
+      </CuteCard>
+
+      <div className="grid grid-cols-3 gap-2">
+        {statusFilters.map((item) => (
+          <button
+            key={item.value}
+            type="button"
+            onClick={() => {
+              setFilter(item.value);
+              setMode(null);
+              setSelectedMaterialId("");
+            }}
+            className={cn(
+              "min-h-11 rounded-2xl text-sm font-black transition",
+              filter === item.value ? "bg-sky-500 text-white shadow-sm" : "bg-white/80 text-slate-500 ring-1 ring-white/80"
+            )}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="rounded-[1.1rem] bg-white/82 p-2 shadow-sm ring-1 ring-white/80">
+        <div className="grid grid-cols-[1fr_1fr_1fr_auto] items-center gap-1.5">
+          <input
+            value={productCodeFilter}
+            onChange={(event) => {
+              setProductCodeFilter(event.target.value);
+              setSelectedMaterialId("");
+              setMode(null);
+            }}
+            className="h-9 min-w-0 rounded-xl border border-sky-100 bg-white px-2 text-xs font-bold outline-none focus:ring-2 focus:ring-sky-200"
+            placeholder="제품코드"
+            aria-label="제품코드 조회필터"
+          />
+          <input
+            value={productNameFilter}
+            onChange={(event) => {
+              setProductNameFilter(event.target.value);
+              setSelectedMaterialId("");
+              setMode(null);
+            }}
+            className="h-9 min-w-0 rounded-xl border border-sky-100 bg-white px-2 text-xs font-bold outline-none focus:ring-2 focus:ring-sky-200"
+            placeholder="제품명"
+            aria-label="제품명 조회필터"
+          />
+          <input
+            value={lotFilter}
+            onChange={(event) => {
+              setLotFilter(event.target.value);
+              setSelectedMaterialId("");
+              setMode(null);
+            }}
+            className="h-9 min-w-0 rounded-xl border border-sky-100 bg-white px-2 text-xs font-bold outline-none focus:ring-2 focus:ring-sky-200"
+            placeholder="LOT"
+            aria-label="LOT 조회필터"
+          />
+          <span className="whitespace-nowrap rounded-full bg-sky-50 px-2.5 py-2 text-[11px] font-black text-sky-700">{filteredMaterials.length}건</span>
+        </div>
+      </div>
+
+      <CuteCard className="overflow-hidden p-0">
+        <div className="grid grid-cols-[1fr_70px_54px] bg-sky-50/80 px-3 py-3 text-[11px] font-black text-sky-700">
+          <span>제품코드 / 제품명 / LOT</span>
+          <span className="text-center">상태</span>
+          <span className="text-center">등록</span>
+        </div>
+        <div className="divide-y divide-slate-100">
+          {filteredMaterials.map((material) => {
+            const registered = hasAnyRegistration(registrationStatus, material.id);
+            const ocrRegistered = hasMethodRegistration(registrationStatus, "OCR", material.id);
+            const visionRegistered = hasMethodRegistration(registrationStatus, "VISION", material.id);
+            const selected = material.id === selectedMaterialId;
+
+          return (
+            <div
+              key={material.id}
+              className={cn(
+                "grid grid-cols-[1fr_70px_54px] items-center gap-2 px-3 py-3 transition",
+                selected ? "bg-sky-50/90" : "bg-white/70"
+              )}
+            >
+              <button type="button" onClick={() => openRegistration(material, registered)} className="text-left">
+                <p className="text-xs font-black text-sky-600">{material.code}</p>
+                <p className="mt-1 font-black text-slate-800">{material.name}</p>
+                <p className="mt-1 text-xs font-bold text-slate-400">LOT {material.lot ?? "-"}</p>
+                <div className="mt-2 flex flex-wrap gap-1 text-[10px] font-black">
+                  <span className={cn("rounded-full px-2 py-0.5", ocrRegistered ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-400")}>
+                    OCR {ocrRegistered ? "완료" : "대기"}
+                  </span>
+                  <span className={cn("rounded-full px-2 py-0.5", visionRegistered ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-400")}>
+                    비전 {visionRegistered ? "완료" : "대기"}
+                  </span>
+                </div>
+              </button>
+              <span
+                className={cn(
+                  "rounded-full px-2 py-1 text-center text-[11px] font-black",
+                  registered ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
+                )}
+              >
+                {registered ? "등록" : "미등록"}
+              </span>
+              <button
+                type="button"
+                onClick={() => openRegistration(material, registered)}
+                aria-label={registered ? `${material.name} 수정` : `${material.name} 등록`}
+                className={cn(
+                  "inline-flex size-10 items-center justify-center justify-self-center rounded-full transition",
+                  registered ? "bg-white text-sky-600 ring-1 ring-sky-100" : "bg-sky-500 text-white"
+                )}
+              >
+                {registered ? <Pencil className="size-4" /> : <Plus className="size-5" />}
+              </button>
+            </div>
+          );
+        })}
+          {filteredMaterials.length === 0 && (
+            <div className="px-4 py-8 text-center text-sm font-bold text-slate-400">조회된 부자재가 없습니다.</div>
+          )}
+        </div>
+      </CuteCard>
+    </div>
+  );
+}
+
+function OcrRegistration({
+  material,
+  alreadyRegistered,
+  onSaved,
+  onCancel,
+  onBack
+}: {
+  material: MaterialMaster;
+  alreadyRegistered: boolean;
+  onSaved: () => void;
+  onCancel: () => void;
+  onBack: () => void;
+}) {
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [rect, setRect] = useState(defaultRect);
+  const [recognizedText, setRecognizedText] = useState("");
+  const [saved, setSaved] = useState(false);
+  const expectedText = material.code;
+  const matched = recognizedText === expectedText;
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
+
+  const capture = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(URL.createObjectURL(file));
+    setFileName(file.name);
+    setRecognizedText("");
+    setSaved(false);
+  };
+
+  const retry = () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl("");
+    setFileName("");
+    setRecognizedText("");
+    setSaved(false);
+    setRect(defaultRect);
+  };
+
+  return (
+    <div className="space-y-4">
+      <button
+        type="button"
+        onClick={onBack}
+        className="inline-flex min-h-10 items-center gap-2 rounded-full bg-white/85 px-4 text-sm font-black text-slate-600 shadow-sm ring-1 ring-white/80"
+      >
+        <ArrowLeft className="size-4" />
+        등록 선택으로
+      </button>
+
+      <CuteCard className="p-4">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-black text-sky-600">OCR등록</p>
+          <h1 className="mt-1 text-2xl font-black text-slate-800">{material.name}</h1>
+          <p className="mt-1 text-xs font-bold text-slate-400">
+            {material.code} · {alreadyRegistered ? "OCR 등록완료" : "OCR 신규등록"}
+          </p>
+        </div>
+        <button type="button" onClick={onCancel} className="rounded-full bg-white p-2 text-slate-400 ring-1 ring-slate-200">
+          <XCircle className="size-5" />
+        </button>
+      </div>
+
+      <label className="block cursor-pointer">
+        <RegionBox rect={rect}>
+          {previewUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={previewUrl} alt="OCR 촬영 이미지" className="h-full w-full object-cover" />
+          ) : (
+            <div className="flex h-full flex-col items-center justify-center text-center">
+              <Camera className="mb-3 size-12 text-sky-400" />
+              <p className="font-black text-slate-800">카메라로 OCR 사진 촬영</p>
+              <p className="mt-2 text-xs font-semibold text-slate-500">텍스트를 읽을 부위를 촬영하세요.</p>
+            </div>
+          )}
+        </RegionBox>
+        <input type="file" accept="image/*" capture="environment" className="sr-only" onChange={capture} aria-label="OCR 등록 사진 촬영" />
+      </label>
+
+      <RegionControls rect={rect} onChange={setRect} />
+
+      <CloudButton
+        className="mt-4 w-full"
+        disabled={!previewUrl}
+        onClick={() => setRecognizedText(fileName.toLowerCase().includes("fail") ? "인식 실패" : expectedText)}
+      >
+        <ScanText className="size-4" />
+        OCR 검증
+      </CloudButton>
+
+      {recognizedText && (
+        <div className={cn("mt-3 rounded-2xl p-3 text-sm font-bold leading-6", matched ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700")}>
+          OCR 결과: {recognizedText}
+          <p className="text-xs">기준 텍스트: {expectedText}</p>
+        </div>
+      )}
+
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <CloudButton tone="soft" onClick={retry}>
+          <RotateCcw className="size-4" />
+          재처리
+        </CloudButton>
+        <CloudButton tone="danger" onClick={onCancel}>
+          취소
+        </CloudButton>
+        <CloudButton
+          disabled={!matched}
+          onClick={() => {
+            setSaved(true);
+            onSaved();
+          }}
+        >
+          <Save className="size-4" />
+          저장
+        </CloudButton>
+      </div>
+
+      {saved && (
+        <div className="mt-3 rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700">
+          <CheckCircle2 className="mb-1 size-5" />
+          OCR 등록 저장 완료
+        </div>
+      )}
+      </CuteCard>
+    </div>
+  );
+}
+
+function VisionRegistration({
+  material,
+  alreadyRegistered,
+  onSaved,
+  onCancel,
+  onBack
+}: {
+  material: MaterialMaster;
+  alreadyRegistered: boolean;
+  onSaved: () => void;
+  onCancel: () => void;
+  onBack: () => void;
+}) {
+  const [photos, setPhotos] = useState<{ name: string; url: string }[]>([]);
+  const [rect, setRect] = useState(defaultRect);
+  const [saved, setSaved] = useState(false);
+  const photoUrlsRef = useRef<string[]>([]);
+
+  useEffect(() => {
+    return () => {
+      photoUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, []);
+
+  const capture = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || photos.length >= 5) return;
+
+    const url = URL.createObjectURL(file);
+    photoUrlsRef.current = [...photoUrlsRef.current, url];
+    setPhotos((current) => [...current, { name: file.name, url }]);
+    setSaved(false);
+    event.target.value = "";
+  };
+
+  const retry = () => {
+    photos.forEach((photo) => URL.revokeObjectURL(photo.url));
+    photoUrlsRef.current = [];
+    setPhotos([]);
+    setRect(defaultRect);
+    setSaved(false);
+  };
+
+  return (
+    <div className="space-y-4">
+      <button
+        type="button"
+        onClick={onBack}
+        className="inline-flex min-h-10 items-center gap-2 rounded-full bg-white/85 px-4 text-sm font-black text-slate-600 shadow-sm ring-1 ring-white/80"
+      >
+        <ArrowLeft className="size-4" />
+        등록 선택으로
+      </button>
+
+      <CuteCard className="p-4">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-black text-violet-600">비전등록</p>
+          <h1 className="mt-1 text-2xl font-black text-slate-800">{material.name}</h1>
+          <p className="mt-1 text-xs font-bold text-slate-400">
+            최소 3장, 최대 5장 저장 가능 · {alreadyRegistered ? "비전 등록완료" : "비전 신규등록"}
+          </p>
+        </div>
+        <button type="button" onClick={onCancel} className="rounded-full bg-white p-2 text-slate-400 ring-1 ring-slate-200">
+          <XCircle className="size-5" />
+        </button>
+      </div>
+
+      <RegionBox rect={rect}>
+        {photos[0] ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={photos[0].url} alt="비전 기준 이미지" className="h-full w-full object-cover" />
+        ) : (
+          <div className="flex h-full flex-col items-center justify-center text-center">
+            <Camera className="mb-3 size-12 text-violet-400" />
+            <p className="font-black text-slate-800">비전 기준 사진 촬영</p>
+            <p className="mt-2 text-xs font-semibold text-slate-500">첫 사진 위에 검사 영역을 지정합니다.</p>
+          </div>
+        )}
+      </RegionBox>
+
+      <RegionControls rect={rect} onChange={setRect} />
+
+      <label className={cn("mt-4 flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-full px-4 text-sm font-extrabold shadow-sm", photos.length >= 5 ? "bg-slate-100 text-slate-300" : "bg-sky-500 text-white")}>
+        <Camera className="size-4" />
+        사진 촬영 {photos.length}/5
+        <input type="file" accept="image/*" capture="environment" disabled={photos.length >= 5} className="sr-only" onChange={capture} aria-label="비전 등록 사진 촬영" />
+      </label>
+
+      <div className="mt-3 grid grid-cols-5 gap-2">
+        {Array.from({ length: 5 }).map((_, index) => {
+          const photo = photos[index];
+
+          return (
+            <div key={index} className="aspect-square overflow-hidden rounded-xl bg-slate-100">
+              {photo ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={photo.url} alt={`비전 등록 ${index + 1}`} className="h-full w-full object-cover" />
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className={cn("mt-3 rounded-2xl p-3 text-sm font-bold", photos.length >= 3 ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>
+        {accuracyText(photos.length)}
+      </div>
+
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <CloudButton tone="soft" onClick={retry}>
+          <RotateCcw className="size-4" />
+          재처리
+        </CloudButton>
+        <CloudButton tone="danger" onClick={onCancel}>
+          취소
+        </CloudButton>
+        <CloudButton
+          disabled={photos.length < 3}
+          onClick={() => {
+            setSaved(true);
+            onSaved();
+          }}
+        >
+          <Save className="size-4" />
+          저장
+        </CloudButton>
+      </div>
+
+      {saved && (
+        <div className="mt-3 rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700">
+          <CheckCircle2 className="mb-1 size-5" />
+          비전등록 저장 완료
+        </div>
+      )}
+      </CuteCard>
+    </div>
+  );
+}
