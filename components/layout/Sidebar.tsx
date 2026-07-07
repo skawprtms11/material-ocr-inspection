@@ -19,8 +19,8 @@ import { cn } from "@/lib/utils/cn";
 
 const menuItems = [
   { href: "/work-register", label: "작업등록", icon: ClipboardList },
-  { href: "/work-status", label: "작업현황", icon: LayoutDashboard },
   { href: "/work-inspection", label: "작업검수", icon: ClipboardCheck },
+  { href: "/work-status", label: "작업현황", icon: LayoutDashboard },
   { href: "/work-master", label: "작업마스터", icon: PackageCheck },
   { href: "/material-master", label: "부자재마스터", icon: PackageSearch },
   { href: "/department-master", label: "부서마스터", icon: Factory },

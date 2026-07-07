@@ -22,10 +22,50 @@ export const departments: Department[] = [
 ];
 
 export const shippers: Shipper[] = [
-  { id: "shipper-mint", department_id: "dept-fulfillment", name: "민트하우스", is_active: true, created_at: now, updated_at: now },
-  { id: "shipper-cloud", department_id: "dept-fulfillment", name: "구름상점", is_active: true, created_at: now, updated_at: now },
-  { id: "shipper-lavender", department_id: "dept-package", name: "라벤더랩", is_active: true, created_at: now, updated_at: now },
-  { id: "shipper-cream", department_id: "dept-quality", name: "크림오더", is_active: true, created_at: now, updated_at: now }
+  {
+    id: "shipper-mint",
+    department_id: "dept-fulfillment",
+    code: "SHP-MT",
+    name: "민트하우스",
+    foreman_name: "김반장",
+    crew_leader_ids: ["user-worker"],
+    is_active: true,
+    created_at: now,
+    updated_at: now
+  },
+  {
+    id: "shipper-cloud",
+    department_id: "dept-fulfillment",
+    code: "SHP-CL",
+    name: "구름상점",
+    foreman_name: "박반장",
+    crew_leader_ids: ["user-worker"],
+    is_active: true,
+    created_at: now,
+    updated_at: now
+  },
+  {
+    id: "shipper-lavender",
+    department_id: "dept-package",
+    code: "SHP-LV",
+    name: "라벤더랩",
+    foreman_name: "이라벤",
+    crew_leader_ids: ["user-viewer"],
+    is_active: true,
+    created_at: now,
+    updated_at: now
+  },
+  {
+    id: "shipper-cream",
+    department_id: "dept-quality",
+    code: "SHP-CR",
+    name: "크림오더",
+    foreman_name: "최크림",
+    crew_leader_ids: [],
+    is_active: true,
+    created_at: now,
+    updated_at: now
+  }
 ];
 
 export const currentUser: AppUser = {

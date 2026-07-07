@@ -35,7 +35,10 @@ export type Department = {
 export type Shipper = {
   id: string;
   department_id: string;
+  code: string;
   name: string;
+  foreman_name: string;
+  crew_leader_ids: string[];
   is_active: boolean;
   created_at: string;
   updated_at: string;
