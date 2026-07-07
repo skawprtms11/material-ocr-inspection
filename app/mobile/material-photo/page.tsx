@@ -13,6 +13,14 @@ type RegistrationMethod = Exclude<RegisterMode, null>;
 type StatusFilter = "all" | "registered" | "unregistered";
 type Rect = { x: number; y: number; width: number; height: number };
 type ResizeHandle = "nw" | "ne" | "sw" | "se";
+type OcrApiResult = {
+  extractedText?: string;
+  matched?: boolean;
+  provider?: string;
+  summary?: string;
+  canVerify?: boolean;
+  error?: string;
+};
 type RegionInteraction =
   | { mode: "move"; startPoint: { x: number; y: number }; startRect: Rect }
   | { mode: "resize"; handle: ResizeHandle; startPoint: { x: number; y: number }; startRect: Rect };
@@ -50,6 +58,53 @@ function getPoint(event: ReactPointerEvent<HTMLDivElement>, element: HTMLDivElem
     x: clamp(((event.clientX - bounds.left) / bounds.width) * 100, 0, 100),
     y: clamp(((event.clientY - bounds.top) / bounds.height) * 100, 0, 100)
   };
+}
+
+function loadImage(url: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("이미지를 불러오지 못했습니다."));
+    image.src = url;
+  });
+}
+
+async function cropImageFile(file: File, rect: Rect) {
+  const url = URL.createObjectURL(file);
+
+  try {
+    const image = await loadImage(url);
+    const safeRect = constrainRect(rect);
+    const sourceX = clamp(Math.round((safeRect.x / 100) * image.naturalWidth), 0, Math.max(0, image.naturalWidth - 1));
+    const sourceY = clamp(Math.round((safeRect.y / 100) * image.naturalHeight), 0, Math.max(0, image.naturalHeight - 1));
+    const sourceWidth = Math.max(1, Math.min(image.naturalWidth - sourceX, Math.round((safeRect.width / 100) * image.naturalWidth)));
+    const sourceHeight = Math.max(1, Math.min(image.naturalHeight - sourceY, Math.round((safeRect.height / 100) * image.naturalHeight)));
+    const canvas = document.createElement("canvas");
+    canvas.width = sourceWidth;
+    canvas.height = sourceHeight;
+
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("OCR 영역 이미지를 만들지 못했습니다.");
+
+    context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, sourceWidth, sourceHeight);
+
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((nextBlob) => {
+        if (nextBlob) resolve(nextBlob);
+        else reject(new Error("OCR 영역 이미지를 변환하지 못했습니다."));
+      }, "image/jpeg", 0.92);
+    });
+
+    return {
+      file: new File([blob], `ocr-roi-${file.name.replace(/\.[^.]+$/, "")}.jpg`, { type: "image/jpeg" }),
+      width: sourceWidth,
+      height: sourceHeight,
+      sourceRect: { x: sourceX, y: sourceY, width: sourceWidth, height: sourceHeight },
+      originalSize: { width: image.naturalWidth, height: image.naturalHeight }
+    };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 function constrainRect(rect: Rect): Rect {
@@ -564,18 +619,34 @@ function OcrRegistration({
   const [recognizedText, setRecognizedText] = useState("");
   const [ocrMatched, setOcrMatched] = useState(false);
   const [ocrLoading, setOcrLoading] = useState(false);
+  const [ocrReviewed, setOcrReviewed] = useState(false);
   const [ocrSummary, setOcrSummary] = useState("");
   const [ocrProvider, setOcrProvider] = useState("");
   const [ocrError, setOcrError] = useState("");
   const [saved, setSaved] = useState(false);
   const expectedText = material.code;
-  const matched = ocrMatched;
+  const matched = ocrReviewed && ocrMatched;
 
   useEffect(() => {
     return () => {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
     };
   }, [previewUrl]);
+
+  const resetOcrReview = () => {
+    setRecognizedText("");
+    setOcrMatched(false);
+    setOcrReviewed(false);
+    setOcrSummary("");
+    setOcrProvider("");
+    setOcrError("");
+    setSaved(false);
+  };
+
+  const handleRectChange = (nextRect: Rect) => {
+    setRect(constrainRect(nextRect));
+    if (selectedFile || ocrReviewed || saved) resetOcrReview();
+  };
 
   const capture = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -590,12 +661,8 @@ function OcrRegistration({
 
     setPreviewUrl(nextPreviewUrl);
     setSelectedFile(file);
-    setRecognizedText("");
-    setOcrMatched(false);
-    setOcrSummary("");
-    setOcrProvider("");
-    setOcrError("");
-    setSaved(false);
+    resetOcrReview();
+    event.target.value = "";
   };
 
   const retry = () => {
@@ -603,12 +670,7 @@ function OcrRegistration({
     setPreviewUrl("");
     setSelectedFile(null);
     setImageSize(null);
-    setRecognizedText("");
-    setOcrMatched(false);
-    setOcrSummary("");
-    setOcrProvider("");
-    setOcrError("");
-    setSaved(false);
+    resetOcrReview();
     setRect(defaultRect);
   };
 
@@ -619,40 +681,47 @@ function OcrRegistration({
     setOcrError("");
     setOcrSummary("");
     setOcrProvider("");
+    setOcrReviewed(false);
+    setOcrMatched(false);
     setSaved(false);
 
-    const formData = new FormData();
-    formData.append("image", selectedFile);
-    formData.append("expectedText", expectedText);
-    formData.append("roi", JSON.stringify(rect));
-    formData.append("imageWidth", String(imageSize?.width ?? 0));
-    formData.append("imageHeight", String(imageSize?.height ?? 0));
-    formData.append("materialId", material.id);
-
     try {
+      const reviewRect = constrainRect(rect);
+      setRect(reviewRect);
+
+      const croppedImage = await cropImageFile(selectedFile, reviewRect);
+      const formData = new FormData();
+      formData.append("image", croppedImage.file);
+      formData.append("expectedText", expectedText);
+      formData.append("roi", JSON.stringify({ x: 0, y: 0, width: 100, height: 100 }));
+      formData.append("originalRoi", JSON.stringify(reviewRect));
+      formData.append("imageWidth", String(croppedImage.width));
+      formData.append("imageHeight", String(croppedImage.height));
+      formData.append("originalImageWidth", String(croppedImage.originalSize.width));
+      formData.append("originalImageHeight", String(croppedImage.originalSize.height));
+      formData.append("sourceRect", JSON.stringify(croppedImage.sourceRect));
+      formData.append("isCropped", "true");
+      formData.append("materialId", material.id);
+
       const response = await fetch("/api/ocr", {
         method: "POST",
         body: formData
       });
-      const result = (await response.json()) as {
-        extractedText?: string;
-        matched?: boolean;
-        provider?: string;
-        summary?: string;
-        error?: string;
-      };
+      const result = (await response.json()) as OcrApiResult;
 
       if (!response.ok) {
         throw new Error(result.error ?? "OCR 검토 중 오류가 발생했습니다.");
       }
 
       setRecognizedText(result.extractedText ?? "");
-      setOcrMatched(Boolean(result.matched));
+      setOcrMatched(Boolean(result.canVerify !== false && result.matched));
+      setOcrReviewed(true);
       setOcrProvider(result.provider ?? "");
       setOcrSummary(result.summary ?? "");
     } catch (error) {
       setRecognizedText("");
       setOcrMatched(false);
+      setOcrReviewed(false);
       setOcrError(error instanceof Error ? error.message : "OCR 검토 중 오류가 발생했습니다.");
     } finally {
       setOcrLoading(false);
@@ -686,7 +755,7 @@ function OcrRegistration({
 
       <TouchRegionSelector
         rect={rect}
-        onChange={setRect}
+        onChange={handleRectChange}
         aspectRatio={imageSize ? `${imageSize.width} / ${imageSize.height}` : undefined}
       >
         {previewUrl ? (
@@ -722,7 +791,7 @@ function OcrRegistration({
         </div>
       )}
 
-      {recognizedText && (
+      {ocrReviewed && (
         <div className={cn("mt-3 rounded-2xl p-3 text-sm font-bold leading-6", matched ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700")}>
           <p className="text-xs font-black">{matched ? "OCR 검토 결과 일치" : "OCR 검토 결과 불일치"}</p>
           <p className="mt-1 text-xs">{ocrSummary || "선택 영역 기준 OCR 결과입니다."}</p>
@@ -730,7 +799,7 @@ function OcrRegistration({
           <label className="mt-2 block">
             <span className="text-xs">OCR로 읽은 텍스트</span>
             <textarea
-              value={recognizedText}
+              value={recognizedText || "인식된 텍스트 없음"}
               readOnly
               className="mt-1 min-h-16 w-full rounded-2xl border border-white/80 bg-white/80 p-3 text-sm font-black text-slate-800 outline-none"
             />
@@ -748,7 +817,7 @@ function OcrRegistration({
           취소
         </CloudButton>
         <CloudButton
-          disabled={!matched}
+          disabled={!matched || ocrLoading}
           onClick={() => {
             setSaved(true);
             onSaved();

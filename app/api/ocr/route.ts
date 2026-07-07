@@ -24,6 +24,12 @@ type VisionResponse = {
   }[];
 };
 
+const fullImageRoi: RoiRect = { x: 0, y: 0, width: 100, height: 100 };
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
 function base64Url(input: string) {
   return Buffer.from(input)
     .toString("base64")
@@ -110,13 +116,24 @@ function getRoiText(annotations: VisionAnnotation[], roi: RoiRect, imageWidth: n
 
     const xs = vertices.map((vertex) => vertex.x ?? 0);
     const ys = vertices.map((vertex) => vertex.y ?? 0);
-    const centerX = (Math.min(...xs) + Math.max(...xs)) / 2;
-    const centerY = (Math.min(...ys) + Math.max(...ys)) / 2;
+    const wordBox = {
+      left: Math.min(...xs),
+      top: Math.min(...ys),
+      right: Math.max(...xs),
+      bottom: Math.max(...ys)
+    };
+    const centerX = (wordBox.left + wordBox.right) / 2;
+    const centerY = (wordBox.top + wordBox.bottom) / 2;
+    const overlaps =
+      wordBox.left < roiBox.right &&
+      wordBox.right > roiBox.left &&
+      wordBox.top < roiBox.bottom &&
+      wordBox.bottom > roiBox.top;
 
-    return centerX >= roiBox.left && centerX <= roiBox.right && centerY >= roiBox.top && centerY <= roiBox.bottom;
+    return overlaps && centerX >= roiBox.left && centerX <= roiBox.right && centerY >= roiBox.top && centerY <= roiBox.bottom;
   });
 
-  return (roiWords.length > 0 ? roiWords : words)
+  return roiWords
     .map((word) => word.description)
     .filter(Boolean)
     .join(" ")
@@ -128,12 +145,40 @@ function isMatched(extractedText: string, expectedText: string) {
   return normalize(extractedText).includes(normalize(expectedText));
 }
 
-function mockOcr(expectedText: string) {
+function parseRoi(raw: FormDataEntryValue | null, field: string, fallback: RoiRect) {
+  if (raw === null) return { roi: fallback };
+  if (typeof raw !== "string") return { error: `${field}는 JSON 문자열이어야 합니다.` };
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<RoiRect>;
+    const width = clamp(Number(parsed.width), 1, 100);
+    const height = clamp(Number(parsed.height), 1, 100);
+
+    if (![parsed.x, parsed.y, parsed.width, parsed.height].every((value) => Number.isFinite(Number(value)))) {
+      return { error: `${field} 좌표가 올바르지 않습니다.` };
+    }
+
+    return {
+      roi: {
+        x: clamp(Number(parsed.x), 0, 100 - width),
+        y: clamp(Number(parsed.y), 0, 100 - height),
+        width,
+        height
+      }
+    };
+  } catch {
+    return { error: `${field} JSON을 해석하지 못했습니다.` };
+  }
+}
+
+function mockOcr(originalRoi: RoiRect) {
   return NextResponse.json({
     provider: "mock",
-    extractedText: expectedText,
-    matched: true,
-    summary: "Google Vision 환경변수가 없어 mock OCR 결과를 반환했습니다."
+    extractedText: "",
+    matched: false,
+    canVerify: false,
+    roi: originalRoi,
+    summary: "Google Vision 환경변수가 없어 선택 영역 OCR 검증을 수행하지 않았습니다."
   });
 }
 
@@ -141,7 +186,19 @@ export async function POST(request: NextRequest) {
   const formData = await request.formData();
   const image = formData.get("image");
   const expectedText = String(formData.get("expectedText") ?? "").trim();
-  const roi = JSON.parse(String(formData.get("roi") ?? "{}")) as RoiRect;
+  const isCropped = String(formData.get("isCropped") ?? "") === "true";
+  const parsedRoi = parseRoi(formData.get("roi"), "roi", fullImageRoi);
+  if (parsedRoi.error || !parsedRoi.roi) {
+    return NextResponse.json({ error: parsedRoi.error ?? "OCR 영역 좌표가 필요합니다." }, { status: 400 });
+  }
+
+  const parsedOriginalRoi = parseRoi(formData.get("originalRoi"), "originalRoi", parsedRoi.roi);
+  if (parsedOriginalRoi.error || !parsedOriginalRoi.roi) {
+    return NextResponse.json({ error: parsedOriginalRoi.error ?? "원본 OCR 영역 좌표가 필요합니다." }, { status: 400 });
+  }
+
+  const roi = parsedRoi.roi;
+  const originalRoi = parsedOriginalRoi.roi;
   const imageWidth = Number(formData.get("imageWidth") ?? 0);
   const imageHeight = Number(formData.get("imageHeight") ?? 0);
 
@@ -149,13 +206,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "OCR 이미지 파일이 필요합니다." }, { status: 400 });
   }
 
+  if (!isCropped && (!Number.isFinite(imageWidth) || imageWidth <= 0 || !Number.isFinite(imageHeight) || imageHeight <= 0)) {
+    return NextResponse.json({ error: "OCR 원본 이미지 크기가 필요합니다." }, { status: 400 });
+  }
+
   if (process.env.OCR_PROVIDER !== "google-vision" || !getCredentials()) {
-    return mockOcr(expectedText);
+    return mockOcr(originalRoi);
   }
 
   try {
     const accessToken = await getAccessToken();
-    if (!accessToken) return mockOcr(expectedText);
+    if (!accessToken) return mockOcr(originalRoi);
 
     const content = Buffer.from(await image.arrayBuffer()).toString("base64");
     const response = await fetch("https://vision.googleapis.com/v1/images:annotate", {
@@ -186,14 +247,20 @@ export async function POST(request: NextRequest) {
     }
 
     const annotations = result?.textAnnotations ?? [];
-    const extractedText = getRoiText(annotations, roi, imageWidth, imageHeight);
+    const extractedText = isCropped
+      ? annotations[0]?.description?.trim() ?? ""
+      : getRoiText(annotations, roi, imageWidth, imageHeight);
 
     return NextResponse.json({
       provider: "google-vision",
       extractedText,
       matched: expectedText ? isMatched(extractedText, expectedText) : false,
+      canVerify: true,
+      roi: isCropped ? originalRoi : roi,
       summary: extractedText
-        ? "Google Vision OCR이 선택 영역의 텍스트를 읽었습니다."
+        ? isCropped
+          ? "선택한 박스 영역만 잘라 Google Vision OCR로 읽었습니다."
+          : "Google Vision OCR이 선택 영역의 텍스트를 읽었습니다."
         : "Google Vision OCR이 선택 영역에서 텍스트를 찾지 못했습니다."
     });
   } catch (error) {
