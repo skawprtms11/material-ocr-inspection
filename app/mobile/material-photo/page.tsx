@@ -12,6 +12,10 @@ type RegisterMode = "OCR" | "VISION" | null;
 type RegistrationMethod = Exclude<RegisterMode, null>;
 type StatusFilter = "all" | "registered" | "unregistered";
 type Rect = { x: number; y: number; width: number; height: number };
+type ResizeHandle = "nw" | "ne" | "sw" | "se";
+type RegionInteraction =
+  | { mode: "move"; startPoint: { x: number; y: number }; startRect: Rect }
+  | { mode: "resize"; handle: ResizeHandle; startPoint: { x: number; y: number }; startRect: Rect };
 
 const defaultRect: Rect = { x: 18, y: 24, width: 56, height: 22 };
 const statusFilters: { value: StatusFilter; label: string }[] = [
@@ -39,15 +43,6 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
-function normalizeRect(start: { x: number; y: number }, end: { x: number; y: number }): Rect {
-  const x = clamp(Math.min(start.x, end.x), 0, 98);
-  const y = clamp(Math.min(start.y, end.y), 0, 98);
-  const width = clamp(Math.abs(end.x - start.x), 4, 100 - x);
-  const height = clamp(Math.abs(end.y - start.y), 4, 100 - y);
-
-  return { x, y, width, height };
-}
-
 function getPoint(event: ReactPointerEvent<HTMLDivElement>, element: HTMLDivElement) {
   const bounds = element.getBoundingClientRect();
 
@@ -55,6 +50,46 @@ function getPoint(event: ReactPointerEvent<HTMLDivElement>, element: HTMLDivElem
     x: clamp(((event.clientX - bounds.left) / bounds.width) * 100, 0, 100),
     y: clamp(((event.clientY - bounds.top) / bounds.height) * 100, 0, 100)
   };
+}
+
+function constrainRect(rect: Rect): Rect {
+  const width = clamp(rect.width, 8, 96);
+  const height = clamp(rect.height, 8, 96);
+  const x = clamp(rect.x, 0, 100 - width);
+  const y = clamp(rect.y, 0, 100 - height);
+
+  return { x, y, width, height };
+}
+
+function resizeRect(startRect: Rect, point: { x: number; y: number }, handle: ResizeHandle): Rect {
+  const minSize = 8;
+  const right = startRect.x + startRect.width;
+  const bottom = startRect.y + startRect.height;
+
+  if (handle === "nw") {
+    const x = clamp(point.x, 0, right - minSize);
+    const y = clamp(point.y, 0, bottom - minSize);
+    return constrainRect({ x, y, width: right - x, height: bottom - y });
+  }
+
+  if (handle === "ne") {
+    const y = clamp(point.y, 0, bottom - minSize);
+    const width = clamp(point.x - startRect.x, minSize, 100 - startRect.x);
+    return constrainRect({ x: startRect.x, y, width, height: bottom - y });
+  }
+
+  if (handle === "sw") {
+    const x = clamp(point.x, 0, right - minSize);
+    const height = clamp(point.y - startRect.y, minSize, 100 - startRect.y);
+    return constrainRect({ x, y: startRect.y, width: right - x, height });
+  }
+
+  return constrainRect({
+    x: startRect.x,
+    y: startRect.y,
+    width: clamp(point.x - startRect.x, minSize, 100 - startRect.x),
+    height: clamp(point.y - startRect.y, minSize, 100 - startRect.y)
+  });
 }
 
 function TouchRegionSelector({
@@ -68,33 +103,67 @@ function TouchRegionSelector({
   tone?: "sky" | "violet";
   children?: ReactNode;
 }) {
-  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
+  const [interaction, setInteraction] = useState<RegionInteraction | null>(null);
   const borderClass = tone === "sky" ? "border-sky-500 bg-sky-200/20" : "border-violet-500 bg-violet-200/20";
   const guideClass = tone === "sky" ? "bg-sky-500 text-white" : "bg-violet-500 text-white";
+  const handleClass = tone === "sky" ? "bg-sky-500 ring-sky-100" : "bg-violet-500 ring-violet-100";
+  const softButtonClass = tone === "sky" ? "bg-sky-50 text-sky-700" : "bg-violet-50 text-violet-700";
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.currentTarget !== event.target && (event.target as HTMLElement).tagName !== "IMG") return;
-
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     const point = getPoint(event, event.currentTarget);
-    setDragStart(point);
-    onChange({ x: point.x, y: point.y, width: 4, height: 4 });
+    const target = event.target as HTMLElement;
+    const handle = target.dataset.handle as ResizeHandle | undefined;
+
+    if (handle) {
+      setInteraction({ mode: "resize", handle, startPoint: point, startRect: rect });
+      return;
+    }
+
+    if (target.dataset.region === "box") {
+      setInteraction({ mode: "move", startPoint: point, startRect: rect });
+      return;
+    }
+
+    const centeredRect = constrainRect({
+      ...rect,
+      x: point.x - rect.width / 2,
+      y: point.y - rect.height / 2
+    });
+    onChange(centeredRect);
+    setInteraction({ mode: "move", startPoint: point, startRect: centeredRect });
   };
 
   const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!dragStart) return;
+    if (!interaction) return;
 
     event.preventDefault();
-    onChange(normalizeRect(dragStart, getPoint(event, event.currentTarget)));
+    const point = getPoint(event, event.currentTarget);
+
+    if (interaction.mode === "move") {
+      onChange(
+        constrainRect({
+          ...interaction.startRect,
+          x: interaction.startRect.x + point.x - interaction.startPoint.x,
+          y: interaction.startRect.y + point.y - interaction.startPoint.y
+        })
+      );
+      return;
+    }
+
+    onChange(resizeRect(interaction.startRect, point, interaction.handle));
   };
 
   const handlePointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!dragStart) return;
+    if (!interaction) return;
 
     event.preventDefault();
-    onChange(normalizeRect(dragStart, getPoint(event, event.currentTarget)));
-    setDragStart(null);
+    setInteraction(null);
+  };
+
+  const nudge = (patch: Partial<Rect>) => {
+    onChange(constrainRect({ ...rect, ...patch }));
   };
 
   return (
@@ -110,18 +179,64 @@ function TouchRegionSelector({
       >
         {children}
         <div
-          className={cn("pointer-events-none absolute rounded-xl border-2 shadow-[0_0_0_999px_rgba(15,23,42,0.18)]", borderClass)}
+          data-region="box"
+          className={cn("absolute rounded-xl border-2 shadow-[0_0_0_999px_rgba(15,23,42,0.18)]", borderClass)}
           style={{ left: `${rect.x}%`, top: `${rect.y}%`, width: `${rect.width}%`, height: `${rect.height}%` }}
-        />
+        >
+          <span className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/90 px-2 py-1 text-[10px] font-black text-slate-600 shadow-sm">
+            이동
+          </span>
+          {([
+            ["nw", "-left-4 -top-4 cursor-nwse-resize"],
+            ["ne", "-right-4 -top-4 cursor-nesw-resize"],
+            ["sw", "-bottom-4 -left-4 cursor-nesw-resize"],
+            ["se", "-bottom-4 -right-4 cursor-nwse-resize"]
+          ] as [ResizeHandle, string][]).map(([handle, position]) => (
+            <button
+              key={handle}
+              type="button"
+              data-handle={handle}
+              aria-label={`${handle} 방향으로 영역 크기 조정`}
+              className={cn("absolute flex size-8 items-center justify-center rounded-full", position)}
+            >
+              <span data-handle={handle} className={cn("block size-2.5 rounded-full ring-4 shadow-sm", handleClass)} />
+            </button>
+          ))}
+        </div>
         <div className={cn("pointer-events-none absolute left-3 top-3 rounded-full px-3 py-1 text-[11px] font-black shadow-sm", guideClass)}>
-          손가락으로 영역 지정
+          박스 이동/모서리 조정
         </div>
       </div>
       <div className="mt-2 flex items-center justify-between gap-2 rounded-2xl bg-white/75 px-3 py-2 text-[11px] font-black text-slate-500 ring-1 ring-white/80">
-        <span>이미지 위에서 시작점부터 끝점까지 드래그하세요.</span>
+        <span>박스는 끌어서 이동, 모서리는 끌어서 크기 조정</span>
         <span>
           x {Math.round(rect.x)} / y {Math.round(rect.y)} / w {Math.round(rect.width)} / h {Math.round(rect.height)}
         </span>
+      </div>
+      <div className="mt-2 grid grid-cols-3 gap-2 text-xs font-black">
+        <button type="button" onClick={() => nudge({ y: rect.y - 2 })} className={cn("rounded-2xl py-2", softButtonClass)}>
+          위
+        </button>
+        <button type="button" onClick={() => nudge({ width: rect.width + 3, height: rect.height + 3 })} className={cn("rounded-2xl py-2", softButtonClass)}>
+          크게
+        </button>
+        <button type="button" onClick={() => nudge({ y: rect.y + 2 })} className={cn("rounded-2xl py-2", softButtonClass)}>
+          아래
+        </button>
+        <button type="button" onClick={() => nudge({ x: rect.x - 2 })} className={cn("rounded-2xl py-2", softButtonClass)}>
+          왼쪽
+        </button>
+        <button type="button" onClick={() => nudge(defaultRect)} className="rounded-2xl bg-white py-2 text-slate-600 ring-1 ring-slate-200">
+          초기화
+        </button>
+        <button type="button" onClick={() => nudge({ x: rect.x + 2 })} className={cn("rounded-2xl py-2", softButtonClass)}>
+          오른쪽
+        </button>
+        <span />
+        <button type="button" onClick={() => nudge({ width: rect.width - 3, height: rect.height - 3 })} className={cn("rounded-2xl py-2", softButtonClass)}>
+          작게
+        </button>
+        <span />
       </div>
     </div>
   );
@@ -440,12 +555,18 @@ function OcrRegistration({
   onBack: () => void;
 }) {
   const [previewUrl, setPreviewUrl] = useState("");
-  const [fileName, setFileName] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
   const [rect, setRect] = useState(defaultRect);
   const [recognizedText, setRecognizedText] = useState("");
+  const [ocrMatched, setOcrMatched] = useState(false);
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [ocrSummary, setOcrSummary] = useState("");
+  const [ocrProvider, setOcrProvider] = useState("");
+  const [ocrError, setOcrError] = useState("");
   const [saved, setSaved] = useState(false);
   const expectedText = material.code;
-  const matched = recognizedText === expectedText;
+  const matched = ocrMatched;
 
   useEffect(() => {
     return () => {
@@ -458,19 +579,81 @@ function OcrRegistration({
     if (!file) return;
 
     if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setPreviewUrl(URL.createObjectURL(file));
-    setFileName(file.name);
+
+    const nextPreviewUrl = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => setImageSize({ width: image.naturalWidth, height: image.naturalHeight });
+    image.src = nextPreviewUrl;
+
+    setPreviewUrl(nextPreviewUrl);
+    setSelectedFile(file);
     setRecognizedText("");
+    setOcrMatched(false);
+    setOcrSummary("");
+    setOcrProvider("");
+    setOcrError("");
     setSaved(false);
   };
 
   const retry = () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl("");
-    setFileName("");
+    setSelectedFile(null);
+    setImageSize(null);
     setRecognizedText("");
+    setOcrMatched(false);
+    setOcrSummary("");
+    setOcrProvider("");
+    setOcrError("");
     setSaved(false);
     setRect(defaultRect);
+  };
+
+  const reviewOcr = async () => {
+    if (!selectedFile) return;
+
+    setOcrLoading(true);
+    setOcrError("");
+    setOcrSummary("");
+    setOcrProvider("");
+    setSaved(false);
+
+    const formData = new FormData();
+    formData.append("image", selectedFile);
+    formData.append("expectedText", expectedText);
+    formData.append("roi", JSON.stringify(rect));
+    formData.append("imageWidth", String(imageSize?.width ?? 0));
+    formData.append("imageHeight", String(imageSize?.height ?? 0));
+    formData.append("materialId", material.id);
+
+    try {
+      const response = await fetch("/api/ocr", {
+        method: "POST",
+        body: formData
+      });
+      const result = (await response.json()) as {
+        extractedText?: string;
+        matched?: boolean;
+        provider?: string;
+        summary?: string;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(result.error ?? "OCR 검토 중 오류가 발생했습니다.");
+      }
+
+      setRecognizedText(result.extractedText ?? "");
+      setOcrMatched(Boolean(result.matched));
+      setOcrProvider(result.provider ?? "");
+      setOcrSummary(result.summary ?? "");
+    } catch (error) {
+      setRecognizedText("");
+      setOcrMatched(false);
+      setOcrError(error instanceof Error ? error.message : "OCR 검토 중 오류가 발생했습니다.");
+    } finally {
+      setOcrLoading(false);
+    }
   };
 
   return (
@@ -519,16 +702,24 @@ function OcrRegistration({
 
       <CloudButton
         className="mt-4 w-full"
-        disabled={!previewUrl}
-        onClick={() => setRecognizedText(fileName.toLowerCase().includes("fail") ? "인식 실패" : expectedText)}
+        disabled={!selectedFile || ocrLoading}
+        onClick={reviewOcr}
       >
         <ScanText className="size-4" />
-        OCR 검토
+        {ocrLoading ? "OCR 검토 중..." : "OCR 검토"}
       </CloudButton>
+
+      {ocrError && (
+        <div className="mt-3 rounded-2xl bg-rose-50 p-3 text-sm font-bold leading-6 text-rose-700">
+          OCR 오류: {ocrError}
+        </div>
+      )}
 
       {recognizedText && (
         <div className={cn("mt-3 rounded-2xl p-3 text-sm font-bold leading-6", matched ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700")}>
           <p className="text-xs font-black">{matched ? "OCR 검토 결과 일치" : "OCR 검토 결과 불일치"}</p>
+          <p className="mt-1 text-xs">{ocrSummary || "선택 영역 기준 OCR 결과입니다."}</p>
+          {ocrProvider && <p className="mt-1 text-xs">OCR provider: {ocrProvider}</p>}
           <label className="mt-2 block">
             <span className="text-xs">OCR로 읽은 텍스트</span>
             <textarea
