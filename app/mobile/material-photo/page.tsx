@@ -21,11 +21,33 @@ type OcrApiResult = {
   canVerify?: boolean;
   error?: string;
 };
+type VisionPhoto = {
+  id: string;
+  name: string;
+  url: string;
+  file: File;
+  originalSize: number;
+  compressedSize: number;
+  width: number;
+  height: number;
+};
+type VisionPairScore = {
+  a: number;
+  b: number;
+  similarity: number;
+};
+type VisionSimilarityState =
+  | { status: "idle"; message: string }
+  | { status: "processing"; message: string }
+  | { status: "ready"; comparisonKey: string; average: number; minimum: number; pairScores: VisionPairScore[] }
+  | { status: "error"; message: string };
 type RegionInteraction =
   | { mode: "move"; startPoint: { x: number; y: number }; startRect: Rect }
   | { mode: "resize"; handle: ResizeHandle; startPoint: { x: number; y: number }; startRect: Rect };
 
 const defaultRect: Rect = { x: 18, y: 24, width: 56, height: 22 };
+const visionMaxPhotos = 5;
+const visionSampleSize = 24;
 const statusFilters: { value: StatusFilter; label: string }[] = [
   { value: "all", label: "전체" },
   { value: "registered", label: "등록" },
@@ -33,10 +55,10 @@ const statusFilters: { value: StatusFilter; label: string }[] = [
 ];
 
 function accuracyText(count: number) {
-  if (count >= 5) return "정확도 상승: 매우 높음";
+  if (count >= visionMaxPhotos) return "5장 압축 완료: 일치율 계산 가능";
   if (count === 4) return "정확도 상승: 높음";
   if (count === 3) return "정확도 상승: 보통";
-  return "3장 이상 촬영하면 정확도 상승 표시";
+  return "5장까지 촬영하면 이미지 간 일치율을 계산합니다";
 }
 
 function hasAnyRegistration(status: Record<RegistrationMethod, Set<string>>, materialId: string) {
@@ -69,7 +91,7 @@ function loadImage(url: string) {
   });
 }
 
-async function cropImageFile(file: File, rect: Rect) {
+async function cropImageFile(file: File, rect: Rect, filePrefix = "ocr-roi") {
   const url = URL.createObjectURL(file);
 
   try {
@@ -84,19 +106,19 @@ async function cropImageFile(file: File, rect: Rect) {
     canvas.height = sourceHeight;
 
     const context = canvas.getContext("2d");
-    if (!context) throw new Error("OCR 영역 이미지를 만들지 못했습니다.");
+    if (!context) throw new Error("선택 영역 이미지를 만들지 못했습니다.");
 
     context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, sourceWidth, sourceHeight);
 
     const blob = await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob((nextBlob) => {
         if (nextBlob) resolve(nextBlob);
-        else reject(new Error("OCR 영역 이미지를 변환하지 못했습니다."));
+        else reject(new Error("선택 영역 이미지를 변환하지 못했습니다."));
       }, "image/jpeg", 0.92);
     });
 
     return {
-      file: new File([blob], `ocr-roi-${file.name.replace(/\.[^.]+$/, "")}.jpg`, { type: "image/jpeg" }),
+      file: new File([blob], `${filePrefix}-${file.name.replace(/\.[^.]+$/, "")}.jpg`, { type: "image/jpeg" }),
       width: sourceWidth,
       height: sourceHeight,
       sourceRect: { x: sourceX, y: sourceY, width: sourceWidth, height: sourceHeight },
@@ -105,6 +127,101 @@ async function cropImageFile(file: File, rect: Rect) {
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+async function compressVisionFile(file: File) {
+  const { default: imageCompression } = await import("browser-image-compression");
+  const compressed = await imageCompression(file, {
+    maxSizeMB: 0.8,
+    maxWidthOrHeight: 1600,
+    useWebWorker: false,
+    fileType: "image/jpeg",
+    initialQuality: 0.82
+  });
+  const name = `vision-${file.name.replace(/\.[^.]+$/, "")}.jpg`;
+
+  return new File([compressed], name, { type: "image/jpeg", lastModified: Date.now() });
+}
+
+function formatFileSize(size: number) {
+  if (size >= 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)}MB`;
+  return `${Math.max(1, Math.round(size / 1024))}KB`;
+}
+
+function formatPercent(value: number) {
+  return `${Math.round(value * 100)}%`;
+}
+
+async function getVisionSignature(file: File, rect: Rect) {
+  const cropped = await cropImageFile(file, rect, "vision-roi");
+  const url = URL.createObjectURL(cropped.file);
+
+  try {
+    const image = await loadImage(url);
+    const canvas = document.createElement("canvas");
+    canvas.width = visionSampleSize;
+    canvas.height = visionSampleSize;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("비전 일치율 샘플을 만들지 못했습니다.");
+
+    context.drawImage(image, 0, 0, visionSampleSize, visionSampleSize);
+    const pixels = context.getImageData(0, 0, visionSampleSize, visionSampleSize).data;
+    const signature = new Uint8Array(visionSampleSize * visionSampleSize);
+
+    for (let index = 0; index < signature.length; index += 1) {
+      const pixelIndex = index * 4;
+      signature[index] = Math.round(
+        pixels[pixelIndex] * 0.299 +
+          pixels[pixelIndex + 1] * 0.587 +
+          pixels[pixelIndex + 2] * 0.114
+      );
+    }
+
+    return signature;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function compareVisionSignatures(a: Uint8Array, b: Uint8Array) {
+  const length = Math.min(a.length, b.length);
+  if (length === 0) return 0;
+
+  let diff = 0;
+  for (let index = 0; index < length; index += 1) {
+    diff += Math.abs(a[index] - b[index]);
+  }
+
+  return clamp(1 - diff / length / 255, 0, 1);
+}
+
+async function compareVisionPhotos(
+  photos: VisionPhoto[],
+  rect: Rect
+): Promise<Omit<Extract<VisionSimilarityState, { status: "ready" }>, "status" | "comparisonKey">> {
+  const signatures = await Promise.all(photos.map((photo) => getVisionSignature(photo.file, rect)));
+  const pairScores: VisionPairScore[] = [];
+
+  for (let a = 0; a < signatures.length; a += 1) {
+    for (let b = a + 1; b < signatures.length; b += 1) {
+      pairScores.push({ a, b, similarity: compareVisionSignatures(signatures[a], signatures[b]) });
+    }
+  }
+
+  const average = pairScores.reduce((sum, pair) => sum + pair.similarity, 0) / Math.max(1, pairScores.length);
+  const minimum = pairScores.reduce((min, pair) => Math.min(min, pair.similarity), 1);
+
+  return { average, minimum, pairScores };
+}
+
+function buildVisionComparisonKey(photos: VisionPhoto[], rect: Rect) {
+  const safeRect = constrainRect(rect);
+  const photoKey = photos.map((photo) => photo.id).join("|");
+  const rectKey = [safeRect.x, safeRect.y, safeRect.width, safeRect.height]
+    .map((value) => value.toFixed(2))
+    .join(",");
+
+  return `${photoKey}:${rectKey}`;
 }
 
 function constrainRect(rect: Rect): Rect {
@@ -852,33 +969,109 @@ function VisionRegistration({
   onCancel: () => void;
   onBack: () => void;
 }) {
-  const [photos, setPhotos] = useState<{ name: string; url: string; width?: number; height?: number }[]>([]);
+  const [photos, setPhotos] = useState<VisionPhoto[]>([]);
   const [rect, setRect] = useState(defaultRect);
+  const [compressing, setCompressing] = useState(false);
+  const [captureError, setCaptureError] = useState("");
+  const [similarity, setSimilarity] = useState<VisionSimilarityState>({
+    status: "idle",
+    message: "5장을 촬영하면 선택 영역 기준 일치율을 계산합니다."
+  });
   const [saved, setSaved] = useState(false);
   const photoUrlsRef = useRef<string[]>([]);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
     return () => {
+      mountedRef.current = false;
       photoUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
     };
   }, []);
 
-  const capture = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file || photos.length >= 5) return;
+  const currentComparisonKey = useMemo(() => buildVisionComparisonKey(photos, rect), [photos, rect]);
 
-    const url = URL.createObjectURL(file);
-    photoUrlsRef.current = [...photoUrlsRef.current, url];
-    const image = new Image();
-    image.onload = () => {
-      setPhotos((current) =>
-        current.map((photo) => (photo.url === url ? { ...photo, width: image.naturalWidth, height: image.naturalHeight } : photo))
-      );
+  useEffect(() => {
+    let cancelled = false;
+    const comparisonKey = currentComparisonKey;
+
+    if (photos.length < 2) {
+      setSimilarity({
+        status: "idle",
+        message: photos.length === 0 ? "5장을 촬영하면 선택 영역 기준 일치율을 계산합니다." : "2장 이상 촬영하면 이미지 간 일치율을 미리 계산합니다."
+      });
+      return;
+    }
+
+    setSimilarity({ status: "processing", message: "선택 영역 기준으로 압축 이미지 일치율을 계산 중입니다." });
+    const timer = window.setTimeout(() => {
+      void compareVisionPhotos(photos, constrainRect(rect))
+        .then((result) => {
+          if (!cancelled) setSimilarity({ status: "ready", comparisonKey, ...result });
+        })
+        .catch((error) => {
+          if (!cancelled) {
+            setSimilarity({
+              status: "error",
+              message: error instanceof Error ? error.message : "비전 일치율 계산 중 오류가 발생했습니다."
+            });
+          }
+        });
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
     };
-    image.src = url;
-    setPhotos((current) => [...current, { name: file.name, url }]);
+  }, [photos, rect, currentComparisonKey]);
+
+  const capture = async (event: ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const file = event.target.files?.[0];
+    if (!file || photos.length >= visionMaxPhotos || compressing) return;
+
+    setCompressing(true);
+    setCaptureError("");
     setSaved(false);
-    event.target.value = "";
+
+    try {
+      const compressedFile = await compressVisionFile(file);
+      let url = "";
+
+      try {
+        url = URL.createObjectURL(compressedFile);
+        const image = await loadImage(url);
+        if (!mountedRef.current) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+
+        photoUrlsRef.current = [...photoUrlsRef.current, url];
+
+        setPhotos((current) => [
+          ...current,
+          {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            name: compressedFile.name,
+            url,
+            file: compressedFile,
+            originalSize: file.size,
+            compressedSize: compressedFile.size,
+            width: image.naturalWidth,
+            height: image.naturalHeight
+          }
+        ]);
+      } catch (error) {
+        if (url) URL.revokeObjectURL(url);
+        throw error;
+      }
+    } catch (error) {
+      if (mountedRef.current) {
+        setCaptureError(error instanceof Error ? error.message : "비전 사진 압축 중 오류가 발생했습니다.");
+      }
+    } finally {
+      if (mountedRef.current) setCompressing(false);
+      input.value = "";
+    }
   };
 
   const retry = () => {
@@ -886,8 +1079,17 @@ function VisionRegistration({
     photoUrlsRef.current = [];
     setPhotos([]);
     setRect(defaultRect);
+    setCaptureError("");
+    setSimilarity({ status: "idle", message: "5장을 촬영하면 선택 영역 기준 일치율을 계산합니다." });
     setSaved(false);
   };
+
+  const handleRectChange = (nextRect: Rect) => {
+    setRect(constrainRect(nextRect));
+    setSaved(false);
+  };
+
+  const readyToSave = photos.length === visionMaxPhotos && similarity.status === "ready" && similarity.comparisonKey === currentComparisonKey;
 
   return (
     <div className="space-y-4">
@@ -906,7 +1108,7 @@ function VisionRegistration({
           <p className="text-xs font-black text-violet-600">비전등록</p>
           <h1 className="mt-1 text-2xl font-black text-slate-800">{material.name}</h1>
           <p className="mt-1 text-xs font-bold text-slate-400">
-            최소 3장, 최대 5장 저장 가능 · {alreadyRegistered ? "비전 등록완료" : "비전 신규등록"}
+            5장 압축 저장 · {alreadyRegistered ? "비전 등록완료" : "비전 신규등록"}
           </p>
         </div>
         <button type="button" onClick={onCancel} className="rounded-full bg-white p-2 text-slate-400 ring-1 ring-slate-200">
@@ -916,7 +1118,7 @@ function VisionRegistration({
 
       <TouchRegionSelector
         rect={rect}
-        onChange={setRect}
+        onChange={handleRectChange}
         tone="violet"
         aspectRatio={photos[0]?.width && photos[0]?.height ? `${photos[0].width} / ${photos[0].height}` : undefined}
       >
@@ -932,29 +1134,75 @@ function VisionRegistration({
         )}
       </TouchRegionSelector>
 
-      <label className={cn("mt-4 flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-full px-4 text-sm font-extrabold shadow-sm", photos.length >= 5 ? "bg-slate-100 text-slate-300" : "bg-sky-500 text-white")}>
+      <label className={cn("mt-4 flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-full px-4 text-sm font-extrabold shadow-sm", photos.length >= visionMaxPhotos ? "bg-slate-100 text-slate-300" : "bg-sky-500 text-white")}>
         <Camera className="size-4" />
-        사진 촬영 {photos.length}/5
-        <input type="file" accept="image/*" capture="environment" disabled={photos.length >= 5} className="sr-only" onChange={capture} aria-label="비전 등록 사진 촬영" />
+        {compressing ? "압축 중..." : `사진 촬영 ${photos.length}/${visionMaxPhotos}`}
+        <input type="file" accept="image/*" capture="environment" disabled={photos.length >= visionMaxPhotos || compressing} className="sr-only" onChange={capture} aria-label="비전 등록 사진 촬영" />
       </label>
 
+      {captureError && (
+        <div className="mt-3 rounded-2xl bg-rose-50 p-3 text-sm font-bold leading-6 text-rose-700">
+          비전 사진 오류: {captureError}
+        </div>
+      )}
+
       <div className="mt-3 grid grid-cols-5 gap-2">
-        {Array.from({ length: 5 }).map((_, index) => {
+        {Array.from({ length: visionMaxPhotos }).map((_, index) => {
           const photo = photos[index];
 
           return (
-            <div key={index} className="aspect-square overflow-hidden rounded-xl bg-slate-100">
+            <div key={photo?.id ?? index} className="relative aspect-square overflow-hidden rounded-xl bg-slate-100">
               {photo ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={photo.url} alt={`비전 등록 ${index + 1}`} className="h-full w-full object-cover" />
-              ) : null}
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={photo.url} alt={`비전 등록 ${index + 1}`} className="h-full w-full object-cover" />
+                  <span className="absolute bottom-1 left-1 rounded-full bg-white/90 px-1.5 py-0.5 text-[9px] font-black text-violet-700 shadow-sm">
+                    {formatFileSize(photo.compressedSize)}
+                  </span>
+                </>
+              ) : (
+                <span className="flex h-full items-center justify-center text-[10px] font-black text-slate-300">{index + 1}</span>
+              )}
             </div>
           );
         })}
       </div>
 
-      <div className={cn("mt-3 rounded-2xl p-3 text-sm font-bold", photos.length >= 3 ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>
+      <div className={cn("mt-3 rounded-2xl p-3 text-sm font-bold", photos.length === visionMaxPhotos ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>
         {accuracyText(photos.length)}
+      </div>
+
+      <div
+        className={cn(
+          "mt-3 rounded-2xl p-3 text-sm font-bold leading-6",
+          similarity.status === "ready" ? "bg-violet-50 text-violet-700" : similarity.status === "error" ? "bg-rose-50 text-rose-700" : "bg-white/75 text-slate-500"
+        )}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-black">비전 이미지 일치율</p>
+            <p className="mt-1 text-xs">
+              {similarity.status === "ready"
+                ? `${photos.length}장 중 ${similarity.pairScores.length}개 조합을 선택 영역 기준으로 비교했습니다.`
+                : similarity.message}
+            </p>
+          </div>
+          {similarity.status === "ready" && (
+            <div className="shrink-0 text-right">
+              <p className="text-2xl font-black text-slate-800">{formatPercent(similarity.average)}</p>
+              <p className="text-[10px] font-black text-violet-500">최저 {formatPercent(similarity.minimum)}</p>
+            </div>
+          )}
+        </div>
+        {similarity.status === "ready" && (
+          <div className="mt-3 grid grid-cols-2 gap-1.5 text-[10px] font-black">
+            {similarity.pairScores.map((pair) => (
+              <span key={`${pair.a}-${pair.b}`} className="rounded-full bg-white/85 px-2 py-1 text-center text-slate-600">
+                {pair.a + 1}-{pair.b + 1}: {formatPercent(pair.similarity)}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="mt-3 grid grid-cols-3 gap-2">
@@ -966,7 +1214,7 @@ function VisionRegistration({
           취소
         </CloudButton>
         <CloudButton
-          disabled={photos.length < 3}
+          disabled={!readyToSave}
           onClick={() => {
             setSaved(true);
             onSaved();
@@ -980,7 +1228,7 @@ function VisionRegistration({
       {saved && (
         <div className="mt-3 rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700">
           <CheckCircle2 className="mb-1 size-5" />
-          비전등록 저장 완료
+          비전등록 저장 완료 · 압축 이미지 {photos.length}장 · 평균 일치율 {similarity.status === "ready" ? formatPercent(similarity.average) : "-"}
         </div>
       )}
       </CuteCard>
