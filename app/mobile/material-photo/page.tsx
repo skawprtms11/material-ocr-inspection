@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Camera, CheckCircle2, ImagePlus, Pencil, Plus, RotateCcw, Save, ScanText, Trash2, XCircle } from "lucide-react";
 import { CloudButton } from "@/components/common/CloudButton";
 import { CuteCard } from "@/components/common/CuteCard";
@@ -35,42 +35,94 @@ function hasMethodRegistration(status: Record<RegistrationMethod, Set<string>>, 
   return status[method].has(materialId);
 }
 
-function RegionBox({ rect, children }: { rect: Rect; children?: ReactNode }) {
-  return (
-    <div className="relative aspect-[4/3] overflow-hidden rounded-[1.4rem] bg-slate-100">
-      {children}
-      <div
-        className="absolute rounded-xl border-2 border-sky-500 bg-sky-200/20"
-        style={{ left: `${rect.x}%`, top: `${rect.y}%`, width: `${rect.width}%`, height: `${rect.height}%` }}
-      />
-    </div>
-  );
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
 }
 
-function RegionControls({ rect, onChange }: { rect: Rect; onChange: (rect: Rect) => void }) {
-  const update = (key: keyof Rect, value: number) => onChange({ ...rect, [key]: value });
+function normalizeRect(start: { x: number; y: number }, end: { x: number; y: number }): Rect {
+  const x = clamp(Math.min(start.x, end.x), 0, 98);
+  const y = clamp(Math.min(start.y, end.y), 0, 98);
+  const width = clamp(Math.abs(end.x - start.x), 4, 100 - x);
+  const height = clamp(Math.abs(end.y - start.y), 4, 100 - y);
+
+  return { x, y, width, height };
+}
+
+function getPoint(event: ReactPointerEvent<HTMLDivElement>, element: HTMLDivElement) {
+  const bounds = element.getBoundingClientRect();
+
+  return {
+    x: clamp(((event.clientX - bounds.left) / bounds.width) * 100, 0, 100),
+    y: clamp(((event.clientY - bounds.top) / bounds.height) * 100, 0, 100)
+  };
+}
+
+function TouchRegionSelector({
+  rect,
+  onChange,
+  tone = "sky",
+  children
+}: {
+  rect: Rect;
+  onChange: (rect: Rect) => void;
+  tone?: "sky" | "violet";
+  children?: ReactNode;
+}) {
+  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
+  const borderClass = tone === "sky" ? "border-sky-500 bg-sky-200/20" : "border-violet-500 bg-violet-200/20";
+  const guideClass = tone === "sky" ? "bg-sky-500 text-white" : "bg-violet-500 text-white";
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.currentTarget !== event.target && (event.target as HTMLElement).tagName !== "IMG") return;
+
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const point = getPoint(event, event.currentTarget);
+    setDragStart(point);
+    onChange({ x: point.x, y: point.y, width: 4, height: 4 });
+  };
+
+  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!dragStart) return;
+
+    event.preventDefault();
+    onChange(normalizeRect(dragStart, getPoint(event, event.currentTarget)));
+  };
+
+  const handlePointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!dragStart) return;
+
+    event.preventDefault();
+    onChange(normalizeRect(dragStart, getPoint(event, event.currentTarget)));
+    setDragStart(null);
+  };
 
   return (
-    <div className="mt-3 grid gap-2">
-      {([
-        ["x", "X"],
-        ["y", "Y"],
-        ["width", "가로"],
-        ["height", "세로"]
-      ] as [keyof Rect, string][]).map(([key, label]) => (
-        <label key={key} className="grid grid-cols-[42px_1fr_38px] items-center gap-2 text-xs font-black text-slate-500">
-          {label}
-          <input
-            type="range"
-            min={key === "width" || key === "height" ? 8 : 0}
-            max={key === "width" || key === "height" ? 90 : 80}
-            value={rect[key]}
-            onChange={(event) => update(key, Number(event.target.value))}
-            className="accent-sky-500"
-          />
-          <span className="text-right">{rect[key]}</span>
-        </label>
-      ))}
+    <div>
+      <div
+        role="application"
+        aria-label="검수 영역 직접 지정"
+        className="relative aspect-[4/3] touch-none select-none overflow-hidden rounded-[1.4rem] bg-slate-100"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerEnd}
+        onPointerCancel={handlePointerEnd}
+      >
+        {children}
+        <div
+          className={cn("pointer-events-none absolute rounded-xl border-2 shadow-[0_0_0_999px_rgba(15,23,42,0.18)]", borderClass)}
+          style={{ left: `${rect.x}%`, top: `${rect.y}%`, width: `${rect.width}%`, height: `${rect.height}%` }}
+        />
+        <div className={cn("pointer-events-none absolute left-3 top-3 rounded-full px-3 py-1 text-[11px] font-black shadow-sm", guideClass)}>
+          손가락으로 영역 지정
+        </div>
+      </div>
+      <div className="mt-2 flex items-center justify-between gap-2 rounded-2xl bg-white/75 px-3 py-2 text-[11px] font-black text-slate-500 ring-1 ring-white/80">
+        <span>이미지 위에서 시작점부터 끝점까지 드래그하세요.</span>
+        <span>
+          x {Math.round(rect.x)} / y {Math.round(rect.y)} / w {Math.round(rect.width)} / h {Math.round(rect.height)}
+        </span>
+      </div>
     </div>
   );
 }
@@ -446,23 +498,24 @@ function OcrRegistration({
         </button>
       </div>
 
-      <label className="block cursor-pointer">
-        <RegionBox rect={rect}>
-          {previewUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={previewUrl} alt="OCR 촬영 이미지" className="h-full w-full object-cover" />
-          ) : (
-            <div className="flex h-full flex-col items-center justify-center text-center">
-              <Camera className="mb-3 size-12 text-sky-400" />
-              <p className="font-black text-slate-800">카메라로 OCR 사진 촬영</p>
-              <p className="mt-2 text-xs font-semibold text-slate-500">텍스트를 읽을 부위를 촬영하세요.</p>
-            </div>
-          )}
-        </RegionBox>
+      <TouchRegionSelector rect={rect} onChange={setRect}>
+        {previewUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={previewUrl} alt="OCR 촬영 이미지" className="pointer-events-none h-full w-full object-cover" />
+        ) : (
+          <div className="pointer-events-none flex h-full flex-col items-center justify-center text-center">
+            <Camera className="mb-3 size-12 text-sky-400" />
+            <p className="font-black text-slate-800">OCR 사진을 먼저 촬영하세요</p>
+            <p className="mt-2 text-xs font-semibold text-slate-500">촬영 후 이미지 위에서 읽을 영역을 손가락으로 지정합니다.</p>
+          </div>
+        )}
+      </TouchRegionSelector>
+
+      <label className="mt-4 flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-full bg-sky-500 px-4 text-sm font-extrabold text-white shadow-sm">
+        <Camera className="size-4" />
+        {previewUrl ? "OCR 사진 다시 촬영" : "OCR 사진 촬영"}
         <input type="file" accept="image/*" capture="environment" className="sr-only" onChange={capture} aria-label="OCR 등록 사진 촬영" />
       </label>
-
-      <RegionControls rect={rect} onChange={setRect} />
 
       <CloudButton
         className="mt-4 w-full"
@@ -470,13 +523,21 @@ function OcrRegistration({
         onClick={() => setRecognizedText(fileName.toLowerCase().includes("fail") ? "인식 실패" : expectedText)}
       >
         <ScanText className="size-4" />
-        OCR 검증
+        OCR 검토
       </CloudButton>
 
       {recognizedText && (
         <div className={cn("mt-3 rounded-2xl p-3 text-sm font-bold leading-6", matched ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700")}>
-          OCR 결과: {recognizedText}
-          <p className="text-xs">기준 텍스트: {expectedText}</p>
+          <p className="text-xs font-black">{matched ? "OCR 검토 결과 일치" : "OCR 검토 결과 불일치"}</p>
+          <label className="mt-2 block">
+            <span className="text-xs">OCR로 읽은 텍스트</span>
+            <textarea
+              value={recognizedText}
+              readOnly
+              className="mt-1 min-h-16 w-full rounded-2xl border border-white/80 bg-white/80 p-3 text-sm font-black text-slate-800 outline-none"
+            />
+          </label>
+          <p className="mt-2 text-xs">기준 텍스트: {expectedText}</p>
         </div>
       )}
 
@@ -579,20 +640,18 @@ function VisionRegistration({
         </button>
       </div>
 
-      <RegionBox rect={rect}>
+      <TouchRegionSelector rect={rect} onChange={setRect} tone="violet">
         {photos[0] ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={photos[0].url} alt="비전 기준 이미지" className="h-full w-full object-cover" />
+          <img src={photos[0].url} alt="비전 기준 이미지" className="pointer-events-none h-full w-full object-cover" />
         ) : (
-          <div className="flex h-full flex-col items-center justify-center text-center">
+          <div className="pointer-events-none flex h-full flex-col items-center justify-center text-center">
             <Camera className="mb-3 size-12 text-violet-400" />
             <p className="font-black text-slate-800">비전 기준 사진 촬영</p>
-            <p className="mt-2 text-xs font-semibold text-slate-500">첫 사진 위에 검사 영역을 지정합니다.</p>
+            <p className="mt-2 text-xs font-semibold text-slate-500">첫 사진 촬영 후 이미지 위에서 검사 영역을 지정합니다.</p>
           </div>
         )}
-      </RegionBox>
-
-      <RegionControls rect={rect} onChange={setRect} />
+      </TouchRegionSelector>
 
       <label className={cn("mt-4 flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-full px-4 text-sm font-extrabold shadow-sm", photos.length >= 5 ? "bg-slate-100 text-slate-300" : "bg-sky-500 text-white")}>
         <Camera className="size-4" />
