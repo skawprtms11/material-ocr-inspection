@@ -96,11 +96,13 @@ function TouchRegionSelector({
   rect,
   onChange,
   tone = "sky",
+  aspectRatio,
   children
 }: {
   rect: Rect;
   onChange: (rect: Rect) => void;
   tone?: "sky" | "violet";
+  aspectRatio?: string;
   children?: ReactNode;
 }) {
   const [interaction, setInteraction] = useState<RegionInteraction | null>(null);
@@ -172,6 +174,7 @@ function TouchRegionSelector({
         role="application"
         aria-label="검수 영역 직접 지정"
         className="relative aspect-[4/3] touch-none select-none overflow-hidden rounded-[1.4rem] bg-slate-100"
+        style={aspectRatio ? { aspectRatio } : undefined}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerEnd}
@@ -681,15 +684,19 @@ function OcrRegistration({
         </button>
       </div>
 
-      <TouchRegionSelector rect={rect} onChange={setRect}>
+      <TouchRegionSelector
+        rect={rect}
+        onChange={setRect}
+        aspectRatio={imageSize ? `${imageSize.width} / ${imageSize.height}` : undefined}
+      >
         {previewUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={previewUrl} alt="OCR 촬영 이미지" className="pointer-events-none h-full w-full object-cover" />
+          <img src={previewUrl} alt="OCR 촬영 이미지" className="pointer-events-none h-full w-full object-contain" />
         ) : (
           <div className="pointer-events-none flex h-full flex-col items-center justify-center text-center">
             <Camera className="mb-3 size-12 text-sky-400" />
             <p className="font-black text-slate-800">OCR 사진을 먼저 촬영하세요</p>
-            <p className="mt-2 text-xs font-semibold text-slate-500">촬영 후 이미지 위에서 읽을 영역을 손가락으로 지정합니다.</p>
+            <p className="mt-2 text-xs font-semibold text-slate-500">촬영 후 전체 사진 기준으로 읽을 영역을 지정합니다.</p>
           </div>
         )}
       </TouchRegionSelector>
@@ -776,7 +783,7 @@ function VisionRegistration({
   onCancel: () => void;
   onBack: () => void;
 }) {
-  const [photos, setPhotos] = useState<{ name: string; url: string }[]>([]);
+  const [photos, setPhotos] = useState<{ name: string; url: string; width?: number; height?: number }[]>([]);
   const [rect, setRect] = useState(defaultRect);
   const [saved, setSaved] = useState(false);
   const photoUrlsRef = useRef<string[]>([]);
@@ -793,6 +800,13 @@ function VisionRegistration({
 
     const url = URL.createObjectURL(file);
     photoUrlsRef.current = [...photoUrlsRef.current, url];
+    const image = new Image();
+    image.onload = () => {
+      setPhotos((current) =>
+        current.map((photo) => (photo.url === url ? { ...photo, width: image.naturalWidth, height: image.naturalHeight } : photo))
+      );
+    };
+    image.src = url;
     setPhotos((current) => [...current, { name: file.name, url }]);
     setSaved(false);
     event.target.value = "";
@@ -831,15 +845,20 @@ function VisionRegistration({
         </button>
       </div>
 
-      <TouchRegionSelector rect={rect} onChange={setRect} tone="violet">
+      <TouchRegionSelector
+        rect={rect}
+        onChange={setRect}
+        tone="violet"
+        aspectRatio={photos[0]?.width && photos[0]?.height ? `${photos[0].width} / ${photos[0].height}` : undefined}
+      >
         {photos[0] ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={photos[0].url} alt="비전 기준 이미지" className="pointer-events-none h-full w-full object-cover" />
+          <img src={photos[0].url} alt="비전 기준 이미지" className="pointer-events-none h-full w-full object-contain" />
         ) : (
           <div className="pointer-events-none flex h-full flex-col items-center justify-center text-center">
             <Camera className="mb-3 size-12 text-violet-400" />
             <p className="font-black text-slate-800">비전 기준 사진 촬영</p>
-            <p className="mt-2 text-xs font-semibold text-slate-500">첫 사진 촬영 후 이미지 위에서 검사 영역을 지정합니다.</p>
+            <p className="mt-2 text-xs font-semibold text-slate-500">첫 사진 촬영 후 전체 사진 기준으로 검사 영역을 지정합니다.</p>
           </div>
         )}
       </TouchRegionSelector>
