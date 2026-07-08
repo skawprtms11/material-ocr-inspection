@@ -96,6 +96,8 @@ export const appRepository = {
         total: 0,
         registered: 0,
         in_progress: 0,
+        on_hold: 0,
+        canceled: 0,
         inspection_failed: 0,
         admin_review_requested: 0,
         passed: 0,

@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { Camera, Pencil, Plus, Save, Trash2, X } from "lucide-react";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import { CloudButton } from "@/components/common/CloudButton";
 import { CuteCard } from "@/components/common/CuteCard";
 import { EmptyCloudState } from "@/components/common/EmptyCloudState";
@@ -62,54 +63,96 @@ function FormCheck({ name, defaultChecked, label }: { name: string; defaultCheck
 
 export default function MaterialMasterPage() {
   const { departmentId, shipperId } = useFilterStore();
-  const repositoryMaterials = appRepository.listMaterials({ departmentId, shipperId });
-  const [materials, setMaterials] = useState<MaterialMaster[]>(repositoryMaterials);
-  const [selectedMaterialId, setSelectedMaterialId] = useState<string | undefined>(materials[0]?.id);
+  const [materials, setMaterials] = useState<MaterialMaster[]>([]);
+  const [selectedMaterialId, setSelectedMaterialId] = useState<string | undefined>();
   const [modalMode, setModalMode] = useState<MaterialModalMode | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [dataSource, setDataSource] = useState<"supabase" | "mock">("mock");
 
   const selectedMaterial = materials.find((material) => material.id === selectedMaterialId) ?? materials[0];
   const modalMaterial = modalMode === "edit" ? selectedMaterial : undefined;
 
-  useEffect(() => {
-    const nextMaterials = appRepository.listMaterials({ departmentId, shipperId });
-
-    setMaterials(nextMaterials);
-    setSelectedMaterialId(nextMaterials[0]?.id);
-    setModalMode(null);
-  }, [departmentId, shipperId]);
-
-  const handleSave = (value: MaterialFormValue) => {
+  const loadMaterials = useCallback(async () => {
     if (!departmentId || !shipperId) return;
 
-    if (modalMode === "edit" && selectedMaterial) {
-      setMaterials((prevMaterials) =>
-        prevMaterials.map((material) => (material.id === selectedMaterial.id ? { ...material, ...value } : material))
-      );
-    } else {
-      const newMaterial: MaterialMaster = {
-        id: `mat-${Date.now()}`,
-        department_id: departmentId,
-        shipper_id: shipperId,
-        reference_image_path: "",
-        is_active: true,
-        ...value
-      };
+    setIsLoading(true);
 
-      setMaterials((prevMaterials) => [newMaterial, ...prevMaterials]);
-      setSelectedMaterialId(newMaterial.id);
+    try {
+      const params = new URLSearchParams({ department_id: departmentId, shipper_id: shipperId });
+      const response = await fetch(`/api/material-master?${params.toString()}`);
+      if (!response.ok) throw new Error("부자재마스터 조회에 실패했습니다.");
+      const data = (await response.json()) as { source: "supabase" | "mock"; warning?: string; materials: MaterialMaster[] };
+      setMaterials(data.materials);
+      setSelectedMaterialId(data.materials[0]?.id);
+      setModalMode(null);
+      setDataSource(data.source);
+      if (data.warning) toast.warning(`Supabase 대신 mock 데이터로 표시합니다. ${data.warning}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "부자재마스터 조회에 실패했습니다.");
+    } finally {
+      setIsLoading(false);
     }
+  }, [departmentId, shipperId]);
 
-    setModalMode(null);
+  useEffect(() => {
+    void loadMaterials();
+  }, [loadMaterials]);
+
+  const handleSave = async (value: MaterialFormValue) => {
+    if (!departmentId || !shipperId) return;
+
+    try {
+      const isEdit = modalMode === "edit" && selectedMaterial;
+      const response = await fetch("/api/material-master", {
+        method: isEdit ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(isEdit ? { id: selectedMaterial.id } : { departmentId, shipperId }),
+          reference_image_path: value.ocr_image_path || value.vision_image_path || selectedMaterial?.reference_image_path || "",
+          ...value
+        })
+      });
+      const result = (await response.json()) as { source?: "supabase" | "mock"; material?: MaterialMaster; error?: string };
+      if (!response.ok || !result.material) throw new Error(result.error ?? "부자재 저장에 실패했습니다.");
+
+      if (isEdit) {
+        setMaterials((prevMaterials) =>
+          prevMaterials.map((material) => (material.id === result.material!.id ? result.material! : material))
+        );
+      } else {
+        setMaterials((prevMaterials) => [result.material!, ...prevMaterials]);
+        setSelectedMaterialId(result.material.id);
+      }
+      setDataSource(result.source ?? dataSource);
+      setModalMode(null);
+      toast.success("부자재마스터가 저장되었습니다.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "부자재 저장에 실패했습니다.");
+    }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!selectedMaterial) return;
 
-    setMaterials((prevMaterials) => {
-      const nextMaterials = prevMaterials.filter((material) => material.id !== selectedMaterial.id);
-      setSelectedMaterialId(nextMaterials[0]?.id);
-      return nextMaterials;
-    });
+    try {
+      const response = await fetch("/api/material-master", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: selectedMaterial.id })
+      });
+      const result = (await response.json()) as { source?: "supabase" | "mock"; error?: string };
+      if (!response.ok) throw new Error(result.error ?? "부자재 삭제에 실패했습니다.");
+
+      setMaterials((prevMaterials) => {
+        const nextMaterials = prevMaterials.filter((material) => material.id !== selectedMaterial.id);
+        setSelectedMaterialId(nextMaterials[0]?.id);
+        return nextMaterials;
+      });
+      setDataSource(result.source ?? dataSource);
+      toast.success("부자재마스터가 삭제되었습니다.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "부자재 삭제에 실패했습니다.");
+    }
   };
 
   if (!departmentId || !shipperId) return <EmptyCloudState />;
@@ -143,6 +186,13 @@ export default function MaterialMasterPage() {
           </div>
         }
       />
+
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white/60 px-4 py-2 text-xs font-black text-slate-500 ring-1 ring-white/80">
+        <span>{isLoading ? "부자재마스터를 불러오는 중이에요." : "선택된 부서/화주 기준으로 부자재를 조회합니다."}</span>
+        <span className="rounded-full bg-sky-50 px-3 py-1 text-sky-700 ring-1 ring-sky-100">
+          데이터: {dataSource === "supabase" ? "Supabase" : "Mock/Fallback"}
+        </span>
+      </div>
 
       <CuteCard className="p-0">
         <div className="overflow-x-auto">

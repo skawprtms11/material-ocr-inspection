@@ -3,6 +3,8 @@ export type InspectionMethod = "OCR" | "VISION" | "BOTH";
 export type WorkStatus =
   | "registered"
   | "in_progress"
+  | "on_hold"
+  | "canceled"
   | "inspection_failed"
   | "admin_review_requested"
   | "passed"

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { PackagePlus, Plus, Save, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { CloudButton } from "@/components/common/CloudButton";
@@ -10,40 +10,22 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { appRepository } from "@/lib/repositories/app-repository";
 import { useFilterStore } from "@/lib/state/filter-store";
 import type { MaterialMaster, WorkMaster } from "@/lib/types/domain";
+import type {
+  BatchWorkMasterResponse,
+  BatchWorkMasterRowDto,
+  CreateWorkMasterResponse,
+  DraftWorkMasterDto,
+  ProductUsageRowDto,
+  WorkMasterDataResponse,
+  WorkMasterMetaDto,
+  WorkMaterialRowDto
+} from "@/lib/types/work-master-api";
 
-type WorkMaterialRow = {
-  id: string;
-  workMasterId: string;
-  materialId: string;
-  unitQuantity: number;
-};
-
-type ProductUsageRow = {
-  id: string;
-  workMasterId: string;
-  productCode: string;
-  productName: string;
-  unitQuantity: number;
-  productType: "정상품" | "샘플" | "세트제품";
-};
-
-type WorkMasterMeta = {
-  workType: string;
-  type: string;
-};
-
-type DraftWorkMaster = {
-  workType: string;
-  code: string;
-  type: string;
-  name: string;
-  description: string;
-  isActive: boolean;
-};
-
-type BatchWorkMasterRow = DraftWorkMaster & {
-  productCodes: string[];
-  materialCodes: string[];
+type WorkMaterialRow = WorkMaterialRowDto;
+type ProductUsageRow = ProductUsageRowDto;
+type WorkMasterMeta = WorkMasterMetaDto;
+type DraftWorkMaster = DraftWorkMasterDto;
+type BatchWorkMasterRow = BatchWorkMasterRowDto & {
   unknownMaterialCodes: string[];
 };
 
@@ -119,35 +101,88 @@ function createWorkMasterFromDraft(draft: DraftWorkMaster, departmentId: string,
 
 export default function WorkMasterPage() {
   const { departmentId, shipperId } = useFilterStore();
-  const workMasters = useMemo(() => appRepository.listWorkMasters({ departmentId, shipperId }), [departmentId, shipperId]);
-  const materials = useMemo(() => appRepository.listMaterials({ departmentId, shipperId }), [departmentId, shipperId]);
-  const [visibleWorkMasters, setVisibleWorkMasters] = useState<WorkMaster[]>(workMasters);
-  const [localMaterials, setLocalMaterials] = useState<MaterialMaster[]>(materials);
+  const mockWorkMasters = useMemo(() => appRepository.listWorkMasters({ departmentId, shipperId }), [departmentId, shipperId]);
+  const mockMaterials = useMemo(() => appRepository.listMaterials({ departmentId, shipperId }), [departmentId, shipperId]);
+  const [visibleWorkMasters, setVisibleWorkMasters] = useState<WorkMaster[]>([]);
+  const [localMaterials, setLocalMaterials] = useState<MaterialMaster[]>([]);
   const [workMasterMeta, setWorkMasterMeta] = useState<Record<string, WorkMasterMeta>>({});
-  const [materialRowsByWork, setMaterialRowsByWork] = useState<Record<string, WorkMaterialRow[]>>(() =>
-    initialMaterialRows(workMasters)
-  );
-  const [productRowsByWork, setProductRowsByWork] = useState<Record<string, ProductUsageRow[]>>(() =>
-    initialProductRows(workMasters)
-  );
+  const [materialRowsByWork, setMaterialRowsByWork] = useState<Record<string, WorkMaterialRow[]>>({});
+  const [productRowsByWork, setProductRowsByWork] = useState<Record<string, ProductUsageRow[]>>({});
   const [selectedWorkMaster, setSelectedWorkMaster] = useState<WorkMaster | null>(null);
   const [selectedProductWorkMaster, setSelectedProductWorkMaster] = useState<WorkMaster | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [draftWorkMaster, setDraftWorkMaster] = useState<DraftWorkMaster | null>(null);
   const [isBatchOpen, setIsBatchOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [dataSource, setDataSource] = useState<"supabase" | "mock">("mock");
 
-  useEffect(() => {
-    setVisibleWorkMasters(workMasters);
-    setLocalMaterials(materials);
-    setWorkMasterMeta({});
-    setMaterialRowsByWork(initialMaterialRows(workMasters));
-    setProductRowsByWork(initialProductRows(workMasters));
+  const applyWorkMasterData = useCallback((data: WorkMasterDataResponse) => {
+    setVisibleWorkMasters(data.workMasters);
+    setLocalMaterials(data.materials);
+    setWorkMasterMeta(data.metaByWork ?? {});
+    setMaterialRowsByWork(
+      data.workMasters.reduce<Record<string, WorkMaterialRow[]>>((acc, workMaster) => {
+        acc[workMaster.id] = data.materialRowsByWork?.[workMaster.id] ?? [];
+        return acc;
+      }, {})
+    );
+    setProductRowsByWork(
+      data.workMasters.reduce<Record<string, ProductUsageRow[]>>((acc, workMaster) => {
+        acc[workMaster.id] = data.productRowsByWork?.[workMaster.id] ?? [];
+        return acc;
+      }, {})
+    );
+    setDataSource(data.source);
     setSelectedIds(new Set());
     setSelectedWorkMaster(null);
     setSelectedProductWorkMaster(null);
     setDraftWorkMaster(null);
     setIsBatchOpen(false);
-  }, [materials, workMasters]);
+  }, []);
+
+  const applyMockData = useCallback((warning?: string) => {
+    applyWorkMasterData({
+      source: "mock",
+      warning,
+      workMasters: mockWorkMasters,
+      materials: mockMaterials,
+      materialRowsByWork: initialMaterialRows(mockWorkMasters),
+      productRowsByWork: initialProductRows(mockWorkMasters),
+      metaByWork: {}
+    });
+  }, [applyWorkMasterData, mockMaterials, mockWorkMasters]);
+
+  useEffect(() => {
+    if (!departmentId || !shipperId) {
+      applyMockData();
+      return;
+    }
+
+    const controller = new AbortController();
+
+    async function loadWorkMasters() {
+      setIsLoading(true);
+
+      try {
+        const params = new URLSearchParams({ department_id: departmentId, shipper_id: shipperId });
+        const response = await fetch(`/api/work-masters?${params.toString()}`, { signal: controller.signal });
+        if (!response.ok) throw new Error("작업마스터 조회에 실패했습니다.");
+        const data = (await response.json()) as WorkMasterDataResponse;
+        applyWorkMasterData(data);
+        if (data.warning) toast.warning(`Supabase 대신 mock 데이터로 표시합니다. ${data.warning}`);
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        applyMockData(error instanceof Error ? error.message : "작업마스터 조회에 실패했습니다.");
+        toast.warning("작업마스터를 mock 데이터로 표시합니다.");
+      } finally {
+        if (!controller.signal.aborted) setIsLoading(false);
+      }
+    }
+
+    void loadWorkMasters();
+
+    return () => controller.abort();
+  }, [applyMockData, applyWorkMasterData, departmentId, shipperId]);
 
   if (!departmentId || !shipperId) return <EmptyCloudState />;
 
@@ -174,119 +209,141 @@ export default function WorkMasterPage() {
     });
   };
 
-  const deleteSelected = () => {
+  const deleteSelected = async () => {
     if (selectedIds.size === 0) {
       toast.warning("삭제할 작업마스터를 선택해주세요.");
       return;
     }
 
-    setVisibleWorkMasters((current) => current.filter((workMaster) => !selectedIds.has(workMaster.id)));
-    setMaterialRowsByWork((current) => {
-      const next = { ...current };
-      selectedIds.forEach((id) => {
-        delete next[id];
+    const ids = Array.from(selectedIds);
+
+    try {
+      const response = await fetch("/api/work-masters", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids })
       });
-      return next;
-    });
-    setProductRowsByWork((current) => {
-      const next = { ...current };
-      selectedIds.forEach((id) => {
-        delete next[id];
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "작업마스터 삭제에 실패했습니다.");
+
+      setVisibleWorkMasters((current) => current.filter((workMaster) => !selectedIds.has(workMaster.id)));
+      setMaterialRowsByWork((current) => {
+        const next = { ...current };
+        selectedIds.forEach((id) => {
+          delete next[id];
+        });
+        return next;
       });
-      return next;
-    });
-    setSelectedIds(new Set());
-    toast.success("선택한 작업마스터가 삭제되었습니다.");
+      setProductRowsByWork((current) => {
+        const next = { ...current };
+        selectedIds.forEach((id) => {
+          delete next[id];
+        });
+        return next;
+      });
+      setSelectedIds(new Set());
+      toast.success("선택한 작업마스터가 삭제되었습니다.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "작업마스터 삭제에 실패했습니다.");
+    }
   };
 
-  const saveRows = (workMasterId: string, rows: WorkMaterialRow[]) => {
-    setMaterialRowsByWork((current) => ({ ...current, [workMasterId]: rows }));
-    setSelectedWorkMaster(null);
-    toast.success("작업마스터 부자재가 저장되었습니다.");
+  const saveRows = async (workMasterId: string, rows: WorkMaterialRow[]) => {
+    try {
+      const response = await fetch(`/api/work-masters/${workMasterId}/materials`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows })
+      });
+      const result = (await response.json()) as { rows?: WorkMaterialRow[]; error?: string };
+      if (!response.ok) throw new Error(result.error ?? "작업마스터 부자재 저장에 실패했습니다.");
+
+      setMaterialRowsByWork((current) => ({ ...current, [workMasterId]: result.rows ?? rows }));
+      setSelectedWorkMaster(null);
+      toast.success("작업마스터 부자재가 저장되었습니다.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "작업마스터 부자재 저장에 실패했습니다.");
+    }
   };
 
-  const saveProductRows = (workMasterId: string, rows: ProductUsageRow[]) => {
-    setProductRowsByWork((current) => ({ ...current, [workMasterId]: rows }));
-    setSelectedProductWorkMaster(null);
-    toast.success("작업마스터 사용제품코드가 저장되었습니다.");
+  const saveProductRows = async (workMasterId: string, rows: ProductUsageRow[]) => {
+    try {
+      const response = await fetch(`/api/work-masters/${workMasterId}/products`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows })
+      });
+      const result = (await response.json()) as { rows?: ProductUsageRow[]; error?: string };
+      if (!response.ok) throw new Error(result.error ?? "작업마스터 사용제품코드 저장에 실패했습니다.");
+
+      setProductRowsByWork((current) => ({ ...current, [workMasterId]: result.rows ?? rows }));
+      setSelectedProductWorkMaster(null);
+      toast.success("작업마스터 사용제품코드가 저장되었습니다.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "작업마스터 사용제품코드 저장에 실패했습니다.");
+    }
   };
 
-  const saveDraftRow = () => {
+  const saveDraftRow = async () => {
     if (!draftWorkMaster?.code.trim() || !draftWorkMaster.name.trim()) {
       toast.error("완성품코드와 완성품명을 입력해주세요.");
       return;
     }
 
-    const newWorkMaster = createWorkMasterFromDraft(draftWorkMaster, departmentId, shipperId);
-    setVisibleWorkMasters((current) => [newWorkMaster, ...current]);
-    setMaterialRowsByWork((current) => ({ ...current, [newWorkMaster.id]: [] }));
-    setProductRowsByWork((current) => ({ ...current, [newWorkMaster.id]: [] }));
-    setWorkMasterMeta((current) => ({
-      ...current,
-      [newWorkMaster.id]: { workType: draftWorkMaster.workType, type: draftWorkMaster.type || "신규" }
-    }));
-    setDraftWorkMaster(null);
-    toast.success("작업마스터 행이 추가되었습니다.");
+    try {
+      const response = await fetch("/api/work-masters", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "single", departmentId, shipperId, draft: draftWorkMaster })
+      });
+      const result = (await response.json()) as CreateWorkMasterResponse & { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "작업마스터 등록에 실패했습니다.");
+
+      setVisibleWorkMasters((current) => [result.workMaster, ...current]);
+      setMaterialRowsByWork((current) => ({ ...current, [result.workMaster.id]: result.materialRows ?? [] }));
+      setProductRowsByWork((current) => ({ ...current, [result.workMaster.id]: result.productRows ?? [] }));
+      setWorkMasterMeta((current) => ({
+        ...current,
+        [result.workMaster.id]: result.meta
+      }));
+      setDraftWorkMaster(null);
+      setDataSource(result.source);
+      toast.success("작업마스터 행이 추가되었습니다.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "작업마스터 등록에 실패했습니다.");
+    }
   };
 
-  const registerBatchRows = (batchRows: BatchWorkMasterRow[]) => {
+  const registerBatchRows = async (batchRows: BatchWorkMasterRow[]) => {
     if (batchRows.length === 0) {
       toast.warning("붙여넣기 할 데이터가 없습니다.");
       return;
     }
 
-    const createdMaterials: MaterialMaster[] = [];
-    const newWorkMasters = batchRows.map((row) => createWorkMasterFromDraft(row, departmentId, shipperId));
-    const existingMaterials = [...localMaterials];
-    const nextMaterialRows: Record<string, WorkMaterialRow[]> = {};
-    const nextProductRows: Record<string, ProductUsageRow[]> = {};
-    const nextMeta: Record<string, WorkMasterMeta> = {};
-
-    batchRows.forEach((row, rowIndex) => {
-      const workMaster = newWorkMasters[rowIndex];
-      nextMeta[workMaster.id] = { workType: row.workType, type: row.type || "일괄" };
-      nextProductRows[workMaster.id] = row.productCodes.map((productCode, productIndex) => ({
-        id: `prod-batch-${workMaster.id}-${productCode}`,
-        workMasterId: workMaster.id,
-        productCode,
-        productName: baseProducts.find((product) => product.code === productCode)?.name ?? `${productCode} 제품명 확인 필요`,
-        unitQuantity: 1,
-        productType: productIndex === 0 ? "정상품" : "세트제품"
-      }));
-      nextMaterialRows[workMaster.id] = row.materialCodes.map((code, materialIndex) => {
-        let material = existingMaterials.find((item) => item.code === code) ?? createdMaterials.find((item) => item.code === code);
-
-        if (!material) {
-          material = {
-            id: `mat-batch-${code}-${Date.now()}-${materialIndex}`,
-            department_id: departmentId,
-            shipper_id: shipperId,
-            name: `${code} (부자재마스터 등록 필요)`,
-            code,
-            inspection_method: "BOTH",
-            reference_image_path: "",
-            remark: "엑셀 일괄등록에서 자동 생성됨. 부자재마스터 등록 필요",
-            is_active: true
-          };
-          createdMaterials.push(material);
-        }
-
-        return {
-          id: `wmm-batch-${workMaster.id}-${material.id}`,
-          workMasterId: workMaster.id,
-          materialId: material.id,
-          unitQuantity: 1
-        };
+    try {
+      const response = await fetch("/api/work-masters", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "batch", departmentId, shipperId, rows: batchRows })
       });
-    });
+      const result = (await response.json()) as BatchWorkMasterResponse & { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "작업마스터 일괄등록에 실패했습니다.");
 
-    setLocalMaterials((current) => [...current, ...createdMaterials]);
-    setVisibleWorkMasters((current) => [...newWorkMasters, ...current]);
-    setMaterialRowsByWork((current) => ({ ...current, ...nextMaterialRows }));
-    setProductRowsByWork((current) => ({ ...current, ...nextProductRows }));
-    setWorkMasterMeta((current) => ({ ...current, ...nextMeta }));
-    setIsBatchOpen(false);
-    toast.success(`작업마스터 ${newWorkMasters.length}건이 일괄등록되었습니다.`);
+      setLocalMaterials((current) => {
+        const byId = new Map(current.map((material) => [material.id, material]));
+        result.createdMaterials.forEach((material) => byId.set(material.id, material));
+        return Array.from(byId.values());
+      });
+      setVisibleWorkMasters((current) => [...result.workMasters, ...current]);
+      setMaterialRowsByWork((current) => ({ ...current, ...result.materialRowsByWork }));
+      setProductRowsByWork((current) => ({ ...current, ...result.productRowsByWork }));
+      setWorkMasterMeta((current) => ({ ...current, ...result.metaByWork }));
+      setIsBatchOpen(false);
+      setDataSource(result.source);
+      toast.success(`작업마스터 ${result.workMasters.length}건이 일괄등록되었습니다.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "작업마스터 일괄등록에 실패했습니다.");
+    }
   };
 
   return (
@@ -311,6 +368,13 @@ export default function WorkMasterPage() {
           </div>
         }
       />
+
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white/60 px-4 py-2 text-xs font-black text-slate-500 ring-1 ring-white/80">
+        <span>{isLoading ? "작업마스터 데이터를 불러오는 중이에요." : "선택된 부서/화주 기준으로 작업마스터를 조회합니다."}</span>
+        <span className="rounded-full bg-sky-50 px-3 py-1 text-sky-700 ring-1 ring-sky-100">
+          데이터: {dataSource === "supabase" ? "Supabase" : "Mock/Fallback"}
+        </span>
+      </div>
 
       <CuteCard className="p-0">
         <div className="overflow-x-auto">

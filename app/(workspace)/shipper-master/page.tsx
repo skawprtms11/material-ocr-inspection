@@ -2,12 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Check, Plus, UserRound, X } from "lucide-react";
+import { toast } from "sonner";
 import { CloudButton } from "@/components/common/CloudButton";
 import { CuteCard } from "@/components/common/CuteCard";
 import { DataTable } from "@/components/common/DataTable";
 import { EmptyCloudState } from "@/components/common/EmptyCloudState";
 import { PageHeader } from "@/components/common/PageHeader";
-import { appRepository } from "@/lib/repositories/app-repository";
 import { useFilterStore } from "@/lib/state/filter-store";
 import type { AppUser, Shipper } from "@/lib/types/domain";
 
@@ -15,10 +15,38 @@ export default function ShipperMasterPage() {
   const { departmentId } = useFilterStore();
   const [shipperRows, setShipperRows] = useState<Shipper[]>([]);
   const [editingShipper, setEditingShipper] = useState<Shipper | null>(null);
-  const users = appRepository.listUsers();
+  const [users, setUsers] = useState<AppUser[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [dataSource, setDataSource] = useState<"supabase" | "mock">("mock");
 
   useEffect(() => {
-    setShipperRows(appRepository.listShippers({ departmentId }));
+    if (!departmentId) return;
+
+    async function loadShippers() {
+      setIsLoading(true);
+
+      try {
+        const response = await fetch(`/api/shipper-master?${new URLSearchParams({ department_id: departmentId }).toString()}`);
+        if (!response.ok) throw new Error("화주마스터 조회에 실패했습니다.");
+        const data = (await response.json()) as {
+          source: "supabase" | "mock";
+          warning?: string;
+          shippers: Shipper[];
+          users: AppUser[];
+        };
+        setShipperRows(data.shippers);
+        setUsers(data.users);
+        setEditingShipper(null);
+        setDataSource(data.source);
+        if (data.warning) toast.warning(`Supabase 대신 mock 데이터로 표시합니다. ${data.warning}`);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "화주마스터 조회에 실패했습니다.");
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    void loadShippers();
   }, [departmentId]);
 
   const workerCandidates = useMemo(
@@ -26,19 +54,33 @@ export default function ShipperMasterPage() {
       users.filter(
         (user) =>
           user.is_active &&
-          (!departmentId || user.department_ids.includes(departmentId)) &&
+          (dataSource === "supabase" || !departmentId || user.department_ids.includes(departmentId)) &&
           (user.role === "worker" || user.role === "manager" || user.role === "admin")
       ),
-    [departmentId, users]
+    [dataSource, departmentId, users]
   );
 
   const userNameById = useMemo(() => new Map(users.map((user) => [user.id, user.name])), [users]);
 
-  const updateCrewLeaders = (shipperId: string, crewLeaderIds: string[]) => {
-    setShipperRows((current) =>
-      current.map((shipper) => (shipper.id === shipperId ? { ...shipper, crew_leader_ids: crewLeaderIds } : shipper))
-    );
-    setEditingShipper(null);
+  const updateCrewLeaders = async (shipperId: string, crewLeaderIds: string[]) => {
+    try {
+      const response = await fetch("/api/shipper-master", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shipperId, crewLeaderIds })
+      });
+      const result = (await response.json()) as { source?: "supabase" | "mock"; error?: string };
+      if (!response.ok) throw new Error(result.error ?? "작업조장 저장에 실패했습니다.");
+
+      setShipperRows((current) =>
+        current.map((shipper) => (shipper.id === shipperId ? { ...shipper, crew_leader_ids: crewLeaderIds } : shipper))
+      );
+      setDataSource(result.source ?? dataSource);
+      setEditingShipper(null);
+      toast.success("작업조장이 저장되었습니다.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "작업조장 저장에 실패했습니다.");
+    }
   };
 
   if (!departmentId) {
@@ -57,6 +99,13 @@ export default function ShipperMasterPage() {
           </CloudButton>
         }
       />
+
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white/60 px-4 py-2 text-xs font-black text-slate-500 ring-1 ring-white/80">
+        <span>{isLoading ? "화주마스터를 불러오는 중이에요." : "선택된 부서 기준으로 화주를 조회합니다."}</span>
+        <span className="rounded-full bg-sky-50 px-3 py-1 text-sky-700 ring-1 ring-sky-100">
+          데이터: {dataSource === "supabase" ? "Supabase" : "Mock/Fallback"}
+        </span>
+      </div>
 
       <CuteCard>
         <DataTable

@@ -8,8 +8,10 @@ export const roleLabels: Record<Role, string> = {
 };
 
 export const workStatusLabels: Record<WorkStatus, string> = {
-  registered: "작업등록",
-  in_progress: "검수 진행",
+  registered: "대기",
+  in_progress: "진행",
+  on_hold: "보류",
+  canceled: "취소",
   inspection_failed: "불합격",
   admin_review_requested: "관리자 확인",
   passed: "합격",
@@ -41,6 +43,8 @@ export const inspectionMethodLabels: Record<InspectionMethod, string> = {
 export const workStatusOrder: WorkStatus[] = [
   "registered",
   "in_progress",
+  "on_hold",
+  "canceled",
   "inspection_failed",
   "admin_review_requested",
   "passed",

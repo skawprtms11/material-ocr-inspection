@@ -11,6 +11,8 @@ type StatusBadgeProps = {
 const toneMap: Record<string, string> = {
   registered: "bg-sky-100 text-sky-700 ring-sky-200",
   in_progress: "bg-violet-100 text-violet-700 ring-violet-200",
+  on_hold: "bg-amber-100 text-amber-800 ring-amber-200",
+  canceled: "bg-rose-100 text-rose-700 ring-rose-200",
   inspection_failed: "bg-rose-100 text-rose-700 ring-rose-200",
   admin_review_requested: "bg-amber-100 text-amber-800 ring-amber-200",
   passed: "bg-emerald-100 text-emerald-700 ring-emerald-200",
