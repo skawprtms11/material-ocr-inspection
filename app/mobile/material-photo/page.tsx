@@ -273,12 +273,14 @@ function TouchRegionSelector({
   onChange,
   tone = "sky",
   aspectRatio,
+  label = "박스 이동/모서리 조정",
   children
 }: {
   rect: Rect;
   onChange: (rect: Rect) => void;
   tone?: "sky" | "violet";
   aspectRatio?: string;
+  label?: string;
   children?: ReactNode;
 }) {
   const [interaction, setInteraction] = useState<RegionInteraction | null>(null);
@@ -383,7 +385,7 @@ function TouchRegionSelector({
           ))}
         </div>
         <div className={cn("pointer-events-none absolute left-3 top-3 rounded-full px-3 py-1 text-[11px] font-black shadow-sm", guideClass)}>
-          박스 이동/모서리 조정
+          {label}
         </div>
       </div>
       <div className="mt-2 flex items-center justify-between gap-2 rounded-2xl bg-white/75 px-3 py-2 text-[11px] font-black text-slate-500 ring-1 ring-white/80">
@@ -974,7 +976,7 @@ function VisionRegistration({
   onBack: () => void;
 }) {
   const [photos, setPhotos] = useState<VisionPhoto[]>([]);
-  const [activePhotoIndex, setActivePhotoIndex] = useState(0);
+  const [activePhotoId, setActivePhotoId] = useState<string | null>(null);
   const [compressing, setCompressing] = useState(false);
   const [captureError, setCaptureError] = useState("");
   const [similarity, setSimilarity] = useState<VisionSimilarityState>({
@@ -999,13 +1001,26 @@ function VisionRegistration({
   }, [photos]);
 
   useEffect(() => {
+    if (photos.length === 0) {
+      if (activePhotoId) setActivePhotoId(null);
+      return;
+    }
+
+    if (!activePhotoId || !photos.some((photo) => photo.id === activePhotoId)) {
+      setActivePhotoId(photos[0].id);
+    }
+  }, [activePhotoId, photos]);
+
+  useEffect(() => {
     return () => {
       mountedRef.current = false;
       photoUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
     };
   }, []);
 
-  const activePhoto = photos[activePhotoIndex] ?? photos[0];
+  const activePhotoIndex = activePhotoId ? photos.findIndex((photo) => photo.id === activePhotoId) : photos.length > 0 ? 0 : -1;
+  const activePhoto = activePhotoIndex >= 0 ? photos[activePhotoIndex] : null;
+  const activePhotoNumber = activePhotoIndex >= 0 ? activePhotoIndex + 1 : 0;
   const confirmedRegionCount = photos.filter((photo) => photo.regionConfirmed).length;
   const allRegionsConfirmed = photos.length === visionMaxPhotos && confirmedRegionCount === visionMaxPhotos;
   const currentComparisonKey = useMemo(() => buildVisionComparisonKey(photos), [photos]);
@@ -1057,35 +1072,33 @@ function VisionRegistration({
 
   const capture = async (event: ChangeEvent<HTMLInputElement>) => {
     const input = event.currentTarget;
-    const file = event.target.files?.[0];
-    if (!file || photos.length >= visionMaxPhotos || compressing) return;
+    const selectedFiles = Array.from(event.target.files ?? []);
+    if (selectedFiles.length === 0 || photosRef.current.length >= visionMaxPhotos || compressing) return;
     const captureToken = captureTokenRef.current + 1;
     captureTokenRef.current = captureToken;
+    const filesToProcess = selectedFiles.slice(0, Math.max(0, visionMaxPhotos - photosRef.current.length));
+    const createdUrls: string[] = [];
+    let urlsCommitted = false;
 
     setCompressing(true);
     setCaptureError("");
     setSaved(false);
 
     try {
-      const compressedFile = await compressVisionFile(file);
-      let url = "";
+      const nextPhotos: VisionPhoto[] = [];
 
-      try {
-        url = URL.createObjectURL(compressedFile);
+      for (const file of filesToProcess) {
+        const compressedFile = await compressVisionFile(file);
+        const url = URL.createObjectURL(compressedFile);
+        createdUrls.push(url);
         const image = await loadImage(url);
+
         if (!mountedRef.current || captureTokenRef.current !== captureToken) {
-          URL.revokeObjectURL(url);
+          createdUrls.forEach((createdUrl) => URL.revokeObjectURL(createdUrl));
           return;
         }
 
-        const currentPhotos = photosRef.current;
-        const nextIndex = currentPhotos.length;
-        if (nextIndex >= visionMaxPhotos) {
-          URL.revokeObjectURL(url);
-          return;
-        }
-
-        const nextPhoto: VisionPhoto = {
+        nextPhotos.push({
           id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
           name: compressedFile.name,
           url,
@@ -1096,16 +1109,28 @@ function VisionRegistration({
           height: image.naturalHeight,
           rect: defaultRect,
           regionConfirmed: false
-        };
+        });
+      }
 
-        photoUrlsRef.current = [...photoUrlsRef.current, url];
-        updatePhotos((current) => [...current, nextPhoto]);
-        setActivePhotoIndex(nextIndex);
-      } catch (error) {
-        if (url) URL.revokeObjectURL(url);
-        throw error;
+      if (nextPhotos.length > 0) {
+        if (!mountedRef.current || captureTokenRef.current !== captureToken) {
+          createdUrls.forEach((createdUrl) => URL.revokeObjectURL(createdUrl));
+          return;
+        }
+
+        const acceptedPhotos = nextPhotos.slice(0, Math.max(0, visionMaxPhotos - photosRef.current.length));
+        const acceptedUrls = new Set(acceptedPhotos.map((photo) => photo.url));
+        createdUrls.forEach((url) => {
+          if (!acceptedUrls.has(url)) URL.revokeObjectURL(url);
+        });
+        photoUrlsRef.current = [...photoUrlsRef.current, ...acceptedPhotos.map((photo) => photo.url)];
+        urlsCommitted = true;
+        const firstAddedPhotoId = acceptedPhotos[0]?.id;
+        updatePhotos((current) => [...current, ...acceptedPhotos]);
+        if (firstAddedPhotoId) setActivePhotoId(firstAddedPhotoId);
       }
     } catch (error) {
+      if (!urlsCommitted) createdUrls.forEach((url) => URL.revokeObjectURL(url));
       if (mountedRef.current) {
         setCaptureError(error instanceof Error ? error.message : "비전 사진 압축 중 오류가 발생했습니다.");
       }
@@ -1120,7 +1145,7 @@ function VisionRegistration({
     photosRef.current.forEach((photo) => URL.revokeObjectURL(photo.url));
     photoUrlsRef.current = [];
     updatePhotos(() => []);
-    setActivePhotoIndex(0);
+    setActivePhotoId(null);
     setCompressing(false);
     setCaptureError("");
     setSimilarity({ status: "idle", message: "5장 촬영 후 각 사진의 영역을 확정하면 일치율을 계산합니다." });
@@ -1131,8 +1156,8 @@ function VisionRegistration({
     if (!activePhoto) return;
 
     updatePhotos((current) =>
-      current.map((photo, index) =>
-        index === activePhotoIndex
+      current.map((photo) =>
+        photo.id === activePhoto.id
           ? {
               ...photo,
               rect: constrainRect(nextRect),
@@ -1145,11 +1170,11 @@ function VisionRegistration({
   };
 
   const confirmActiveRegion = () => {
-    if (!activePhoto || photos.length < visionMaxPhotos) return;
+    if (!activePhoto) return;
 
-    updatePhotos((current) =>
-      current.map((photo, index) =>
-        index === activePhotoIndex
+    const nextPhotos = updatePhotos((current) =>
+      current.map((photo) =>
+        photo.id === activePhoto.id
           ? {
               ...photo,
               rect: constrainRect(photo.rect),
@@ -1159,8 +1184,24 @@ function VisionRegistration({
       )
     );
 
-    const nextUnconfirmedIndex = photos.findIndex((photo, index) => index !== activePhotoIndex && !photo.regionConfirmed);
-    if (nextUnconfirmedIndex >= 0) setActivePhotoIndex(nextUnconfirmedIndex);
+    const nextUnconfirmedPhoto = nextPhotos.find((photo) => photo.id !== activePhoto.id && !photo.regionConfirmed);
+    if (nextUnconfirmedPhoto) setActivePhotoId(nextUnconfirmedPhoto.id);
+    setSaved(false);
+  };
+
+  const editActiveRegion = () => {
+    if (!activePhoto) return;
+
+    updatePhotos((current) =>
+      current.map((photo) =>
+        photo.id === activePhoto.id
+          ? {
+              ...photo,
+              regionConfirmed: false
+            }
+          : photo
+      )
+    );
     setSaved(false);
   };
 
@@ -1192,14 +1233,16 @@ function VisionRegistration({
       </div>
 
       <TouchRegionSelector
+        key={activePhoto?.id ?? "vision-empty"}
         rect={activePhoto?.rect ?? defaultRect}
         onChange={handleRectChange}
         tone="violet"
+        label={activePhoto ? `${activePhotoNumber}번 사진 영역 ${activePhoto.regionConfirmed ? "확정됨" : "설정"}` : "비전 영역 설정"}
         aspectRatio={activePhoto?.width && activePhoto?.height ? `${activePhoto.width} / ${activePhoto.height}` : undefined}
       >
         {activePhoto ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={activePhoto.url} alt={`비전 영역 선택 ${activePhotoIndex + 1}`} className="pointer-events-none h-full w-full object-contain" />
+          <img src={activePhoto.url} alt={`비전 영역 선택 ${activePhotoNumber}`} className="pointer-events-none h-full w-full object-contain" />
         ) : (
           <div className="pointer-events-none flex h-full flex-col items-center justify-center text-center">
             <Camera className="mb-3 size-12 text-violet-400" />
@@ -1209,20 +1252,25 @@ function VisionRegistration({
         )}
       </TouchRegionSelector>
 
-      <CloudButton
-        className="mt-3 w-full"
-        tone={activePhoto?.regionConfirmed ? "soft" : undefined}
-        disabled={!activePhoto || photos.length < visionMaxPhotos}
-        onClick={confirmActiveRegion}
-      >
-        <CheckCircle2 className="size-4" />
-        {activePhoto?.regionConfirmed ? `${activePhotoIndex + 1}번 영역 확정됨` : `${activePhotoIndex + 1}번 사진 영역 확정`}
-      </CloudButton>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <CloudButton
+          tone={activePhoto?.regionConfirmed ? "success" : undefined}
+          disabled={!activePhoto}
+          onClick={confirmActiveRegion}
+        >
+          <CheckCircle2 className="size-4" />
+          {activePhoto ? `${activePhotoNumber}번 영역 확정` : "영역 확정"}
+        </CloudButton>
+        <CloudButton tone="soft" disabled={!activePhoto?.regionConfirmed} onClick={editActiveRegion}>
+          <Pencil className="size-4" />
+          {activePhoto ? `${activePhotoNumber}번 다시 설정` : "다시 설정"}
+        </CloudButton>
+      </div>
 
       <label className={cn("mt-4 flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-full px-4 text-sm font-extrabold shadow-sm", photos.length >= visionMaxPhotos ? "bg-slate-100 text-slate-300" : "bg-sky-500 text-white")}>
         <Camera className="size-4" />
         {compressing ? "압축 중..." : `사진 촬영 ${photos.length}/${visionMaxPhotos}`}
-        <input type="file" accept="image/*" capture="environment" disabled={photos.length >= visionMaxPhotos || compressing} className="sr-only" onChange={capture} aria-label="비전 등록 사진 촬영" />
+        <input type="file" accept="image/*" capture="environment" multiple disabled={photos.length >= visionMaxPhotos || compressing} className="sr-only" onChange={capture} aria-label="비전 등록 사진 촬영" />
       </label>
 
       {captureError && (
@@ -1240,10 +1288,13 @@ function VisionRegistration({
               key={photo?.id ?? index}
               type="button"
               disabled={!photo}
-              onClick={() => setActivePhotoIndex(index)}
+              aria-pressed={photo?.id === activePhoto?.id}
+              onClick={() => {
+                if (photo) setActivePhotoId(photo.id);
+              }}
               className={cn(
                 "relative aspect-square overflow-hidden rounded-xl bg-slate-100 text-left transition",
-                photo && index === activePhotoIndex ? "ring-2 ring-violet-500 ring-offset-2 ring-offset-white" : "ring-1 ring-white/80",
+                photo && photo.id === activePhoto?.id ? "ring-2 ring-violet-500 ring-offset-2 ring-offset-white" : "ring-1 ring-white/80",
                 !photo && "cursor-default"
               )}
             >
@@ -1253,6 +1304,9 @@ function VisionRegistration({
                   <img src={photo.url} alt={`비전 등록 ${index + 1}`} className="h-full w-full object-cover" />
                   <span className={cn("absolute left-1 top-1 rounded-full px-1.5 py-0.5 text-[9px] font-black shadow-sm", photo.regionConfirmed ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700")}>
                     {photo.regionConfirmed ? "영역완료" : "영역대기"}
+                  </span>
+                  <span className={cn("absolute right-1 top-1 rounded-full px-1.5 py-0.5 text-[9px] font-black shadow-sm", photo.id === activePhoto?.id ? "bg-violet-600 text-white" : "bg-white/90 text-slate-600")}>
+                    {index + 1}
                   </span>
                   <span className="absolute bottom-1 left-1 rounded-full bg-white/90 px-1.5 py-0.5 text-[9px] font-black text-violet-700 shadow-sm">
                     {formatFileSize(photo.compressedSize)}
@@ -1267,7 +1321,7 @@ function VisionRegistration({
       </div>
 
       <div className={cn("mt-3 rounded-2xl p-3 text-sm font-bold", allRegionsConfirmed ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>
-        {photos.length === visionMaxPhotos ? `사진별 영역 확정 ${confirmedRegionCount}/${visionMaxPhotos}` : accuracyText(photos.length)}
+        {photos.length > 0 ? `사진 ${photos.length}/${visionMaxPhotos} · 영역 확정 ${confirmedRegionCount}/${photos.length}` : accuracyText(photos.length)}
       </div>
 
       <div
