@@ -6,16 +6,17 @@ import { useParams } from "next/navigation";
 import { CheckCircle2, Cloud } from "lucide-react";
 import { CloudButton } from "@/components/common/CloudButton";
 import { CuteCard } from "@/components/common/CuteCard";
-import { appRepository } from "@/lib/repositories/app-repository";
+import { findInspectionById, useMobileInspectionRows } from "@/lib/mobile/mobile-api";
 
 export default function MobileResultPage() {
   const params = useParams<{ workId: string }>();
-  const work = appRepository.findWorkById(params.workId);
-  const inspections = appRepository.listInspections(params.workId);
+  const { data: rows, source, isLoading } = useMobileInspectionRows();
+  const row = findInspectionById(rows, params.workId);
+  const work = row?.work;
+  const inspections = row?.inspections ?? [];
   const passed = inspections.filter((inspection) => inspection.status === "passed").length;
   const failed = inspections.filter((inspection) => inspection.status === "failed").length;
   const adminApproved = inspections.filter((inspection) => inspection.status === "admin_approved").length;
-  const signature = appRepository.listSignatures(params.workId)[0];
 
   useEffect(() => {
     import("canvas-confetti").then((module) => {
@@ -23,6 +24,7 @@ export default function MobileResultPage() {
     });
   }, []);
 
+  if (isLoading) return <CuteCard>검수 결과를 불러오는 중이에요.</CuteCard>;
   if (!work) return <CuteCard>작업을 찾지 못했어요.</CuteCard>;
 
   return (
@@ -48,8 +50,8 @@ export default function MobileResultPage() {
           <dd className="font-bold text-rose-600">{failed}개</dd>
           <dt className="font-black text-slate-400">관리자 승인</dt>
           <dd className="font-bold text-amber-700">{adminApproved}개</dd>
-          <dt className="font-black text-slate-400">서명</dt>
-          <dd className="font-bold text-slate-800">{signature ? "완료" : "mock 저장"}</dd>
+          <dt className="font-black text-slate-400">데이터</dt>
+          <dd className="font-bold text-slate-800">{source === "supabase" ? "Supabase" : "Mock/Fallback"}</dd>
         </dl>
       </CuteCard>
       <Link href="/mobile/scan">

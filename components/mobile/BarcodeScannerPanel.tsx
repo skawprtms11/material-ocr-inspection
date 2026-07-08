@@ -1,24 +1,29 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Barcode, Keyboard } from "lucide-react";
 import { CloudButton } from "@/components/common/CloudButton";
 import { CuteCard } from "@/components/common/CuteCard";
-import { appRepository } from "@/lib/repositories/app-repository";
+import { findWorkByDocumentNo, useMobileWorkStatusRows } from "@/lib/mobile/mobile-api";
 
 export function BarcodeScannerPanel() {
   const router = useRouter();
-  const [documentNo, setDocumentNo] = useState("DOC-2026-1001");
+  const { data: rows, source, warning, isLoading, error: loadError } = useMobileWorkStatusRows();
+  const [documentNo, setDocumentNo] = useState("");
   const [error, setError] = useState("");
 
+  useEffect(() => {
+    if (!documentNo && rows[0]) setDocumentNo(rows[0].work.document_no);
+  }, [documentNo, rows]);
+
   function matchWork() {
-    const work = appRepository.findWorkByDocumentNo(documentNo);
-    if (!work) {
+    const row = findWorkByDocumentNo(rows, documentNo);
+    if (!row) {
       setError("이 문서번호를 찾지 못했어요.");
       return;
     }
-    router.push(`/mobile/inspection/${work.id}`);
+    router.push(`/mobile/inspection/${row.work.id}`);
   }
 
   return (
@@ -28,6 +33,9 @@ export function BarcodeScannerPanel() {
         <p className="font-black text-slate-800">바코드를 구름 안에 맞춰주세요</p>
         <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
           TODO: BarcodeDetector 또는 @zxing/browser 카메라 스캐너 연결
+        </p>
+        <p className="mt-2 text-[11px] font-black text-slate-400">
+          데이터: {source === "supabase" ? "Supabase" : "Mock/Fallback"}
         </p>
       </div>
       <label className="block">
@@ -45,8 +53,12 @@ export function BarcodeScannerPanel() {
           placeholder="DOC-2026-1001"
         />
       </label>
-      {error && <div className="mt-3 rounded-2xl bg-rose-50 p-3 text-sm font-bold text-rose-600">{error}</div>}
-      <CloudButton className="mt-4 w-full" onClick={matchWork}>
+      {(error || loadError || warning) && (
+        <div className="mt-3 rounded-2xl bg-rose-50 p-3 text-sm font-bold text-rose-600">
+          {error || loadError || warning}
+        </div>
+      )}
+      <CloudButton className="mt-4 w-full" disabled={isLoading || rows.length === 0} onClick={matchWork}>
         작업 찾기
       </CloudButton>
     </CuteCard>

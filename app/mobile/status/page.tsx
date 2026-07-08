@@ -3,13 +3,14 @@
 import { CheckCircle2, Clock, ListChecks, TriangleAlert } from "lucide-react";
 import { CuteCard } from "@/components/common/CuteCard";
 import { StatusBadge } from "@/components/common/StatusBadge";
-import { appRepository } from "@/lib/repositories/app-repository";
+import { useMobileWorkStatusRows } from "@/lib/mobile/mobile-api";
 
 export default function MobileStatusPage() {
-  const works = appRepository.listWorks({});
+  const { data: rows, source, warning, isLoading, error } = useMobileWorkStatusRows();
+  const works = rows.map((row) => row.work);
   const completed = works.filter((work) => work.status === "completed").length;
   const pending = works.filter((work) => work.status === "in_progress" || work.status === "registered").length;
-  const needsReview = works.filter((work) => work.status === "inspection_failed" || work.status === "admin_review_requested").length;
+  const needsReview = works.filter((work) => ["inspection_failed", "admin_review_requested", "on_hold"].includes(work.status)).length;
 
   return (
     <div className="space-y-4">
@@ -19,7 +20,16 @@ export default function MobileStatusPage() {
           <p className="text-xs font-black text-sky-600">작업현황</p>
         </div>
         <h1 className="mt-2 text-2xl font-black text-slate-800">오늘 작업 현황</h1>
+        <p className="mt-2 text-xs font-black text-slate-400">
+          {isLoading ? "데이터 동기화 중" : `데이터: ${source === "supabase" ? "Supabase" : "Mock/Fallback"}`}
+        </p>
       </CuteCard>
+
+      {(warning || error) && (
+        <CuteCard className="p-3 text-xs font-bold leading-5 text-amber-700">
+          {error || warning}
+        </CuteCard>
+      )}
 
       <div className="grid grid-cols-3 gap-2">
         <CuteCard className="p-3 text-center">
@@ -40,18 +50,25 @@ export default function MobileStatusPage() {
       </div>
 
       <div className="space-y-2">
-        {works.map((work) => (
-          <CuteCard key={work.id} className="p-4">
+        {rows.map((row) => (
+          <CuteCard key={row.work.id} className="p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs font-black text-sky-600">{work.document_no}</p>
-                <p className="mt-1 font-black text-slate-800">{work.worker_name}</p>
-                <p className="mt-1 text-xs font-bold text-slate-400">{work.memo}</p>
+                <p className="text-xs font-black text-sky-600">{row.work.document_no}</p>
+                <p className="mt-1 font-black text-slate-800">{row.productName}</p>
+                <p className="mt-1 text-xs font-bold text-slate-400">
+                  {row.productCode} · LOT {row.lot || "-"} · {row.work.worker_name || "미할당"}
+                </p>
               </div>
-              <StatusBadge type="work" status={work.status} />
+              <StatusBadge type="work" status={row.work.status} />
             </div>
           </CuteCard>
         ))}
+        {!isLoading && rows.length === 0 && (
+          <CuteCard className="p-4 text-center text-sm font-bold text-slate-400">
+            조회된 작업이 없습니다.
+          </CuteCard>
+        )}
       </div>
     </div>
   );

@@ -4,7 +4,7 @@ import { ChangeEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, u
 import { ArrowLeft, Camera, CheckCircle2, ImagePlus, Pencil, Plus, RotateCcw, Save, ScanText, Trash2, XCircle } from "lucide-react";
 import { CloudButton } from "@/components/common/CloudButton";
 import { CuteCard } from "@/components/common/CuteCard";
-import { appRepository } from "@/lib/repositories/app-repository";
+import { useMobileMaterials } from "@/lib/mobile/mobile-api";
 import type { MaterialMaster } from "@/lib/types/domain";
 import { cn } from "@/lib/utils/cn";
 
@@ -424,13 +424,12 @@ function TouchRegionSelector({
 }
 
 export default function MobileMaterialRegistrationPage() {
-  const materials = useMemo(() => appRepository.listMaterials({}), []);
+  const { data: materials, source, warning, isLoading, error } = useMobileMaterials();
   const initialRegistrationStatus = useMemo(() => {
     return materials.reduce<Record<RegistrationMethod, Set<string>>>(
       (acc, material) => {
-        appRepository.listMaterialRegions(material.id).forEach((region) => {
-          acc[region.method].add(material.id);
-        });
+        if (material.ocr_image_path) acc.OCR.add(material.id);
+        if (material.vision_image_path) acc.VISION.add(material.id);
         return acc;
       },
       { OCR: new Set<string>(), VISION: new Set<string>() }
@@ -456,6 +455,21 @@ export default function MobileMaterialRegistrationPage() {
 
     return statusMatched && productCodeMatched && productNameMatched && lotMatched;
   });
+
+  useEffect(() => {
+    setRegistrationStatus((current) => ({
+      OCR: new Set([...initialRegistrationStatus.OCR, ...current.OCR]),
+      VISION: new Set([...initialRegistrationStatus.VISION, ...current.VISION])
+    }));
+  }, [initialRegistrationStatus]);
+
+  useEffect(() => {
+    if (selectedMaterialId && !materials.some((material) => material.id === selectedMaterialId)) {
+      setSelectedMaterialId("");
+      setMode(null);
+      setEditing(false);
+    }
+  }, [materials, selectedMaterialId]);
 
   useEffect(() => {
     const queryMaterialId = new URLSearchParams(window.location.search).get("materialId");
@@ -596,7 +610,16 @@ export default function MobileMaterialRegistrationPage() {
         <p className="text-xs font-black text-sky-600">부자재등록</p>
         <h1 className="mt-1 text-2xl font-black text-slate-800">부자재 목록</h1>
         <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">관리자웹에서 등록한 부자재 목록 중 하나를 선택합니다.</p>
+        <p className="mt-2 text-xs font-black text-slate-400">
+          {isLoading ? "데이터 동기화 중" : `데이터: ${source === "supabase" ? "Supabase" : "Mock/Fallback"}`}
+        </p>
       </CuteCard>
+
+      {(warning || error) && (
+        <CuteCard className="p-3 text-xs font-bold leading-5 text-amber-700">
+          {error || warning}
+        </CuteCard>
+      )}
 
       <div className="grid grid-cols-3 gap-2">
         {statusFilters.map((item) => (

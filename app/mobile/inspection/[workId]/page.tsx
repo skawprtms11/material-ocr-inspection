@@ -9,14 +9,20 @@ import { CuteCard } from "@/components/common/CuteCard";
 import { ImageUploadCard } from "@/components/common/ImageUploadCard";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { inspectionMethodLabels } from "@/lib/constants/status";
-import { appRepository } from "@/lib/repositories/app-repository";
+import { findInspectionById, useMobileInspectionRows, useMobileMaterials } from "@/lib/mobile/mobile-api";
 
 export default function MobileInspectionPage() {
   const params = useParams<{ workId: string }>();
-  const work = appRepository.findWorkById(params.workId);
-  const inspections = appRepository.listInspections(params.workId);
-  const materials = appRepository.listMaterials({ departmentId: work?.department_id, shipperId: work?.shipper_id });
-  const allPassed = inspections.every((inspection) => ["passed", "admin_approved"].includes(inspection.status));
+  const { data: rows, source, warning, isLoading, error } = useMobileInspectionRows();
+  const { data: materials } = useMobileMaterials();
+  const row = findInspectionById(rows, params.workId);
+  const work = row?.work;
+  const inspections = row?.inspections ?? [];
+  const allPassed = inspections.length > 0 && inspections.every((inspection) => ["passed", "admin_approved"].includes(inspection.status));
+
+  if (isLoading) {
+    return <CuteCard>작업 데이터를 불러오는 중이에요.</CuteCard>;
+  }
 
   if (!work) {
     return <CuteCard>작업을 찾지 못했어요.</CuteCard>;
@@ -27,8 +33,16 @@ export default function MobileInspectionPage() {
       <CuteCard className="p-4">
         <p className="text-xs font-black text-sky-600">문서번호</p>
         <h1 className="mt-1 text-2xl font-black text-slate-800">{work.document_no}</h1>
-        <p className="mt-1 text-sm font-bold text-slate-500">{work.worker_name} 작업</p>
+        <p className="mt-1 text-sm font-bold text-slate-500">{work.worker_name || "미할당"} 작업</p>
+        <p className="mt-2 text-xs font-black text-slate-400">
+          데이터: {source === "supabase" ? "Supabase" : "Mock/Fallback"}
+        </p>
       </CuteCard>
+      {(warning || error) && (
+        <CuteCard className="p-3 text-xs font-bold leading-5 text-amber-700">
+          {error || warning}
+        </CuteCard>
+      )}
       {inspections.map((inspection, index) => {
         const material = materials.find((item) => item.id === inspection.material_id);
         return (

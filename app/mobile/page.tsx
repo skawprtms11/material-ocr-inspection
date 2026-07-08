@@ -1,11 +1,12 @@
 "use client";
 
-import { ChangeEvent, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import { Barcode, Camera, CheckCircle2, ClipboardCheck, FileSearch, PackageCheck, RotateCcw } from "lucide-react";
 import { CloudButton } from "@/components/common/CloudButton";
 import { CuteCard } from "@/components/common/CuteCard";
-import { appRepository } from "@/lib/repositories/app-repository";
-import type { MaterialMaster, Work } from "@/lib/types/domain";
+import { useMobileInspectionRows, useMobileMaterials } from "@/lib/mobile/mobile-api";
+import type { MaterialMaster } from "@/lib/types/domain";
+import type { InspectionTableRowDto } from "@/lib/types/work-inspection-api";
 import { cn } from "@/lib/utils/cn";
 
 type InspectionTab = "scan" | "product" | "done";
@@ -36,38 +37,34 @@ const emptyPhotoState: ProductPhotoState = {
   compressed: false
 };
 
-function getWorkMaster(work?: Work) {
-  if (!work) return undefined;
-  return appRepository
-    .listWorkMasters({ departmentId: work.department_id, shipperId: work.shipper_id })
-    .find((item) => item.id === work.work_master_id);
-}
+function getProductTargets(row: InspectionTableRowDto | undefined, materials: MaterialMaster[]): ProductTarget[] {
+  if (!row) return [];
 
-function getWorkMaterials(work?: Work) {
-  if (!work) return [];
+  if (row.inspections.length === 0) {
+    return [
+      {
+        id: row.work.id,
+        productCode: row.finishedProductCode,
+        productName: row.finishedProductName,
+        lot: row.work.finished_product_lot ?? "-",
+        materialCode: row.finishedProductCode,
+        materialName: row.finishedProductName
+      }
+    ];
+  }
 
-  const mappings = appRepository
-    .listWorkMasterMaterials(work.work_master_id)
-    .sort((a, b) => a.inspection_order - b.inspection_order);
-  const materials = appRepository.listMaterials({ departmentId: work.department_id, shipperId: work.shipper_id });
+  return row.inspections.map((inspection, index) => {
+    const material = materials.find((item) => item.id === inspection.material_id);
 
-  return mappings
-    .map((mapping) => materials.find((material) => material.id === mapping.material_id))
-    .filter((material): material is MaterialMaster => Boolean(material));
-}
-
-function getProductTargets(work?: Work): ProductTarget[] {
-  const workMaster = getWorkMaster(work);
-  const materials = getWorkMaterials(work);
-
-  return materials.map((material, index) => ({
-    id: material.id,
-    productCode: workMaster?.code ?? work?.work_master_id.toUpperCase() ?? "-",
-    productName: workMaster?.name ?? "-",
-    lot: material.lot ?? "-",
-    materialCode: material.code,
-    materialName: material.name || `제품 ${index + 1}`
-  }));
+    return {
+      id: inspection.id,
+      productCode: row.finishedProductCode,
+      productName: row.finishedProductName,
+      lot: material?.lot ?? row.work.finished_product_lot ?? "-",
+      materialCode: material?.code ?? inspection.material_id,
+      materialName: material?.name || `검수대상 ${index + 1}`
+    };
+  });
 }
 
 function getInitialPhotoMap(targets: ProductTarget[]) {
@@ -117,23 +114,21 @@ function ChecklistRow({
   );
 }
 
-function ScanDocumentInfo({ work, targets }: { work: Work; targets: ProductTarget[] }) {
-  const workMaster = getWorkMaster(work);
-
+function ScanDocumentInfo({ row, targets }: { row: InspectionTableRowDto; targets: ProductTarget[] }) {
   return (
     <CuteCard className="p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
           <p className="text-xs font-black text-emerald-600">스캔된 문서정보</p>
-          <h2 className="mt-1 text-xl font-black text-slate-800">{work.document_no}</h2>
+          <h2 className="mt-1 text-xl font-black text-slate-800">{row.work.document_no}</h2>
         </div>
         <CheckCircle2 className="size-7 text-emerald-500" />
       </div>
       <dl className="grid grid-cols-[82px_1fr] gap-x-3 gap-y-2 text-sm">
         <dt className="font-black text-slate-400">제품코드</dt>
-        <dd className="font-bold text-slate-800">{workMaster?.code ?? "-"}</dd>
+        <dd className="font-bold text-slate-800">{row.finishedProductCode}</dd>
         <dt className="font-black text-slate-400">제품명</dt>
-        <dd className="font-bold text-slate-800">{workMaster?.name ?? "-"}</dd>
+        <dd className="font-bold text-slate-800">{row.finishedProductName}</dd>
         <dt className="font-black text-slate-400">LOT</dt>
         <dd className="font-bold text-slate-800">{targets.map((target) => target.lot).join(", ")}</dd>
       </dl>
@@ -152,15 +147,20 @@ function ScanDocumentInfo({ work, targets }: { work: Work; targets: ProductTarge
 }
 
 export default function MobileInspectionWorkflowPage() {
-  const works = useMemo(() => appRepository.listWorks({}), []);
+  const { data: rows, source, warning, isLoading, error } = useMobileInspectionRows();
+  const { data: materials } = useMobileMaterials();
   const [tab, setTab] = useState<InspectionTab>("scan");
-  const [documentNo, setDocumentNo] = useState(works[0]?.document_no ?? "");
+  const [documentNo, setDocumentNo] = useState("");
   const [scannedWorkId, setScannedWorkId] = useState("");
   const [scanError, setScanError] = useState("");
   const [photoStates, setPhotoStates] = useState<Record<string, ProductPhotoState>>({});
 
-  const scannedWork = works.find((work) => work.id === scannedWorkId);
-  const targets = getProductTargets(scannedWork);
+  useEffect(() => {
+    if (!documentNo && rows[0]) setDocumentNo(rows[0].work.document_no);
+  }, [documentNo, rows]);
+
+  const scannedRow = rows.find((row) => row.work.id === scannedWorkId);
+  const targets = useMemo(() => getProductTargets(scannedRow, materials), [materials, scannedRow]);
   const completedCount = targets.filter((target) => isProductSaved(photoStates[target.id])).length;
   const allProductsSaved = targets.length > 0 && completedCount === targets.length;
 
@@ -175,7 +175,7 @@ export default function MobileInspectionWorkflowPage() {
   };
 
   const handleScan = () => {
-    const matched = works.find((work) => work.document_no.toLowerCase() === documentNo.trim().toLowerCase());
+    const matched = rows.find((row) => row.work.document_no.toLowerCase() === documentNo.trim().toLowerCase());
 
     if (!matched) {
       setScannedWorkId("");
@@ -184,25 +184,25 @@ export default function MobileInspectionWorkflowPage() {
       return;
     }
 
-    const nextTargets = getProductTargets(matched);
-    setScannedWorkId(matched.id);
+    const nextTargets = getProductTargets(matched, materials);
+    setScannedWorkId(matched.work.id);
     setScanError("");
     setPhotoStates(getInitialPhotoMap(nextTargets));
   };
 
   const startInspection = () => {
-    if (!scannedWork || targets.length === 0) return;
+    if (!scannedRow || targets.length === 0) return;
     setTab("product");
   };
 
   const captureProductPhoto = (target: ProductTarget, event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file || !scannedWork) return;
+    if (!file || !scannedRow) return;
 
     const safeName = file.name.replace(/\s+/g, "-");
     updateProductState(target.id, {
       photoName: file.name,
-      storagePath: `inspection-images/${scannedWork.id}/products/${target.materialCode}-${safeName}`,
+      storagePath: `inspection-images/${scannedRow.work.id}/products/${target.materialCode}-${safeName}`,
       compressed: true
     });
     event.target.value = "";
@@ -226,6 +226,9 @@ export default function MobileInspectionWorkflowPage() {
         <h1 className="mt-2 text-2xl font-black text-slate-800">
           {tab === "scan" ? "작업문서스캔" : tab === "product" ? "제품검수" : "검수 완료"}
         </h1>
+        <p className="mt-2 text-xs font-black text-slate-400">
+          {isLoading ? "데이터 동기화 중" : `데이터: ${source === "supabase" ? "Supabase" : "Mock/Fallback"}`}
+        </p>
         <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-black">
           <button
             type="button"
@@ -236,7 +239,7 @@ export default function MobileInspectionWorkflowPage() {
           </button>
           <button
             type="button"
-            disabled={!scannedWork}
+            disabled={!scannedRow}
             onClick={() => setTab("product")}
             className={cn(
               "rounded-full px-3 py-2 disabled:opacity-50",
@@ -247,6 +250,12 @@ export default function MobileInspectionWorkflowPage() {
           </button>
         </div>
       </CuteCard>
+
+      {(warning || error) && (
+        <CuteCard className="p-3 text-xs font-bold leading-5 text-amber-700">
+          {error || warning}
+        </CuteCard>
+      )}
 
       {tab === "scan" && (
         <>
@@ -278,20 +287,20 @@ export default function MobileInspectionWorkflowPage() {
             </CloudButton>
           </CuteCard>
 
-          {scannedWork && <ScanDocumentInfo work={scannedWork} targets={targets} />}
+          {scannedRow && <ScanDocumentInfo row={scannedRow} targets={targets} />}
 
-          <CloudButton className="w-full" disabled={!scannedWork || targets.length === 0} onClick={startInspection}>
+          <CloudButton className="w-full" disabled={!scannedRow || targets.length === 0} onClick={startInspection}>
             <PackageCheck className="size-4" />
             검수시작
           </CloudButton>
         </>
       )}
 
-      {tab === "product" && scannedWork && (
+      {tab === "product" && scannedRow && (
         <>
           <CuteCard className="p-4">
             <p className="text-xs font-black text-violet-600">제품검수</p>
-            <h2 className="mt-1 text-xl font-black text-slate-800">{scannedWork.document_no}</h2>
+            <h2 className="mt-1 text-xl font-black text-slate-800">{scannedRow.work.document_no}</h2>
             <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
               제품정보가 맞는지 체크하고, 대상 제품 사진을 촬영하면 압축 후 서버 저장 경로가 생성됩니다.
             </p>
