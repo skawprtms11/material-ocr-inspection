@@ -1,15 +1,102 @@
 "use client";
 
 import { ChevronDown, UserRound } from "lucide-react";
-import { appRepository } from "@/lib/repositories/app-repository";
+import { useEffect, useMemo, useState } from "react";
 import { useFilterStore } from "@/lib/state/filter-store";
 import { roleLabels } from "@/lib/constants/status";
+import type { AppUser, Department, Shipper } from "@/lib/types/domain";
+
+type FilterOptionsResponse = {
+  source: "supabase" | "mock";
+  users: AppUser[];
+  departments: Department[];
+  shippers: Shipper[];
+};
 
 export function TopFilterBar() {
   const { departmentId, shipperId, setDepartmentId, setShipperId } = useFilterStore();
-  const user = appRepository.getCurrentUser();
-  const departments = appRepository.listAllowedDepartments();
-  const shippers = appRepository.listAllowedShippers(departmentId);
+  const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [shippers, setShippers] = useState<Shipper[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadFilterOptions() {
+      setIsLoading(true);
+
+      try {
+        const response = await fetch("/api/users");
+        if (!response.ok) throw new Error("필터 권한 정보를 불러오지 못했습니다.");
+        const data = (await response.json()) as FilterOptionsResponse;
+        const user =
+          data.users.find((item) => item.email === "admin@example.com") ??
+          data.users.find((item) => item.role === "admin") ??
+          data.users[0] ??
+          null;
+
+        if (!isMounted) return;
+        setCurrentUser(user);
+        setDepartments(data.departments);
+        setShippers(data.shippers);
+      } catch {
+        if (!isMounted) return;
+        setCurrentUser(null);
+        setDepartments([]);
+        setShippers([]);
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    }
+
+    void loadFilterOptions();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const allowedDepartments = useMemo(() => {
+    if (!currentUser) return departments.filter((department) => department.is_active);
+    const allowed = new Set(currentUser.department_ids);
+    const scoped = departments.filter((department) => department.is_active && (allowed.size === 0 || allowed.has(department.id)));
+    return scoped.length > 0 ? scoped : departments.filter((department) => department.is_active);
+  }, [currentUser, departments]);
+
+  const allowedShippers = useMemo(() => {
+    if (!departmentId) return [];
+    const allowed = new Set(currentUser?.shipper_ids ?? []);
+    return shippers.filter(
+      (shipper) =>
+        shipper.is_active &&
+        shipper.department_id === departmentId &&
+        (allowed.size === 0 || allowed.has(shipper.id))
+    );
+  }, [currentUser, departmentId, shippers]);
+
+  useEffect(() => {
+    if (isLoading || allowedDepartments.length === 0) return;
+    if (!departmentId || !allowedDepartments.some((department) => department.id === departmentId)) {
+      setDepartmentId(allowedDepartments[0].id);
+    }
+  }, [allowedDepartments, departmentId, isLoading, setDepartmentId]);
+
+  useEffect(() => {
+    if (isLoading || !departmentId) return;
+    if (allowedShippers.length === 0) {
+      if (shipperId) setShipperId("");
+      return;
+    }
+    if (!shipperId || !allowedShippers.some((shipper) => shipper.id === shipperId)) {
+      setShipperId(allowedShippers[0].id);
+    }
+  }, [allowedShippers, departmentId, isLoading, setShipperId, shipperId]);
+
+  const user = currentUser ?? {
+    name: isLoading ? "불러오는 중" : "사용자",
+    role: "viewer" as const
+  };
 
   return (
     <header className="sticky top-0 z-20 border-b border-white/70 bg-[#f8fbff]/78 px-4 py-3 backdrop-blur md:px-8">
@@ -24,7 +111,7 @@ export function TopFilterBar() {
               className="h-11 min-w-44 appearance-none rounded-full border border-sky-100 bg-white px-4 pr-10 text-sm font-bold text-slate-700 shadow-sm outline-none focus:ring-2 focus:ring-sky-200"
             >
               <option value="">부서 선택</option>
-              {departments.map((department) => (
+              {allowedDepartments.map((department) => (
                 <option key={department.id} value={department.id}>
                   {department.name}
                 </option>
@@ -41,7 +128,7 @@ export function TopFilterBar() {
               className="h-11 min-w-44 appearance-none rounded-full border border-violet-100 bg-white px-4 pr-10 text-sm font-bold text-slate-700 shadow-sm outline-none focus:ring-2 focus:ring-violet-200 disabled:opacity-50"
             >
               <option value="">화주 선택</option>
-              {shippers.map((shipper) => (
+              {allowedShippers.map((shipper) => (
                 <option key={shipper.id} value={shipper.id}>
                   {shipper.name}
                 </option>
