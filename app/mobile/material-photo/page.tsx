@@ -30,6 +30,8 @@ type VisionPhoto = {
   compressedSize: number;
   width: number;
   height: number;
+  rect: Rect;
+  regionConfirmed: boolean;
 };
 type VisionPairScore = {
   a: number;
@@ -55,10 +57,10 @@ const statusFilters: { value: StatusFilter; label: string }[] = [
 ];
 
 function accuracyText(count: number) {
-  if (count >= visionMaxPhotos) return "5장 압축 완료: 일치율 계산 가능";
+  if (count >= visionMaxPhotos) return "5장 촬영 완료: 사진별 영역을 확정하세요";
   if (count === 4) return "정확도 상승: 높음";
   if (count === 3) return "정확도 상승: 보통";
-  return "5장까지 촬영하면 이미지 간 일치율을 계산합니다";
+  return "5장 촬영 후 사진별 영역을 선택하면 일치율을 계산합니다";
 }
 
 function hasAnyRegistration(status: Record<RegistrationMethod, Set<string>>, materialId: string) {
@@ -196,10 +198,9 @@ function compareVisionSignatures(a: Uint8Array, b: Uint8Array) {
 }
 
 async function compareVisionPhotos(
-  photos: VisionPhoto[],
-  rect: Rect
+  photos: VisionPhoto[]
 ): Promise<Omit<Extract<VisionSimilarityState, { status: "ready" }>, "status" | "comparisonKey">> {
-  const signatures = await Promise.all(photos.map((photo) => getVisionSignature(photo.file, rect)));
+  const signatures = await Promise.all(photos.map((photo) => getVisionSignature(photo.file, photo.rect)));
   const pairScores: VisionPairScore[] = [];
 
   for (let a = 0; a < signatures.length; a += 1) {
@@ -214,14 +215,17 @@ async function compareVisionPhotos(
   return { average, minimum, pairScores };
 }
 
-function buildVisionComparisonKey(photos: VisionPhoto[], rect: Rect) {
-  const safeRect = constrainRect(rect);
-  const photoKey = photos.map((photo) => photo.id).join("|");
-  const rectKey = [safeRect.x, safeRect.y, safeRect.width, safeRect.height]
-    .map((value) => value.toFixed(2))
-    .join(",");
+function buildVisionComparisonKey(photos: VisionPhoto[]) {
+  return photos
+    .map((photo) => {
+      const safeRect = constrainRect(photo.rect);
+      const rectKey = [safeRect.x, safeRect.y, safeRect.width, safeRect.height]
+        .map((value) => value.toFixed(2))
+        .join(",");
 
-  return `${photoKey}:${rectKey}`;
+      return `${photo.id}:${photo.regionConfirmed ? "1" : "0"}:${rectKey}`;
+    })
+    .join("|");
 }
 
 function constrainRect(rect: Rect): Rect {
@@ -970,16 +974,29 @@ function VisionRegistration({
   onBack: () => void;
 }) {
   const [photos, setPhotos] = useState<VisionPhoto[]>([]);
-  const [rect, setRect] = useState(defaultRect);
+  const [activePhotoIndex, setActivePhotoIndex] = useState(0);
   const [compressing, setCompressing] = useState(false);
   const [captureError, setCaptureError] = useState("");
   const [similarity, setSimilarity] = useState<VisionSimilarityState>({
     status: "idle",
-    message: "5장을 촬영하면 선택 영역 기준 일치율을 계산합니다."
+    message: "5장 촬영 후 각 사진의 영역을 확정하면 일치율을 계산합니다."
   });
   const [saved, setSaved] = useState(false);
+  const photosRef = useRef<VisionPhoto[]>([]);
   const photoUrlsRef = useRef<string[]>([]);
   const mountedRef = useRef(true);
+  const captureTokenRef = useRef(0);
+
+  const updatePhotos = (updater: (current: VisionPhoto[]) => VisionPhoto[]) => {
+    const nextPhotos = updater(photosRef.current);
+    photosRef.current = nextPhotos;
+    setPhotos(nextPhotos);
+    return nextPhotos;
+  };
+
+  useEffect(() => {
+    photosRef.current = photos;
+  }, [photos]);
 
   useEffect(() => {
     return () => {
@@ -988,23 +1005,37 @@ function VisionRegistration({
     };
   }, []);
 
-  const currentComparisonKey = useMemo(() => buildVisionComparisonKey(photos, rect), [photos, rect]);
+  const activePhoto = photos[activePhotoIndex] ?? photos[0];
+  const confirmedRegionCount = photos.filter((photo) => photo.regionConfirmed).length;
+  const allRegionsConfirmed = photos.length === visionMaxPhotos && confirmedRegionCount === visionMaxPhotos;
+  const currentComparisonKey = useMemo(() => buildVisionComparisonKey(photos), [photos]);
 
   useEffect(() => {
     let cancelled = false;
     const comparisonKey = currentComparisonKey;
 
-    if (photos.length < 2) {
+    if (photos.length < visionMaxPhotos) {
       setSimilarity({
         status: "idle",
-        message: photos.length === 0 ? "5장을 촬영하면 선택 영역 기준 일치율을 계산합니다." : "2장 이상 촬영하면 이미지 간 일치율을 미리 계산합니다."
+        message:
+          photos.length === 0
+            ? "5장 촬영 후 각 사진의 영역을 확정하면 일치율을 계산합니다."
+            : `${visionMaxPhotos - photos.length}장 더 촬영한 뒤 사진별 영역을 확정하세요.`
+      });
+      return;
+    }
+
+    if (!allRegionsConfirmed) {
+      setSimilarity({
+        status: "idle",
+        message: `사진별 영역 확정 ${confirmedRegionCount}/${visionMaxPhotos} · 각 사진을 선택해 비교할 영역을 맞춰주세요.`
       });
       return;
     }
 
     setSimilarity({ status: "processing", message: "선택 영역 기준으로 압축 이미지 일치율을 계산 중입니다." });
     const timer = window.setTimeout(() => {
-      void compareVisionPhotos(photos, constrainRect(rect))
+      void compareVisionPhotos(photos)
         .then((result) => {
           if (!cancelled) setSimilarity({ status: "ready", comparisonKey, ...result });
         })
@@ -1022,12 +1053,14 @@ function VisionRegistration({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [photos, rect, currentComparisonKey]);
+  }, [photos, allRegionsConfirmed, confirmedRegionCount, currentComparisonKey]);
 
   const capture = async (event: ChangeEvent<HTMLInputElement>) => {
     const input = event.currentTarget;
     const file = event.target.files?.[0];
     if (!file || photos.length >= visionMaxPhotos || compressing) return;
+    const captureToken = captureTokenRef.current + 1;
+    captureTokenRef.current = captureToken;
 
     setCompressing(true);
     setCaptureError("");
@@ -1040,26 +1073,34 @@ function VisionRegistration({
       try {
         url = URL.createObjectURL(compressedFile);
         const image = await loadImage(url);
-        if (!mountedRef.current) {
+        if (!mountedRef.current || captureTokenRef.current !== captureToken) {
           URL.revokeObjectURL(url);
           return;
         }
 
-        photoUrlsRef.current = [...photoUrlsRef.current, url];
+        const currentPhotos = photosRef.current;
+        const nextIndex = currentPhotos.length;
+        if (nextIndex >= visionMaxPhotos) {
+          URL.revokeObjectURL(url);
+          return;
+        }
 
-        setPhotos((current) => [
-          ...current,
-          {
-            id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-            name: compressedFile.name,
-            url,
-            file: compressedFile,
-            originalSize: file.size,
-            compressedSize: compressedFile.size,
-            width: image.naturalWidth,
-            height: image.naturalHeight
-          }
-        ]);
+        const nextPhoto: VisionPhoto = {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          name: compressedFile.name,
+          url,
+          file: compressedFile,
+          originalSize: file.size,
+          compressedSize: compressedFile.size,
+          width: image.naturalWidth,
+          height: image.naturalHeight,
+          rect: defaultRect,
+          regionConfirmed: false
+        };
+
+        photoUrlsRef.current = [...photoUrlsRef.current, url];
+        updatePhotos((current) => [...current, nextPhoto]);
+        setActivePhotoIndex(nextIndex);
       } catch (error) {
         if (url) URL.revokeObjectURL(url);
         throw error;
@@ -1069,23 +1110,57 @@ function VisionRegistration({
         setCaptureError(error instanceof Error ? error.message : "비전 사진 압축 중 오류가 발생했습니다.");
       }
     } finally {
-      if (mountedRef.current) setCompressing(false);
+      if (mountedRef.current && captureTokenRef.current === captureToken) setCompressing(false);
       input.value = "";
     }
   };
 
   const retry = () => {
-    photos.forEach((photo) => URL.revokeObjectURL(photo.url));
+    captureTokenRef.current += 1;
+    photosRef.current.forEach((photo) => URL.revokeObjectURL(photo.url));
     photoUrlsRef.current = [];
-    setPhotos([]);
-    setRect(defaultRect);
+    updatePhotos(() => []);
+    setActivePhotoIndex(0);
+    setCompressing(false);
     setCaptureError("");
-    setSimilarity({ status: "idle", message: "5장을 촬영하면 선택 영역 기준 일치율을 계산합니다." });
+    setSimilarity({ status: "idle", message: "5장 촬영 후 각 사진의 영역을 확정하면 일치율을 계산합니다." });
     setSaved(false);
   };
 
   const handleRectChange = (nextRect: Rect) => {
-    setRect(constrainRect(nextRect));
+    if (!activePhoto) return;
+
+    updatePhotos((current) =>
+      current.map((photo, index) =>
+        index === activePhotoIndex
+          ? {
+              ...photo,
+              rect: constrainRect(nextRect),
+              regionConfirmed: false
+            }
+          : photo
+      )
+    );
+    setSaved(false);
+  };
+
+  const confirmActiveRegion = () => {
+    if (!activePhoto || photos.length < visionMaxPhotos) return;
+
+    updatePhotos((current) =>
+      current.map((photo, index) =>
+        index === activePhotoIndex
+          ? {
+              ...photo,
+              rect: constrainRect(photo.rect),
+              regionConfirmed: true
+            }
+          : photo
+      )
+    );
+
+    const nextUnconfirmedIndex = photos.findIndex((photo, index) => index !== activePhotoIndex && !photo.regionConfirmed);
+    if (nextUnconfirmedIndex >= 0) setActivePhotoIndex(nextUnconfirmedIndex);
     setSaved(false);
   };
 
@@ -1117,22 +1192,32 @@ function VisionRegistration({
       </div>
 
       <TouchRegionSelector
-        rect={rect}
+        rect={activePhoto?.rect ?? defaultRect}
         onChange={handleRectChange}
         tone="violet"
-        aspectRatio={photos[0]?.width && photos[0]?.height ? `${photos[0].width} / ${photos[0].height}` : undefined}
+        aspectRatio={activePhoto?.width && activePhoto?.height ? `${activePhoto.width} / ${activePhoto.height}` : undefined}
       >
-        {photos[0] ? (
+        {activePhoto ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={photos[0].url} alt="비전 기준 이미지" className="pointer-events-none h-full w-full object-contain" />
+          <img src={activePhoto.url} alt={`비전 영역 선택 ${activePhotoIndex + 1}`} className="pointer-events-none h-full w-full object-contain" />
         ) : (
           <div className="pointer-events-none flex h-full flex-col items-center justify-center text-center">
             <Camera className="mb-3 size-12 text-violet-400" />
-            <p className="font-black text-slate-800">비전 기준 사진 촬영</p>
-            <p className="mt-2 text-xs font-semibold text-slate-500">첫 사진 촬영 후 전체 사진 기준으로 검사 영역을 지정합니다.</p>
+            <p className="font-black text-slate-800">비전 사진 5장 촬영</p>
+            <p className="mt-2 text-xs font-semibold text-slate-500">5장을 찍은 뒤 각 사진을 선택해 비교 영역을 지정합니다.</p>
           </div>
         )}
       </TouchRegionSelector>
+
+      <CloudButton
+        className="mt-3 w-full"
+        tone={activePhoto?.regionConfirmed ? "soft" : undefined}
+        disabled={!activePhoto || photos.length < visionMaxPhotos}
+        onClick={confirmActiveRegion}
+      >
+        <CheckCircle2 className="size-4" />
+        {activePhoto?.regionConfirmed ? `${activePhotoIndex + 1}번 영역 확정됨` : `${activePhotoIndex + 1}번 사진 영역 확정`}
+      </CloudButton>
 
       <label className={cn("mt-4 flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-full px-4 text-sm font-extrabold shadow-sm", photos.length >= visionMaxPhotos ? "bg-slate-100 text-slate-300" : "bg-sky-500 text-white")}>
         <Camera className="size-4" />
@@ -1151,11 +1236,24 @@ function VisionRegistration({
           const photo = photos[index];
 
           return (
-            <div key={photo?.id ?? index} className="relative aspect-square overflow-hidden rounded-xl bg-slate-100">
+            <button
+              key={photo?.id ?? index}
+              type="button"
+              disabled={!photo}
+              onClick={() => setActivePhotoIndex(index)}
+              className={cn(
+                "relative aspect-square overflow-hidden rounded-xl bg-slate-100 text-left transition",
+                photo && index === activePhotoIndex ? "ring-2 ring-violet-500 ring-offset-2 ring-offset-white" : "ring-1 ring-white/80",
+                !photo && "cursor-default"
+              )}
+            >
               {photo ? (
                 <>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={photo.url} alt={`비전 등록 ${index + 1}`} className="h-full w-full object-cover" />
+                  <span className={cn("absolute left-1 top-1 rounded-full px-1.5 py-0.5 text-[9px] font-black shadow-sm", photo.regionConfirmed ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700")}>
+                    {photo.regionConfirmed ? "영역완료" : "영역대기"}
+                  </span>
                   <span className="absolute bottom-1 left-1 rounded-full bg-white/90 px-1.5 py-0.5 text-[9px] font-black text-violet-700 shadow-sm">
                     {formatFileSize(photo.compressedSize)}
                   </span>
@@ -1163,13 +1261,13 @@ function VisionRegistration({
               ) : (
                 <span className="flex h-full items-center justify-center text-[10px] font-black text-slate-300">{index + 1}</span>
               )}
-            </div>
+            </button>
           );
         })}
       </div>
 
-      <div className={cn("mt-3 rounded-2xl p-3 text-sm font-bold", photos.length === visionMaxPhotos ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>
-        {accuracyText(photos.length)}
+      <div className={cn("mt-3 rounded-2xl p-3 text-sm font-bold", allRegionsConfirmed ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>
+        {photos.length === visionMaxPhotos ? `사진별 영역 확정 ${confirmedRegionCount}/${visionMaxPhotos}` : accuracyText(photos.length)}
       </div>
 
       <div
