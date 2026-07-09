@@ -10,8 +10,8 @@ type FilterState = {
 };
 
 export const useFilterStore = create<FilterState>((set) => ({
-  departmentId: "",
-  shipperId: "",
+  departmentId: "11111111-1111-1111-1111-111111111111",
+  shipperId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
   setDepartmentId: (departmentId) => set({ departmentId, shipperId: "" }),
   setShipperId: (shipperId) => set({ shipperId })
 }));
