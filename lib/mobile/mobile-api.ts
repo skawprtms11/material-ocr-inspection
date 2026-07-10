@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useFilterStore } from "@/lib/state/filter-store";
+import { defaultFilterScope, useFilterStore } from "@/lib/state/filter-store";
 import type { MaterialMaster, Work } from "@/lib/types/domain";
 import type { InspectionTableRowDto, WorkInspectionDataResponse } from "@/lib/types/work-inspection-api";
 import type { WorkStatusDataResponse, WorkStatusRowDto } from "@/lib/types/work-status-api";
@@ -41,13 +41,16 @@ function useScopedMobileData<T>(
   const [error, setError] = useState("");
 
   const reload = useCallback(async () => {
-    if (!departmentId || !shipperId) return;
+    const scope = {
+      departmentId: departmentId || defaultFilterScope.departmentId,
+      shipperId: shipperId || defaultFilterScope.shipperId
+    };
 
     setIsLoading(true);
     setError("");
 
     try {
-      const response = await fetch(buildPath({ departmentId, shipperId }), { cache: "no-store" });
+      const response = await fetch(buildPath(scope), { cache: "no-store" });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error ?? errorMessage);
 

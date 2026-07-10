@@ -11,6 +11,26 @@ export function isUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
+const seededDepartmentIdToMockId: Record<string, string> = {
+  "11111111-1111-1111-1111-111111111111": "dept-fulfillment",
+  "22222222-2222-2222-2222-222222222222": "dept-package",
+  "33333333-3333-3333-3333-333333333333": "dept-quality"
+};
+
+const seededShipperIdToMockId: Record<string, string> = {
+  "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa": "shipper-mint",
+  "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb": "shipper-cloud",
+  "cccccccc-cccc-cccc-cccc-cccccccccccc": "shipper-lavender",
+  "dddddddd-dddd-dddd-dddd-dddddddddddd": "shipper-cream"
+};
+
+export function toMockScopeIds(departmentId: string, shipperId: string) {
+  return {
+    departmentId: seededDepartmentIdToMockId[departmentId] ?? departmentId,
+    shipperId: seededShipperIdToMockId[shipperId] ?? shipperId
+  };
+}
+
 export async function resolveScopeIds(supabase: SupabaseClient, departmentId: string, shipperId: string) {
   let resolvedDepartmentId = departmentId;
   let resolvedShipperId = shipperId;

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { appRepository } from "@/lib/repositories/app-repository";
-import { errorMessage, resolveScopeIds } from "@/lib/repositories/supabase-scope";
+import { errorMessage, resolveScopeIds, toMockScopeIds } from "@/lib/repositories/supabase-scope";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { InspectionMethod, MaterialMaster } from "@/lib/types/domain";
 
@@ -44,10 +44,12 @@ function toMaterial(row: DbRow): MaterialMaster {
 }
 
 function mockData(departmentId: string, shipperId: string, warning?: string) {
+  const scope = toMockScopeIds(departmentId, shipperId);
+
   return {
     source: "mock" as const,
     warning,
-    materials: appRepository.listMaterials({ departmentId, shipperId })
+    materials: appRepository.listMaterials(scope)
   };
 }
 

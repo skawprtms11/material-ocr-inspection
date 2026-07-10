@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { appRepository } from "@/lib/repositories/app-repository";
-import { errorMessage, resolveScopeIds } from "@/lib/repositories/supabase-scope";
+import { errorMessage, resolveScopeIds, toMockScopeIds } from "@/lib/repositories/supabase-scope";
 import { fetchWorkMasterData } from "@/lib/repositories/work-master-supabase-repository";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { AdminReviewRequest, InspectionImage, Work, WorkInspection } from "@/lib/types/domain";
@@ -121,8 +121,9 @@ function getInspectionStep(
 }
 
 function mockRows(departmentId: string, shipperId: string) {
-  const works = appRepository.listWorks({ departmentId, shipperId });
-  const workMasters = appRepository.listWorkMasters({ departmentId, shipperId });
+  const scope = toMockScopeIds(departmentId, shipperId);
+  const works = appRepository.listWorks(scope);
+  const workMasters = appRepository.listWorkMasters(scope);
   const requests = appRepository.listAdminReviewRequests();
 
   return works.map((work, index): InspectionTableRowDto => {

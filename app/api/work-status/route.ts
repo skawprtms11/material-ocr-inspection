@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { appRepository } from "@/lib/repositories/app-repository";
-import { errorMessage, resolveScopeIds } from "@/lib/repositories/supabase-scope";
+import { errorMessage, resolveScopeIds, toMockScopeIds } from "@/lib/repositories/supabase-scope";
 import { fetchWorkMasterData } from "@/lib/repositories/work-master-supabase-repository";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { Work, WorkStatus } from "@/lib/types/domain";
@@ -45,8 +45,9 @@ function toWork(row: DbRow): Work & { work_type?: string; quantity?: number; fin
 }
 
 function mockRows(departmentId: string, shipperId: string): WorkStatusRowDto[] {
-  const works = appRepository.listWorks({ departmentId, shipperId });
-  const workMasters = appRepository.listWorkMasters({ departmentId, shipperId });
+  const scope = toMockScopeIds(departmentId, shipperId);
+  const works = appRepository.listWorks(scope);
+  const workMasters = appRepository.listWorkMasters(scope);
 
   return works.map((work, index) => {
     const workMaster = workMasters.find((item) => item.id === work.work_master_id);

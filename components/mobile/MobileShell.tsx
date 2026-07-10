@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ClipboardCheck, Cloud, Home, ListChecks, PackagePlus, Settings } from "lucide-react";
+import { MobileScopeInitializer } from "@/components/mobile/MobileScopeInitializer";
 import { cn } from "@/lib/utils/cn";
 
 const navItems = [
@@ -27,7 +28,9 @@ export function MobileShell({ children }: { children: ReactNode }) {
           <Home className="size-5" />
         </Link>
       </header>
-      <main className="mx-auto min-h-[calc(100vh-57px)] w-full max-w-md px-4 pb-28 pt-5">{children}</main>
+      <main className="mx-auto min-h-[calc(100vh-57px)] w-full max-w-md px-4 pb-28 pt-5">
+        <MobileScopeInitializer>{children}</MobileScopeInitializer>
+      </main>
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-white/80 bg-white/90 px-3 pb-[max(env(safe-area-inset-bottom),0.75rem)] pt-2 shadow-[0_-12px_40px_rgba(118,139,172,0.18)] backdrop-blur">
         <div className="mx-auto grid max-w-md grid-cols-4 gap-1">
           {navItems.map((item) => {

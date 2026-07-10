@@ -78,6 +78,8 @@ export async function GET() {
     if (usersResult.error) throw usersResult.error;
     if (departmentsResult.error) throw departmentsResult.error;
     if (shippersResult.error) throw shippersResult.error;
+    if (departmentPermissions.error) throw departmentPermissions.error;
+    if (shipperPermissions.error) throw shipperPermissions.error;
 
     const departmentsByUser = ((departmentPermissions.data ?? []) as DbRow[]).reduce<Record<string, string[]>>((acc, row) => {
       const userId = text(row.user_id);
