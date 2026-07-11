@@ -10,7 +10,7 @@ type Source = "supabase" | "mock";
 
 export type MobileDataState<T> = {
   data: T;
-  source: Source;
+  source: Source | null;
   warning?: string;
   isLoading: boolean;
   error: string;
@@ -35,9 +35,9 @@ function useScopedMobileData<T>(
 ): MobileDataState<T> {
   const { departmentId, shipperId } = useFilterStore();
   const [data, setData] = useState<T>(initialData);
-  const [source, setSource] = useState<Source>("mock");
+  const [source, setSource] = useState<Source | null>(null);
   const [warning, setWarning] = useState<string | undefined>();
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
   const reload = useCallback(async () => {
@@ -61,7 +61,7 @@ function useScopedMobileData<T>(
     } catch (error) {
       setError(getErrorMessage(error, errorMessage));
       setData(initialData);
-      setSource("mock");
+      setSource(null);
       setWarning(undefined);
     } finally {
       setIsLoading(false);

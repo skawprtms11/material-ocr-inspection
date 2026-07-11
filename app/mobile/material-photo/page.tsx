@@ -656,7 +656,15 @@ export default function MobileMaterialRegistrationPage() {
         <h1 className="mt-1 text-2xl font-black text-slate-800">부자재 목록</h1>
         <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">관리자웹에서 등록한 부자재 목록 중 하나를 선택합니다.</p>
         <p className="mt-2 text-xs font-black text-slate-400">
-          {isLoading ? "데이터 동기화 중" : `데이터: ${source === "supabase" ? "Supabase" : "Mock/Fallback"}`}
+          {isLoading
+            ? "Supabase 부자재마스터 연결 확인 중"
+            : error
+              ? "Supabase 연결 오류"
+              : source === "supabase"
+                ? "데이터: Supabase 부자재마스터"
+                : source === "mock"
+                  ? "데이터: Mock/Fallback"
+                  : "데이터 연결 대기"}
         </p>
       </CuteCard>
 
