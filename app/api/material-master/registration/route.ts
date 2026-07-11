@@ -14,6 +14,11 @@ type RegistrationPayload = {
   similarity?: number;
 };
 
+type RegistrationDeletePayload = {
+  materialId?: string;
+  method?: "OCR" | "VISION";
+};
+
 const materialImageBucket = "material-images";
 
 function text(value: unknown, fallback = "") {
@@ -76,11 +81,48 @@ function storagePath(materialId: string, method: "OCR" | "VISION", file: File, i
   return `mobile/${safeMaterialId}/${method.toLowerCase()}/${stamp}-${safeFileName}.${fileExtension(file)}`;
 }
 
+function defaultRoi(): RoiRect {
+  return { x: 0, y: 0, width: 100, height: 100 };
+}
+
+function parseOptionalJson<T>(value: string, field: string): T | undefined {
+  if (!value) return undefined;
+
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    throw new Error(`${field} 형식이 올바르지 않습니다.`);
+  }
+}
+
+function numberField(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function validateRoi(value: unknown) {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("roi 형식이 올바르지 않습니다.");
+
+  const record = value as Record<string, unknown>;
+  const x = numberField(record.x);
+  const y = numberField(record.y);
+  const width = numberField(record.width);
+  const height = numberField(record.height);
+
+  if (x === null || y === null || width === null || height === null) throw new Error("roi 값은 숫자여야 합니다.");
+  if (x < 0 || y < 0 || width <= 0 || height <= 0 || x + width > 100 || y + height > 100) {
+    throw new Error("roi 범위는 0~100 안에 있어야 합니다.");
+  }
+
+  return { x, y, width, height };
+}
+
 async function parseRequest(request: NextRequest): Promise<RegistrationPayload & { files: File[] }> {
   const contentType = request.headers.get("content-type") ?? "";
 
   if (!contentType.includes("multipart/form-data")) {
-    return { ...((await request.json()) as RegistrationPayload), files: [] };
+    const body = (await request.json()) as RegistrationPayload;
+    return { ...body, roi: validateRoi(body.roi), files: [] };
   }
 
   const formData = await request.formData();
@@ -95,12 +137,69 @@ async function parseRequest(request: NextRequest): Promise<RegistrationPayload &
     materialId: text(formData.get("materialId")),
     method: text(formData.get("method")) as RegistrationPayload["method"],
     imagePath: text(formData.get("imagePath")) || undefined,
-    roi: text(formData.get("roi")) ? (JSON.parse(text(formData.get("roi"))) as RoiRect) : undefined,
+    roi: validateRoi(parseOptionalJson<RoiRect>(text(formData.get("roi")), "roi")),
     expectedText: text(formData.get("expectedText")) || undefined,
     recognizedText: text(formData.get("recognizedText")) || undefined,
     similarity: text(formData.get("similarity")) ? Number(text(formData.get("similarity"))) : undefined,
     files
   };
+}
+
+async function saveInspectionRegion(
+  supabase: NonNullable<ReturnType<typeof createServerSupabaseClient>>,
+  body: RegistrationPayload,
+  uploadedPaths: string[],
+  imagePath: string
+) {
+  if (!body.materialId || !body.method) return;
+
+  const methodLabel = body.method === "OCR" ? "OCR 선택 영역" : "비전 선택 영역";
+  const options = {
+    source: "mobile-material-registration",
+    recognizedText: body.recognizedText ?? "",
+    similarity: typeof body.similarity === "number" ? body.similarity : undefined,
+    imagePath,
+    uploadedPaths,
+    savedAt: new Date().toISOString()
+  };
+
+  const { error: deleteError } = await supabase
+    .from("material_inspection_regions")
+    .delete()
+    .eq("material_id", body.materialId)
+    .eq("method", body.method);
+
+  if (deleteError) throw deleteError;
+
+  const { error } = await supabase.from("material_inspection_regions").insert({
+    material_id: body.materialId,
+    method: body.method,
+    name: methodLabel,
+    roi: body.roi ?? defaultRoi(),
+    expected_text: body.expectedText ?? "",
+    similarity_threshold: body.method === "VISION" && typeof body.similarity === "number" ? body.similarity : null,
+    options
+  });
+
+  if (error) throw error;
+}
+
+function deletedMethodSet(method?: "OCR" | "VISION") {
+  return {
+    ocr: !method || method === "OCR",
+    vision: !method || method === "VISION"
+  };
+}
+
+function nextReferencePath(row: DbRow, deleteOcr: boolean, deleteVision: boolean) {
+  const currentReference = text(row.reference_image_path);
+  const ocrPath = text(row.ocr_image_path);
+  const visionPath = text(row.vision_image_path);
+  const nextOcrPath = deleteOcr ? "" : ocrPath;
+  const nextVisionPath = deleteVision ? "" : visionPath;
+
+  if (currentReference && currentReference !== ocrPath && currentReference !== visionPath) return currentReference;
+  return nextOcrPath || nextVisionPath || "";
 }
 
 async function ensureMaterialImageBucket(supabase: NonNullable<ReturnType<typeof createServerSupabaseClient>>) {
@@ -143,7 +242,13 @@ async function uploadFiles(
 }
 
 export async function POST(request: NextRequest) {
-  const body = await parseRequest(request);
+  let body: RegistrationPayload & { files: File[] };
+
+  try {
+    body = await parseRequest(request);
+  } catch (error) {
+    return NextResponse.json({ error: errorMessage(error, "등록 요청 형식이 올바르지 않습니다.") }, { status: 400 });
+  }
 
   if (!body.materialId || !body.method) {
     return NextResponse.json({ error: "부자재 ID와 등록 방식이 필요합니다." }, { status: 400 });
@@ -196,9 +301,71 @@ export async function POST(request: NextRequest) {
 
     if (error) throw error;
 
-    // TODO: material_inspection_regions 저장을 붙이면 roi/expectedText/similarity와 다중 비전 이미지 path를 함께 영속화한다.
+    await saveInspectionRegion(supabase, body, uploadedPaths, imagePath);
+
     return NextResponse.json({ source: "supabase", material: toMaterial(data as DbRow), uploadedPaths });
   } catch (error) {
     return NextResponse.json({ error: errorMessage(error, "부자재 등록 정보를 저장하지 못했습니다.") }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  const body = (await request.json().catch(() => ({}))) as RegistrationDeletePayload;
+
+  if (!body.materialId) {
+    return NextResponse.json({ error: "부자재 ID가 필요합니다." }, { status: 400 });
+  }
+
+  const supabase = createServerSupabaseClient();
+  const deleted = deletedMethodSet(body.method);
+
+  if (!supabase || process.env.NEXT_PUBLIC_USE_MOCK_DATA !== "false") {
+    return NextResponse.json({
+      source: "mock",
+      material: {
+        id: body.materialId,
+        inspection_method: "BOTH",
+        reference_image_path: "",
+        ...(deleted.ocr ? { ocr_image_path: "" } : {}),
+        ...(deleted.vision ? { vision_image_path: "" } : {})
+      }
+    });
+  }
+
+  try {
+    const { data: current, error: selectError } = await supabase
+      .from("material_masters")
+      .select("*")
+      .eq("id", body.materialId)
+      .single();
+
+    if (selectError) throw selectError;
+
+    const currentRow = current as DbRow;
+    const updatePayload = {
+      reference_image_path: nextReferencePath(currentRow, deleted.ocr, deleted.vision),
+      ...(deleted.ocr ? { ocr_image_path: "" } : {}),
+      ...(deleted.vision ? { vision_image_path: "" } : {})
+    };
+
+    const regionDelete = supabase
+      .from("material_inspection_regions")
+      .delete()
+      .eq("material_id", body.materialId);
+    const { error: regionError } = body.method ? await regionDelete.eq("method", body.method) : await regionDelete;
+    if (regionError) throw regionError;
+
+    const { data, error } = await supabase
+      .from("material_masters")
+      .update(updatePayload)
+      .eq("id", body.materialId)
+      .select("*")
+      .single();
+
+    if (error) throw error;
+
+    return NextResponse.json({ source: "supabase", material: toMaterial(data as DbRow) });
+  } catch (error) {
+    return NextResponse.json({ error: errorMessage(error, "부자재 등록 삭제에 실패했습니다.") }, { status: 500 });
   }
 }

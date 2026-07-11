@@ -463,6 +463,8 @@ export default function MobileMaterialRegistrationPage() {
   const [selectedMaterialId, setSelectedMaterialId] = useState("");
   const [mode, setMode] = useState<RegisterMode>(null);
   const [editing, setEditing] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   const selectedMaterial = materials.find((material) => material.id === selectedMaterialId) ?? materials[0];
   const filteredMaterials = materials.filter((material) => {
@@ -475,6 +477,7 @@ export default function MobileMaterialRegistrationPage() {
 
     return statusMatched && productCodeMatched && productNameMatched && lotMatched;
   });
+  const isInitialLoading = isLoading && materials.length === 0;
 
   useEffect(() => {
     setRegistrationStatus((current) => ({
@@ -503,6 +506,7 @@ export default function MobileMaterialRegistrationPage() {
     setSelectedMaterialId(material.id);
     setEditing(isEdit);
     setMode(null);
+    setDeleteError("");
   };
 
   const markRegistered = (method: RegistrationMethod, materialId = selectedMaterialId) => {
@@ -546,18 +550,37 @@ export default function MobileMaterialRegistrationPage() {
     setEditing(false);
   };
 
-  const deleteRegistration = () => {
+  const deleteRegistration = async () => {
     if (!selectedMaterialId) return;
 
-    setRegistrationStatus((current) => {
-      const nextOcr = new Set(current.OCR);
-      const nextVision = new Set(current.VISION);
-      nextOcr.delete(selectedMaterialId);
-      nextVision.delete(selectedMaterialId);
-      return { OCR: nextOcr, VISION: nextVision };
-    });
-    setMode(null);
-    setEditing(false);
+    setDeleteLoading(true);
+    setDeleteError("");
+
+    try {
+      const response = await fetch("/api/material-master/registration", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ materialId: selectedMaterialId })
+      });
+      const result = (await response.json()) as { error?: string };
+
+      if (!response.ok) throw new Error(result.error ?? "부자재 등록 삭제에 실패했습니다.");
+
+      setRegistrationStatus((current) => {
+        const nextOcr = new Set(current.OCR);
+        const nextVision = new Set(current.VISION);
+        nextOcr.delete(selectedMaterialId);
+        nextVision.delete(selectedMaterialId);
+        return { OCR: nextOcr, VISION: nextVision };
+      });
+      setMode(null);
+      setEditing(false);
+      await reload();
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : "부자재 등록 삭제에 실패했습니다.");
+    } finally {
+      setDeleteLoading(false);
+    }
   };
 
   if (mode === "OCR" && selectedMaterial) {
@@ -621,12 +644,18 @@ export default function MobileMaterialRegistrationPage() {
                 type="button"
                 onClick={deleteRegistration}
                 aria-label="등록 삭제"
-                className="inline-flex size-10 items-center justify-center rounded-full bg-rose-100 text-rose-700"
+                disabled={deleteLoading}
+                className="inline-flex size-10 items-center justify-center rounded-full bg-rose-100 text-rose-700 disabled:opacity-50"
               >
                 <Trash2 className="size-5" />
               </button>
             )}
           </div>
+          {deleteError && (
+            <div className="mt-3 rounded-2xl bg-rose-50 p-3 text-sm font-bold leading-6 text-rose-700">
+              삭제 오류: {deleteError}
+            </div>
+          )}
         </CuteCard>
 
         <CuteCard className="p-4">
@@ -740,57 +769,71 @@ export default function MobileMaterialRegistrationPage() {
           <span className="text-center">등록</span>
         </div>
         <div className="divide-y divide-slate-100">
-          {filteredMaterials.map((material) => {
-            const registered = hasAnyRegistration(registrationStatus, material.id);
-            const ocrRegistered = hasMethodRegistration(registrationStatus, "OCR", material.id);
-            const visionRegistered = hasMethodRegistration(registrationStatus, "VISION", material.id);
-            const selected = material.id === selectedMaterialId;
-
-          return (
-            <div
-              key={material.id}
-              className={cn(
-                "grid grid-cols-[1fr_70px_54px] items-center gap-2 px-3 py-3 transition",
-                selected ? "bg-sky-50/90" : "bg-white/70"
-              )}
-            >
-              <button type="button" onClick={() => openRegistration(material, registered)} className="text-left">
-                <p className="text-xs font-black text-sky-600">{material.code}</p>
-                <p className="mt-1 font-black text-slate-800">{material.name}</p>
-                <p className="mt-1 text-xs font-bold text-slate-400">LOT {material.lot ?? "-"}</p>
-                <div className="mt-2 flex flex-wrap gap-1 text-[10px] font-black">
-                  <span className={cn("rounded-full px-2 py-0.5", ocrRegistered ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-400")}>
-                    OCR {ocrRegistered ? "완료" : "대기"}
-                  </span>
-                  <span className={cn("rounded-full px-2 py-0.5", visionRegistered ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-400")}>
-                    비전 {visionRegistered ? "완료" : "대기"}
-                  </span>
-                </div>
-              </button>
-              <span
-                className={cn(
-                  "rounded-full px-2 py-1 text-center text-[11px] font-black",
-                  registered ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
-                )}
-              >
-                {registered ? "등록" : "미등록"}
-              </span>
-              <button
-                type="button"
-                onClick={() => openRegistration(material, registered)}
-                aria-label={registered ? `${material.name} 수정` : `${material.name} 등록`}
-                className={cn(
-                  "inline-flex size-10 items-center justify-center justify-self-center rounded-full transition",
-                  registered ? "bg-white text-sky-600 ring-1 ring-sky-100" : "bg-sky-500 text-white"
-                )}
-              >
-                {registered ? <Pencil className="size-4" /> : <Plus className="size-5" />}
-              </button>
+          {isInitialLoading && (
+            <div className="px-4 py-8 text-center text-sm font-bold leading-6 text-slate-500">
+              Supabase 부자재마스터를 불러오는 중입니다.
             </div>
-          );
-        })}
-          {filteredMaterials.length === 0 && (
-            <div className="px-4 py-8 text-center text-sm font-bold text-slate-400">조회된 부자재가 없습니다.</div>
+          )}
+          {!isInitialLoading && error && (
+            <div className="px-4 py-8 text-center text-sm font-bold leading-6 text-rose-600">
+              Supabase 부자재마스터 연결 오류가 발생했습니다.
+            </div>
+          )}
+          {!isInitialLoading &&
+            !error &&
+            filteredMaterials.map((material) => {
+              const registered = hasAnyRegistration(registrationStatus, material.id);
+              const ocrRegistered = hasMethodRegistration(registrationStatus, "OCR", material.id);
+              const visionRegistered = hasMethodRegistration(registrationStatus, "VISION", material.id);
+              const selected = material.id === selectedMaterialId;
+
+              return (
+                <div
+                  key={material.id}
+                  className={cn(
+                    "grid grid-cols-[1fr_70px_54px] items-center gap-2 px-3 py-3 transition",
+                    selected ? "bg-sky-50/90" : "bg-white/70"
+                  )}
+                >
+                  <button type="button" onClick={() => openRegistration(material, registered)} className="text-left">
+                    <p className="text-xs font-black text-sky-600">{material.code}</p>
+                    <p className="mt-1 font-black text-slate-800">{material.name}</p>
+                    <p className="mt-1 text-xs font-bold text-slate-400">LOT {material.lot ?? "-"}</p>
+                    <div className="mt-2 flex flex-wrap gap-1 text-[10px] font-black">
+                      <span className={cn("rounded-full px-2 py-0.5", ocrRegistered ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-400")}>
+                        OCR {ocrRegistered ? "완료" : "대기"}
+                      </span>
+                      <span className={cn("rounded-full px-2 py-0.5", visionRegistered ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-400")}>
+                        비전 {visionRegistered ? "완료" : "대기"}
+                      </span>
+                    </div>
+                  </button>
+                  <span
+                    className={cn(
+                      "rounded-full px-2 py-1 text-center text-[11px] font-black",
+                      registered ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
+                    )}
+                  >
+                    {registered ? "등록" : "미등록"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => openRegistration(material, registered)}
+                    aria-label={registered ? `${material.name} 수정` : `${material.name} 등록`}
+                    className={cn(
+                      "inline-flex size-10 items-center justify-center justify-self-center rounded-full transition",
+                      registered ? "bg-white text-sky-600 ring-1 ring-sky-100" : "bg-sky-500 text-white"
+                    )}
+                  >
+                    {registered ? <Pencil className="size-4" /> : <Plus className="size-5" />}
+                  </button>
+                </div>
+              );
+            })}
+          {!isInitialLoading && !error && filteredMaterials.length === 0 && (
+            <div className="px-4 py-8 text-center text-sm font-bold text-slate-400">
+              조회된 부자재가 없습니다.
+            </div>
           )}
         </div>
       </CuteCard>
