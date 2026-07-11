@@ -73,29 +73,44 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const departmentId = searchParams.get("department_id");
   const shipperId = searchParams.get("shipper_id");
+  const materialId = searchParams.get("material_id");
 
-  if (!departmentId || !shipperId) return NextResponse.json({ error: "department_id와 shipper_id가 필요합니다." }, { status: 400 });
+  if ((!departmentId || !shipperId) && !materialId) {
+    return NextResponse.json({ error: "department_id와 shipper_id가 필요합니다." }, { status: 400 });
+  }
 
   const supabase = createServerSupabaseClient();
 
   if (!supabase || process.env.NEXT_PUBLIC_USE_MOCK_DATA !== "false") {
-    return NextResponse.json(mockData(departmentId, shipperId));
+    return NextResponse.json(mockData(departmentId ?? "", shipperId ?? ""));
   }
 
   try {
-    const scope = await resolveScopeIds(supabase, departmentId, shipperId);
-    const { data, error } = await supabase
-      .from("material_masters")
-      .select("*")
-      .eq("department_id", scope.departmentId)
-      .eq("shipper_id", scope.shipperId)
-      .order("code", { ascending: true });
+    const rows: DbRow[] = [];
 
-    if (error) throw error;
+    if (departmentId && shipperId) {
+      const scope = await resolveScopeIds(supabase, departmentId, shipperId);
+      const { data, error } = await supabase
+        .from("material_masters")
+        .select("*")
+        .eq("department_id", scope.departmentId)
+        .eq("shipper_id", scope.shipperId)
+        .order("code", { ascending: true });
 
-    return NextResponse.json({ source: "supabase", materials: ((data ?? []) as DbRow[]).map(toMaterial) });
+      if (error) throw error;
+      rows.push(...((data ?? []) as DbRow[]));
+    }
+
+    if (materialId && !rows.some((row) => text(row.id) === materialId)) {
+      const { data, error } = await supabase.from("material_masters").select("*").eq("id", materialId).single();
+
+      if (error) throw error;
+      rows.unshift(data as DbRow);
+    }
+
+    return NextResponse.json({ source: "supabase", materials: rows.map(toMaterial) });
   } catch (error) {
-    return NextResponse.json(mockData(departmentId, shipperId, errorMessage(error, "Supabase 부자재마스터 조회에 실패했습니다.")));
+    return NextResponse.json(mockData(departmentId ?? "", shipperId ?? "", errorMessage(error, "Supabase 부자재마스터 조회에 실패했습니다.")));
   }
 }
 

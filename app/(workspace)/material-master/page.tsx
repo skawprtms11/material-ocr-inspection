@@ -18,7 +18,10 @@ type MaterialModalMode = "create" | "edit";
 type MaterialFormValue = Pick<
   MaterialMaster,
   "code" | "name" | "lot" | "inspection_method" | "ocr_image_path" | "vision_image_path" | "remark"
->;
+> & {
+  ocrFile?: File;
+  visionFile?: File;
+};
 
 const tableHeaders = ["부자재코드", "부자재명", "LOT", "OCR등록", "비전스캔등록", "비고"];
 
@@ -103,25 +106,51 @@ export default function MaterialMasterPage() {
 
     try {
       const isEdit = modalMode === "edit" && selectedMaterial;
+      const { ocrFile, visionFile, ...materialPayload } = value;
       const response = await fetch("/api/material-master", {
         method: isEdit ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...(isEdit ? { id: selectedMaterial.id } : { departmentId, shipperId }),
-          reference_image_path: value.ocr_image_path || value.vision_image_path || selectedMaterial?.reference_image_path || "",
-          ...value
+          reference_image_path: materialPayload.ocr_image_path || materialPayload.vision_image_path || selectedMaterial?.reference_image_path || "",
+          ...materialPayload
         })
       });
       const result = (await response.json()) as { source?: "supabase" | "mock"; material?: MaterialMaster; error?: string };
       if (!response.ok || !result.material) throw new Error(result.error ?? "부자재 저장에 실패했습니다.");
+      let savedMaterial = result.material;
+
+      const uploadRegistrationImage = async (method: "OCR" | "VISION", file: File) => {
+        const formData = new FormData();
+
+        formData.append("materialId", savedMaterial.id);
+        formData.append("method", method);
+        formData.append("expectedText", savedMaterial.code);
+        formData.append("images", file);
+
+        const uploadResponse = await fetch("/api/material-master/registration", {
+          method: "POST",
+          body: formData
+        });
+        const uploadResult = (await uploadResponse.json()) as { material?: MaterialMaster; error?: string };
+
+        if (!uploadResponse.ok || !uploadResult.material) {
+          throw new Error(uploadResult.error ?? `${method} 이미지 업로드에 실패했습니다.`);
+        }
+
+        savedMaterial = uploadResult.material;
+      };
+
+      if (ocrFile) await uploadRegistrationImage("OCR", ocrFile);
+      if (visionFile) await uploadRegistrationImage("VISION", visionFile);
 
       if (isEdit) {
         setMaterials((prevMaterials) =>
-          prevMaterials.map((material) => (material.id === result.material!.id ? result.material! : material))
+          prevMaterials.map((material) => (material.id === savedMaterial.id ? savedMaterial : material))
         );
       } else {
-        setMaterials((prevMaterials) => [result.material!, ...prevMaterials]);
-        setSelectedMaterialId(result.material.id);
+        setMaterials((prevMaterials) => [savedMaterial, ...prevMaterials]);
+        setSelectedMaterialId(savedMaterial.id);
       }
       setDataSource(result.source ?? dataSource);
       setModalMode(null);
@@ -286,7 +315,12 @@ function MaterialEditorModal({
       inspection_method: buildInspectionMethod(formData.get("ocr") === "on", formData.get("vision") === "on"),
       ocr_image_path: buildMockStoragePath(code, "ocr", formData.get("ocr_image"), material?.ocr_image_path),
       vision_image_path: buildMockStoragePath(code, "vision", formData.get("vision_image"), material?.vision_image_path),
-      remark: String(formData.get("remark") ?? "").trim()
+      remark: String(formData.get("remark") ?? "").trim(),
+      ocrFile: formData.get("ocr_image") instanceof File && (formData.get("ocr_image") as File).name ? (formData.get("ocr_image") as File) : undefined,
+      visionFile:
+        formData.get("vision_image") instanceof File && (formData.get("vision_image") as File).name
+          ? (formData.get("vision_image") as File)
+          : undefined
     });
   };
 

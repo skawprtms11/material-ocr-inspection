@@ -82,6 +82,15 @@ function scopeQuery(scope: { departmentId: string; shipperId: string }) {
   return new URLSearchParams({ department_id: scope.departmentId, shipper_id: scope.shipperId }).toString();
 }
 
+function materialScopeQuery(scope: { departmentId: string; shipperId: string }) {
+  const params = new URLSearchParams(scopeQuery(scope));
+  const materialId = typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("materialId");
+
+  if (materialId) params.set("material_id", materialId);
+
+  return params.toString();
+}
+
 export function useMobileWorkStatusRows() {
   return useScopedMobileData<WorkStatusRowDto[]>(
     [],
@@ -109,7 +118,7 @@ export function useMobileInspectionRows() {
 export function useMobileMaterials() {
   return useScopedMobileData<MaterialMaster[]>(
     [],
-    (scope) => `/api/material-master?${scopeQuery(scope)}`,
+    (scope) => `/api/material-master?${materialScopeQuery(scope)}`,
     (value) => {
       const payload = value as MaterialMasterResponse;
       return { data: payload.materials ?? [], source: payload.source, warning: payload.warning };

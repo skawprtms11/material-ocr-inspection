@@ -46,6 +46,15 @@ type VisionSimilarityState =
 type RegionInteraction =
   | { mode: "move"; startPoint: { x: number; y: number }; startRect: Rect }
   | { mode: "resize"; handle: ResizeHandle; startPoint: { x: number; y: number }; startRect: Rect };
+type RegistrationSavePayload = {
+  file?: File;
+  files?: File[];
+  roi?: Rect;
+  expectedText?: string;
+  recognizedText?: string;
+  similarity?: number;
+  fileName?: string;
+};
 
 const defaultRect: Rect = { x: 18, y: 24, width: 56, height: 22 };
 const visionMaxPhotos = 5;
@@ -152,6 +161,17 @@ function formatFileSize(size: number) {
 
 function formatPercent(value: number) {
   return `${Math.round(value * 100)}%`;
+}
+
+function safePathSegment(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9가-힣._-]+/g, "-");
+}
+
+function buildMobileMaterialImagePath(material: MaterialMaster, method: RegistrationMethod, fileName?: string) {
+  const safeCode = safePathSegment(material.code || material.id);
+  const safeFileName = safePathSegment(fileName || `${method.toLowerCase()}-${Date.now()}.jpg`);
+
+  return `material-images/mobile/${safeCode}/${method.toLowerCase()}-${Date.now()}-${safeFileName}`;
 }
 
 async function getVisionSignature(file: File, rect: Rect) {
@@ -424,7 +444,7 @@ function TouchRegionSelector({
 }
 
 export default function MobileMaterialRegistrationPage() {
-  const { data: materials, source, warning, isLoading, error } = useMobileMaterials();
+  const { data: materials, source, warning, isLoading, error, reload } = useMobileMaterials();
   const initialRegistrationStatus = useMemo(() => {
     return materials.reduce<Record<RegistrationMethod, Set<string>>>(
       (acc, material) => {
@@ -485,14 +505,39 @@ export default function MobileMaterialRegistrationPage() {
     setMode(null);
   };
 
-  const markRegistered = (method: RegistrationMethod) => {
-    if (!selectedMaterialId) return;
+  const markRegistered = (method: RegistrationMethod, materialId = selectedMaterialId) => {
+    if (!materialId) return;
 
     setRegistrationStatus((current) => ({
       ...current,
-      [method]: new Set(current[method]).add(selectedMaterialId)
+      [method]: new Set(current[method]).add(materialId)
     }));
     setEditing(true);
+  };
+
+  const persistRegistration = async (method: RegistrationMethod, material: MaterialMaster, payload: RegistrationSavePayload) => {
+    const formData = new FormData();
+    const files = payload.files ?? (payload.file ? [payload.file] : []);
+
+    formData.append("materialId", material.id);
+    formData.append("method", method);
+    formData.append("imagePath", buildMobileMaterialImagePath(material, method, payload.fileName));
+    if (payload.roi) formData.append("roi", JSON.stringify(payload.roi));
+    if (payload.expectedText) formData.append("expectedText", payload.expectedText);
+    if (payload.recognizedText) formData.append("recognizedText", payload.recognizedText);
+    if (typeof payload.similarity === "number") formData.append("similarity", String(payload.similarity));
+    files.forEach((file) => formData.append("images", file));
+
+    const response = await fetch("/api/material-master/registration", {
+      method: "POST",
+      body: formData
+    });
+    const result = (await response.json()) as { error?: string };
+
+    if (!response.ok) throw new Error(result.error ?? "부자재마스터 저장에 실패했습니다.");
+
+    markRegistered(method, material.id);
+    await reload();
   };
 
   const backToList = () => {
@@ -520,7 +565,7 @@ export default function MobileMaterialRegistrationPage() {
       <OcrRegistration
         material={selectedMaterial}
         alreadyRegistered={hasMethodRegistration(registrationStatus, "OCR", selectedMaterial.id)}
-        onSaved={() => markRegistered("OCR")}
+        onSaved={(payload) => persistRegistration("OCR", selectedMaterial, payload)}
         onCancel={() => setMode(null)}
         onBack={() => setMode(null)}
       />
@@ -532,7 +577,7 @@ export default function MobileMaterialRegistrationPage() {
       <VisionRegistration
         material={selectedMaterial}
         alreadyRegistered={hasMethodRegistration(registrationStatus, "VISION", selectedMaterial.id)}
-        onSaved={() => markRegistered("VISION")}
+        onSaved={(payload) => persistRegistration("VISION", selectedMaterial, payload)}
         onCancel={() => setMode(null)}
         onBack={() => setMode(null)}
       />
@@ -651,8 +696,8 @@ export default function MobileMaterialRegistrationPage() {
               setMode(null);
             }}
             className="h-9 min-w-0 rounded-xl border border-sky-100 bg-white px-2 text-xs font-bold outline-none focus:ring-2 focus:ring-sky-200"
-            placeholder="제품코드"
-            aria-label="제품코드 조회필터"
+            placeholder="부자재코드"
+            aria-label="부자재코드 조회필터"
           />
           <input
             value={productNameFilter}
@@ -662,8 +707,8 @@ export default function MobileMaterialRegistrationPage() {
               setMode(null);
             }}
             className="h-9 min-w-0 rounded-xl border border-sky-100 bg-white px-2 text-xs font-bold outline-none focus:ring-2 focus:ring-sky-200"
-            placeholder="제품명"
-            aria-label="제품명 조회필터"
+            placeholder="부자재명"
+            aria-label="부자재명 조회필터"
           />
           <input
             value={lotFilter}
@@ -682,7 +727,7 @@ export default function MobileMaterialRegistrationPage() {
 
       <CuteCard className="overflow-hidden p-0">
         <div className="grid grid-cols-[1fr_70px_54px] bg-sky-50/80 px-3 py-3 text-[11px] font-black text-sky-700">
-          <span>제품코드 / 제품명 / LOT</span>
+          <span>부자재코드 / 부자재명 / LOT</span>
           <span className="text-center">상태</span>
           <span className="text-center">등록</span>
         </div>
@@ -754,12 +799,13 @@ function OcrRegistration({
 }: {
   material: MaterialMaster;
   alreadyRegistered: boolean;
-  onSaved: () => void;
+  onSaved: (payload: RegistrationSavePayload) => Promise<void>;
   onCancel: () => void;
   onBack: () => void;
 }) {
   const [previewUrl, setPreviewUrl] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [ocrCroppedFile, setOcrCroppedFile] = useState<File | null>(null);
   const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
   const [rect, setRect] = useState(defaultRect);
   const [recognizedText, setRecognizedText] = useState("");
@@ -769,6 +815,8 @@ function OcrRegistration({
   const [ocrSummary, setOcrSummary] = useState("");
   const [ocrProvider, setOcrProvider] = useState("");
   const [ocrError, setOcrError] = useState("");
+  const [saveError, setSaveError] = useState("");
+  const [saveLoading, setSaveLoading] = useState(false);
   const [saved, setSaved] = useState(false);
   const expectedText = material.code;
   const matched = ocrReviewed && ocrMatched;
@@ -786,6 +834,8 @@ function OcrRegistration({
     setOcrSummary("");
     setOcrProvider("");
     setOcrError("");
+    setSaveError("");
+    setOcrCroppedFile(null);
     setSaved(false);
   };
 
@@ -829,6 +879,7 @@ function OcrRegistration({
     setOcrProvider("");
     setOcrReviewed(false);
     setOcrMatched(false);
+    setOcrCroppedFile(null);
     setSaved(false);
 
     try {
@@ -836,6 +887,7 @@ function OcrRegistration({
       setRect(reviewRect);
 
       const croppedImage = await cropImageFile(selectedFile, reviewRect);
+      setOcrCroppedFile(croppedImage.file);
       const formData = new FormData();
       formData.append("image", croppedImage.file);
       formData.append("expectedText", expectedText);
@@ -963,16 +1015,39 @@ function OcrRegistration({
           취소
         </CloudButton>
         <CloudButton
-          disabled={!matched || ocrLoading}
-          onClick={() => {
-            setSaved(true);
-            onSaved();
+          disabled={!matched || ocrLoading || saveLoading}
+          onClick={async () => {
+            if (!selectedFile) return;
+
+            setSaveLoading(true);
+            setSaveError("");
+
+            try {
+              await onSaved({
+                file: ocrCroppedFile ?? selectedFile,
+                roi: constrainRect(rect),
+                expectedText,
+                recognizedText,
+                fileName: (ocrCroppedFile ?? selectedFile).name
+              });
+              setSaved(true);
+            } catch (error) {
+              setSaveError(error instanceof Error ? error.message : "부자재마스터에 OCR 등록 정보를 저장하지 못했습니다.");
+            } finally {
+              setSaveLoading(false);
+            }
           }}
         >
           <Save className="size-4" />
-          저장
+          {saveLoading ? "저장 중" : "저장"}
         </CloudButton>
       </div>
+
+      {saveError && (
+        <div className="mt-3 rounded-2xl bg-rose-50 p-3 text-sm font-bold leading-6 text-rose-700">
+          저장 오류: {saveError}
+        </div>
+      )}
 
       {saved && (
         <div className="mt-3 rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700">
@@ -994,7 +1069,7 @@ function VisionRegistration({
 }: {
   material: MaterialMaster;
   alreadyRegistered: boolean;
-  onSaved: () => void;
+  onSaved: (payload: RegistrationSavePayload) => Promise<void>;
   onCancel: () => void;
   onBack: () => void;
 }) {
@@ -1002,6 +1077,8 @@ function VisionRegistration({
   const [activePhotoId, setActivePhotoId] = useState<string | null>(null);
   const [compressing, setCompressing] = useState(false);
   const [captureError, setCaptureError] = useState("");
+  const [saveError, setSaveError] = useState("");
+  const [saveLoading, setSaveLoading] = useState(false);
   const [similarity, setSimilarity] = useState<VisionSimilarityState>({
     status: "idle",
     message: "5장 촬영 후 각 사진의 영역을 확정하면 일치율을 계산합니다."
@@ -1171,6 +1248,7 @@ function VisionRegistration({
     setActivePhotoId(null);
     setCompressing(false);
     setCaptureError("");
+    setSaveError("");
     setSimilarity({ status: "idle", message: "5장 촬영 후 각 사진의 영역을 확정하면 일치율을 계산합니다." });
     setSaved(false);
   };
@@ -1190,6 +1268,7 @@ function VisionRegistration({
       )
     );
     setSaved(false);
+    setSaveError("");
   };
 
   const confirmActiveRegion = () => {
@@ -1210,6 +1289,7 @@ function VisionRegistration({
     const nextUnconfirmedPhoto = nextPhotos.find((photo) => photo.id !== activePhoto.id && !photo.regionConfirmed);
     if (nextUnconfirmedPhoto) setActivePhotoId(nextUnconfirmedPhoto.id);
     setSaved(false);
+    setSaveError("");
   };
 
   const editActiveRegion = () => {
@@ -1226,6 +1306,7 @@ function VisionRegistration({
       )
     );
     setSaved(false);
+    setSaveError("");
   };
 
   const readyToSave = photos.length === visionMaxPhotos && similarity.status === "ready" && similarity.comparisonKey === currentComparisonKey;
@@ -1389,16 +1470,36 @@ function VisionRegistration({
           취소
         </CloudButton>
         <CloudButton
-          disabled={!readyToSave}
-          onClick={() => {
-            setSaved(true);
-            onSaved();
+          disabled={!readyToSave || saveLoading}
+          onClick={async () => {
+            setSaveLoading(true);
+            setSaveError("");
+
+            try {
+              await onSaved({
+                files: photos.map((photo) => photo.file),
+                roi: photos[0] ? constrainRect(photos[0].rect) : undefined,
+                similarity: similarity.status === "ready" ? similarity.average : undefined,
+                fileName: photos[0]?.name
+              });
+              setSaved(true);
+            } catch (error) {
+              setSaveError(error instanceof Error ? error.message : "부자재마스터에 비전 등록 정보를 저장하지 못했습니다.");
+            } finally {
+              setSaveLoading(false);
+            }
           }}
         >
           <Save className="size-4" />
-          저장
+          {saveLoading ? "저장 중" : "저장"}
         </CloudButton>
       </div>
+
+      {saveError && (
+        <div className="mt-3 rounded-2xl bg-rose-50 p-3 text-sm font-bold leading-6 text-rose-700">
+          저장 오류: {saveError}
+        </div>
+      )}
 
       {saved && (
         <div className="mt-3 rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700">
