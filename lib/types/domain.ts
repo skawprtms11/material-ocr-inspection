@@ -132,7 +132,7 @@ export type InspectionImage = {
   id: string;
   work_id: string;
   inspection_id: string;
-  image_type: "ocr_capture" | "vision_capture" | "admin_review";
+  image_type: "ocr_capture" | "vision_capture" | "admin_review" | "product";
   storage_path: string;
   is_compressed: boolean;
   metadata: Record<string, unknown>;
