@@ -15,6 +15,9 @@
   - **검증값(기대값) 컬럼**: 검수 항목의 `material_id`로 연결된 부자재의 `material_masters.verification_value`(모바일 OCR 등록 검수값)를 참고용으로 보여준다. 값이 없으면 "-". 판정 로직에는 관여하지 않는 순수 표시용 컬럼이다.
 - `departmentId`/`shipperId`가 없으면 `EmptyCloudState`
 
+## 검수 행(`work_inspections`) 생성 출처
+이 화면과 모바일이 읽는 `work_inspections` 행은 **작업등록(work-register) 화면의 담당자 배정 시점**에 자동 생성된다. `app/api/work-register/[workId]/assign/route.ts`의 PATCH가 배정 update 성공 직후 `work_master_materials`(해당 작업의 `work_master_id` 기준, `inspection_order` 순)를 조회해 부자재별로 `material_masters.inspection_method`에 따라 검수 행을 만든다: `OCR`/`VISION`은 1건, `BOTH`는 `OCR`·`VISION` 각 1건(`status: "pending"`, `attempt_count: 0`). 이미 해당 `work_id`에 검수 행이 있으면(재배정 포함) 다시 만들지 않는다(멱등). 작업마스터에 부자재 구성이 없거나 작업마스터가 연결되지 않은 작업은 검수 행이 생기지 않는다. 상세는 `docs/menus/work-register.md`의 PATCH 설명 참고.
+
 ## 데이터 흐름
 - 페이지 로드/재조회(`loadRows`): `GET /api/work-inspection?department_id=&shipper_id=` 호출
   - 응답(`WorkInspectionDataResponse`)의 `rows`/`source`를 `tableRows`/`dataSource`로 반영
@@ -44,7 +47,23 @@
 
 **OCR/비전 검수 패널과 검수 영역(region) 편집 로직**: `components/inspection/OcrInspectionPanel.tsx`, `components/inspection/VisionInspectionPanel.tsx`, `components/inspection/InspectionRegionEditor.tsx`, `components/admin/AdminReviewPanel.tsx`가 저장소에 존재하지만, 실제 코드 검색(`grep -rn` 전체 리포지토리) 결과 이 4개 컴포넌트는 `app/(workspace)/work-inspection/page.tsx`를 포함해 **`app/` 전체 어디에서도 import되지 않는 미사용(고아) 컴포넌트**다. `InspectionRegionEditor`만 `app/(workspace)/material-master/page.tsx`(자재마스터 화면, region 등록용)에서 `mode="OCR"`/`mode="VISION"`으로 사용된다. 즉 작업검수 화면 자체는 이 패널들 대신 표 + `AdjustmentReviewModal`(검수방식/판정상태/OCR결과·비전유사도/요약을 텍스트 표로만 표시)로 검수 결과를 노출한다.
 
-OCR 실제 호출은 `app/api/ocr/route.ts`(POST, `runtime = "nodejs"`)에서 이루어진다: `image`(File)/`expectedText`/`roi`/`originalRoi`/`isCropped`/`imageWidth`/`imageHeight`를 `FormData`로 받아, `process.env.OCR_PROVIDER === "google-vision"`이고 `GOOGLE_CLOUD_PROJECT_ID`/`GOOGLE_CLOUD_CLIENT_EMAIL`/`GOOGLE_CLOUD_PRIVATE_KEY`가 모두 있으면 서비스 계정 JWT로 OAuth 토큰을 발급받아 **Google Cloud Vision API**(`https://vision.googleapis.com/v1/images:annotate`, `TEXT_DETECTION` 기본)를 호출한다. `isCropped`가 아니면 `getRoiText()`로 전체 이미지 OCR 결과 중 ROI(%기준 좌표) 영역과 겹치는 단어만 필터링해 텍스트를 합성한다. 환경변수가 없으면 `mockOcr()`로 `provider: "mock"`, `matched: false`, `canVerify: false`를 반환한다. 이 라우트는 work-inspection 화면이 아니라 material-master의 검수 영역(ROI) 등록/검증 흐름에서 호출되는 것으로 보인다(work-inspection 관련 파일에서 `/api/ocr` 호출 코드는 발견되지 않음).
+OCR 실제 호출 로직은 `lib/server/ocr.ts`의 `runOcr()`에 있다(Google Cloud Vision `TEXT_DETECTION` 호출, 서비스 계정 JWT 발급, ROI 단어 필터링 `getRoiText()` 등). `app/api/ocr/route.ts`(POST, `runtime = "nodejs"`)와 아래 "OCR 검수 제출 API"(`app/api/work-inspection/ocr/route.ts`) 두 라우트가 이 함수를 공유한다. `process.env.OCR_PROVIDER === "google-vision"`이고 `GOOGLE_CLOUD_PROJECT_ID`/`GOOGLE_CLOUD_CLIENT_EMAIL`/`GOOGLE_CLOUD_PRIVATE_KEY`가 모두 있어야 실제 호출하며, 하나라도 없으면 `canVerify: false`인 mock 결과를 반환한다.
+- `/api/ocr`는 material-master의 검수 영역(ROI) 등록/검증 흐름(`/mobile/material-photo`)에서 호출된다. `image`(File)/`expectedText`/`roi`/`originalRoi`/`isCropped`/`imageWidth`/`imageHeight`를 FormData로 받아 `runOcr()` 결과에 자체 `isMatched()`(부분 포함 비교)로 계산한 `matched`를 더해 응답한다.
+- `/api/work-inspection/ocr`는 아래 "OCR 검수 제출 API"에서 설명하는 모바일 작업검수 전용 라우트다.
+
+### OCR 검수 제출 API (`app/api/work-inspection/ocr/route.ts`)
+- `POST`, multipart FormData: `inspectionId`, `workId`, `image`(ROI로 크롭된 촬영본), `roi`(JSON 문자열). 호출 주체는 모바일 홈(`/mobile`)의 `OcrInspectionCard`(`components/mobile/OcrInspectionCard.tsx`)이며, 관리자 웹 `work-inspection` 화면 자체는 이 라우트를 호출하지 않는다(결과를 표로 조회만 한다).
+- 처리 순서(mock 모드가 아닐 때):
+  1. `work_inspections`에서 `id`(=inspectionId) + `work_id`(=workId)로 검수 대상을 조회한다. 없으면 `404`.
+  2. `material_masters.verification_value`를 `material_id`로 조회해 기대값(`expectedValue`)으로 사용한다.
+  3. `lib/server/ocr.ts`의 `runOcr()`을 `isCropped: true`로 호출한다(클라이언트가 이미 ROI로 크롭해서 보내므로 서버에서는 전체 크롭본을 그대로 읽는다).
+  4. `canVerify`가 `false`(OCR 환경변수 미설정 등)이면 **DB를 전혀 변경하지 않고** 현재 `status`를 그대로 반환한다(`{ status: 기존값, recognizedText: "", expectedValue, matched: false, canVerify: false }`).
+  5. `canVerify`가 `true`이면 인식 텍스트와 `expectedValue`를 각각 trim 후 대소문자 무시 비교(`normalize(a) === normalize(b)`)하여 일치하면 `status: "passed"`, 불일치하면 `status: "failed"`로 판정한다.
+  6. 판정 후 스토리지 버킷 `inspection-images`(없으면 `material-images`와 동일한 패턴으로 자동 생성, `public: false`, 8MB 제한, jpeg/png/webp만 허용)에 `{workId}/{inspectionId}/{timestamp}-ocr.jpg` 경로로 크롭본을 업로드하고, `work_inspections`를 `status`/`ocr_result_text`(인식 텍스트)/`result_summary`(예: `"OCR 일치 (기대값: xxx)"`)/`attempt_count`(+1)/`updated_at`으로 update한 뒤 `inspection_images`에 `image_type: "ocr_capture"` 행을 insert한다(`metadata`에 `roi`/`expectedValue`/`recognizedText`/`matched` 저장).
+  7. 업로드 후 `work_inspections`/`inspection_images` 저장이 실패하면 `material-master/registration` 라우트와 동일한 보상 패턴으로 업로드된 파일을 스토리지에서 제거한 뒤 원래 에러를 반환한다.
+- 응답: `{ status, recognizedText, expectedValue, matched, canVerify }` (+ `source: "supabase" | "mock"`).
+- mock 모드(`NEXT_PUBLIC_USE_MOCK_DATA !== "false"` 또는 Supabase 미설정)에서는 DB를 건드리지 않고 `appRepository`의 mock 검수/부자재 데이터로 그럴듯한 성공 응답(`source: "mock"`)만 반환한다.
+- 필수값(`inspectionId`/`workId`/`image`/`roi`) 누락 시 `400`을 반환한다.
 
 ## 상태·필터
 - `useFilterStore`(zustand)에서 `departmentId`/`shipperId`를 읽어 `FilterScope`로 사용
