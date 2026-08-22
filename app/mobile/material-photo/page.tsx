@@ -249,8 +249,8 @@ function buildVisionComparisonKey(photos: VisionPhoto[]) {
 }
 
 function constrainRect(rect: Rect): Rect {
-  const width = clamp(rect.width, 8, 96);
-  const height = clamp(rect.height, 8, 96);
+  const width = clamp(rect.width, 0.8, 96);
+  const height = clamp(rect.height, 0.8, 96);
   const x = clamp(rect.x, 0, 100 - width);
   const y = clamp(rect.y, 0, 100 - height);
 
@@ -258,7 +258,7 @@ function constrainRect(rect: Rect): Rect {
 }
 
 function resizeRect(startRect: Rect, point: { x: number; y: number }, handle: ResizeHandle): Rect {
-  const minSize = 8;
+  const minSize = 0.8;
   const right = startRect.x + startRect.width;
   const bottom = startRect.y + startRect.height;
 
@@ -861,6 +861,7 @@ function OcrRegistration({
   const [rect, setRect] = useState(defaultRect);
   const [recognizedText, setRecognizedText] = useState("");
   const [ocrMatched, setOcrMatched] = useState(false);
+  const [ocrCanVerify, setOcrCanVerify] = useState(true);
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrReviewed, setOcrReviewed] = useState(false);
   const [ocrSummary, setOcrSummary] = useState("");
@@ -871,6 +872,8 @@ function OcrRegistration({
   const [saved, setSaved] = useState(false);
   const expectedText = material.code;
   const matched = ocrReviewed && ocrMatched;
+  // 검증 가능하면 텍스트 일치가 필수, 검증 불가(OCR 서버 미설정 등)이면 검토 완료 상태에서 저장을 허용한다.
+  const canSaveOcr = ocrReviewed && (ocrCanVerify ? ocrMatched : true);
 
   useEffect(() => {
     return () => {
@@ -881,6 +884,7 @@ function OcrRegistration({
   const resetOcrReview = () => {
     setRecognizedText("");
     setOcrMatched(false);
+    setOcrCanVerify(true);
     setOcrReviewed(false);
     setOcrSummary("");
     setOcrProvider("");
@@ -930,6 +934,7 @@ function OcrRegistration({
     setOcrProvider("");
     setOcrReviewed(false);
     setOcrMatched(false);
+    setOcrCanVerify(true);
     setOcrCroppedFile(null);
     setSaved(false);
 
@@ -963,13 +968,15 @@ function OcrRegistration({
       }
 
       setRecognizedText(result.extractedText ?? "");
-      setOcrMatched(Boolean(result.canVerify !== false && result.matched));
+      setOcrMatched(Boolean(result.matched));
+      setOcrCanVerify(result.canVerify !== false);
       setOcrReviewed(true);
       setOcrProvider(result.provider ?? "");
       setOcrSummary(result.summary ?? "");
     } catch (error) {
       setRecognizedText("");
       setOcrMatched(false);
+      setOcrCanVerify(true);
       setOcrReviewed(false);
       setOcrError(error instanceof Error ? error.message : "OCR 검토 중 오류가 발생했습니다.");
     } finally {
@@ -1041,8 +1048,19 @@ function OcrRegistration({
       )}
 
       {ocrReviewed && (
-        <div className={cn("mt-3 rounded-2xl p-3 text-sm font-bold leading-6", matched ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700")}>
-          <p className="text-xs font-black">{matched ? "OCR 검토 결과 일치" : "OCR 검토 결과 불일치"}</p>
+        <div
+          className={cn(
+            "mt-3 rounded-2xl p-3 text-sm font-bold leading-6",
+            !ocrCanVerify ? "bg-amber-50 text-amber-700" : matched ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
+          )}
+        >
+          <p className="text-xs font-black">
+            {!ocrCanVerify
+              ? "⚠️ OCR 서버 검증 불가 — 텍스트 검증 없이 저장됩니다 (관리자에게 OCR 설정을 문의하세요)"
+              : matched
+                ? "OCR 검토 결과 일치"
+                : "OCR 검토 결과 불일치"}
+          </p>
           <p className="mt-1 text-xs">{ocrSummary || "선택 영역 기준 OCR 결과입니다."}</p>
           {ocrProvider && <p className="mt-1 text-xs">OCR provider: {ocrProvider}</p>}
           <label className="mt-2 block">
@@ -1066,7 +1084,7 @@ function OcrRegistration({
           취소
         </CloudButton>
         <CloudButton
-          disabled={!matched || ocrLoading || saveLoading}
+          disabled={!canSaveOcr || ocrLoading || saveLoading}
           onClick={async () => {
             if (!selectedFile) return;
 

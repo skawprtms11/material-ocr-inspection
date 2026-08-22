@@ -9,9 +9,8 @@ import { CuteCard } from "@/components/common/CuteCard";
 import { EmptyCloudState } from "@/components/common/EmptyCloudState";
 import { PageHeader } from "@/components/common/PageHeader";
 import { InspectionRegionEditor } from "@/components/inspection/InspectionRegionEditor";
-import { appRepository } from "@/lib/repositories/app-repository";
 import { useFilterStore } from "@/lib/state/filter-store";
-import type { InspectionMethod, MaterialMaster } from "@/lib/types/domain";
+import type { InspectionMethod, MaterialInspectionRegion, MaterialMaster } from "@/lib/types/domain";
 import { cn } from "@/lib/utils/cn";
 
 type MaterialModalMode = "create" | "edit";
@@ -70,7 +69,7 @@ export default function MaterialMasterPage() {
   const [selectedMaterialId, setSelectedMaterialId] = useState<string | undefined>();
   const [modalMode, setModalMode] = useState<MaterialModalMode | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [dataSource, setDataSource] = useState<"supabase" | "mock">("mock");
+  const [dataSource, setDataSource] = useState<"supabase" | "mock" | null>(null);
 
   const selectedMaterial = materials.find((material) => material.id === selectedMaterialId) ?? materials[0];
   const modalMaterial = modalMode === "edit" ? selectedMaterial : undefined;
@@ -219,7 +218,7 @@ export default function MaterialMasterPage() {
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white/60 px-4 py-2 text-xs font-black text-slate-500 ring-1 ring-white/80">
         <span>{isLoading ? "부자재마스터를 불러오는 중이에요." : "선택된 부서/화주 기준으로 부자재를 조회합니다."}</span>
         <span className="rounded-full bg-sky-50 px-3 py-1 text-sky-700 ring-1 ring-sky-100">
-          데이터: {dataSource === "supabase" ? "Supabase" : "Mock/Fallback"}
+          데이터: {dataSource === "supabase" ? "Supabase" : dataSource === "mock" ? "Mock/Fallback" : "연결 확인 중"}
         </span>
       </div>
 
@@ -300,7 +299,34 @@ function MaterialEditorModal({
   onClose: () => void;
 }) {
   const isEditMode = mode === "edit";
-  const regions = material ? appRepository.listMaterialRegions(material.id) : [];
+  const [regions, setRegions] = useState<MaterialInspectionRegion[]>([]);
+
+  useEffect(() => {
+    if (!material) {
+      setRegions([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadRegions = async () => {
+      try {
+        const response = await fetch(`/api/material-master/registration?material_id=${material.id}`);
+        if (!response.ok) throw new Error("등록 영역 조회에 실패했습니다.");
+        const data = (await response.json()) as { regions?: MaterialInspectionRegion[] };
+        if (!cancelled) setRegions(data.regions ?? []);
+      } catch (error) {
+        console.warn("등록 영역 미리보기를 불러오지 못했습니다.", error);
+        if (!cancelled) setRegions([]);
+      }
+    };
+
+    void loadRegions();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [material]);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

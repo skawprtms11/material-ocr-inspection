@@ -37,7 +37,7 @@ export default function WorkInspectionPage() {
   const [selectedRow, setSelectedRow] = useState<InspectionTableRow | null>(null);
   const [tableRows, setTableRows] = useState<InspectionTableRow[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [dataSource, setDataSource] = useState<"supabase" | "mock">("mock");
+  const [dataSource, setDataSource] = useState<"supabase" | "mock" | null>(null);
 
   const loadRows = useCallback(async () => {
     if (!departmentId || !shipperId) return;
@@ -119,7 +119,7 @@ export default function WorkInspectionPage() {
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white/60 px-4 py-2 text-xs font-black text-slate-500 ring-1 ring-white/80">
         <span>{isLoading ? "작업검수 데이터를 불러오는 중이에요." : "선택된 부서/화주 기준으로 검수 작업을 조회합니다."}</span>
         <span className="rounded-full bg-sky-50 px-3 py-1 text-sky-700 ring-1 ring-sky-100">
-          데이터: {dataSource === "supabase" ? "Supabase" : "Mock/Fallback"}
+          데이터: {dataSource === "supabase" ? "Supabase" : dataSource === "mock" ? "Mock/Fallback" : "연결 확인 중"}
         </span>
       </div>
 
