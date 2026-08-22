@@ -12,7 +12,7 @@
 [하단 탭: 작업검수] /mobile (홈, 탭 UI: 작업문서스캔 → 제품검수 → 완료)
 [하단 탭: 작업현황] /mobile/status  (읽기 전용 현황 리스트)
 [하단 탭: 부자재등록] /mobile/material-photo (OCR/비전 등록)
-[하단 탭: 설정] /mobile/settings (현재 사용자 정보)
+[하단 탭: 설정] /mobile/settings (현재 사용자 정보 + 부서/화주 설정)
 
 /mobile/scan (바코드/문서번호 검색)
    └─ 매칭 성공 시 router.push
@@ -31,13 +31,13 @@
 - `/mobile/sign/[workId]`: 작업자 서명 캡처.
 - `/mobile/result/[workId]`: 검수 결과 요약과 다음 문서 이동.
 - `/mobile/status`: 오늘 작업 현황 요약(진행/확인필요/완료 카운트 + 목록).
-- `/mobile/settings`: 로그인 사용자 표시 + 카메라 권한/알림 안내(정적).
+- `/mobile/settings`: 로그인 사용자 표시 + 부서/화주 스코프 선택(select, 즉시 적용) + 카메라 권한/알림 안내(정적).
 
 ## 화면별 상세
 
 ### 1. `app/mobile/layout.tsx`
 - 컴포넌트: `MobileShell`
-- 하는 일: 헤더(로고 + `/work-register`로 가는 홈 아이콘), 본문(`MobileScopeInitializer`로 스코프 초기화 후 children), 하단 탭바(4개 메뉴) 렌더링.
+- 하는 일: 헤더(로고 + `/work-register`로 가는 홈 아이콘), 본문(`MobileScopeInitializer`로 스코프 초기화 후 children), 하단 탭바(4개 메뉴), `sonner`의 `Toaster`(전역 토스트 렌더러) 렌더링. `Toaster`가 없으면 `toast()` 호출이 화면에 표시되지 않으므로, 이 파일이 모바일 전체에서 `toast`가 실제로 보이게 하는 유일한 지점이다.
 - 다음 화면 조건: 하단 탭 클릭 시 해당 라우트로 즉시 이동(추가 조건 없음).
 
 ### 2. `app/mobile/page.tsx` (홈, `MobileInspectionWorkflowPage`)
@@ -87,7 +87,7 @@
 
 ### 9. `app/mobile/settings/page.tsx`
 - 경로: `/mobile/settings`
-- 하는 일: `/api/users`를 호출해 `email === "admin@example.com"` 또는 `role === "admin"`인 사용자, 없으면 첫 번째 사용자를 `pickCurrentUser`로 골라 이름/이메일을 표시. 카메라 권한("브라우저 설정 사용")과 알림("준비중") 항목은 정적 텍스트만 있고 실제 토글 기능이 없다.
+- 하는 일: `/api/users`를 호출해 `email === "admin@example.com"` 또는 `role === "admin"`인 사용자, 없으면 첫 번째 사용자를 `pickCurrentUser`로 골라 이름/이메일을 표시. 같은 응답의 `departments`/`shippers`를 재사용해 "부서/화주 설정" 카드에서 부서·화주를 select로 고를 수 있다(별도 API 재호출 없음). 선택지는 `MobileScopeInitializer`와 동일한 기준(`is_active` + 현재 사용자의 `department_ids`/`shipper_ids` 권한, 권한 배열이 비어 있으면 전체 허용)으로 필터링하며, 화주 목록은 선택된 부서 소속만 노출한다. 부서를 바꾸면 그 부서에서 허용된 첫 화주로 자동 재설정된다. select를 바꾸면 저장 버튼 없이 즉시 `useFilterStore.setScope`로 반영되고 `lib/mobile/mobile-scope-storage.ts`의 `saveMobileScope`로 `localStorage`(`harness.mobile-scope.v1`)에 저장한 뒤 "적용되었습니다" 토스트(sonner)를 띄운다. 카메라 권한("브라우저 설정 사용")과 알림("준비중") 항목은 정적 텍스트만 있고 실제 토글 기능이 없다.
 - 다음 화면 조건: 없음.
 
 ## 데이터 흐름
@@ -112,7 +112,9 @@
 - 홈 화면(`/mobile`)의 제품 사진, `inspection/[workId]`의 `ImageUploadCard`, 서명 패드는 모두 storagePath 문자열 생성 또는 안내 문구만 있고 실제 업로드 fetch 호출이 코드에 없다(mock).
 
 ## 상태 관리
-- `lib/state/filter-store.ts`의 `useFilterStore`(zustand, 부서/화주 스코프)를 모든 모바일 데이터 훅이 공유한다. `MobileScopeInitializer`가 `/api/users` 응답의 `department_ids`/`shipper_ids` 권한을 반영해 접근 가능한 첫 부서/화주로 스코프를 자동 설정한다(스코프가 이미 유효하면 재설정하지 않음).
+- `lib/state/filter-store.ts`의 `useFilterStore`(zustand, 부서/화주 스코프, persist 없음)를 모든 모바일 데이터 훅과 웹 `TopFilterBar`가 공유한다. 이 스토어 자체에는 영속화를 붙이지 않는다(웹 동작 변경 방지).
+- `MobileScopeInitializer`의 초기화 우선순위: ① `lib/mobile/mobile-scope-storage.ts`(`localStorage` 키 `harness.mobile-scope.v1`)에 저장된 부서/화주가 있고 현재 사용자의 `department_ids`/`shipper_ids` 권한·`is_active` 기준으로 여전히 유효하면 그 값을 적용 ② 없거나 무효하면 기존 로직대로 이미 유효한 `currentScope`를 유지하거나, 그마저 없으면 권한 있는 첫 부서/화주로 자동 설정한다. 즉 모바일 설정 탭에서 고른 화주(예: 민트하우스)가 새로고침 후에도 유지되며, 웹에서 마지막으로 선택한 화주와는 독립적이다.
+- `/mobile/settings`에서 부서/화주를 바꾸면 `useFilterStore.setScope`와 `saveMobileScope`(localStorage 저장, try/catch로 감쌈)가 함께 호출되어 즉시 반영·영속화된다. 저장 버튼은 없다.
 - 화면 간 데이터 전달은 대부분 URL 파라미터(`[workId]`)와 서버 재조회로 이루어진다. 예: `/mobile/inspection/[workId]` → `/mobile/sign/[workId]` → `/mobile/result/[workId]`는 각 페이지가 자체적으로 `useMobileInspectionRows()`를 다시 호출해 `workId`로 `findInspectionById`를 수행하며, 클라이언트 전역 상태로 넘기는 값은 없다.
 - 홈 화면(`/mobile`)의 스캔 결과/체크리스트/사진 상태(`scannedWorkId`, `photoStates`)는 `useState`로만 관리되는 로컬 상태이며, 새로고침하면 초기화된다. 저장소(localStorage 등)에 영속화하지 않는다.
 - `lib/state/work-flow-store.ts`(`useWorkFlowState`, `assignWorkToInspection` 등, localStorage 키 `harness.work-flow.v1`)와 `lib/providers/inspection-provider.ts`(`mockInspectionProvider`)는 코드에서 `app/mobile/**`, `components/mobile/**` 어디에서도 import되지 않는다(grep 결과 0건). `work-flow-store`는 `app/(workspace)/work-register`, `work-status`(관리자 데스크톱 화면)에서만 사용되고, `inspection-provider`는 현재 어떤 화면에서도 사용되지 않는 미연결 코드다.
