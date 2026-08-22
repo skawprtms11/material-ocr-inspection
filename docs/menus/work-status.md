@@ -7,7 +7,7 @@
 `app/(workspace)/work-status/page.tsx`(클라이언트 컴포넌트) 구성:
 - `PageHeader` action 영역 — 년도/월 `select` + "상세필터" `CloudButton`(상세필터 적용 중이면 `tone="warning"`)
 - 상세필터 적용 중 요약 배지 바(적용된 조건 chip 표시)
-- 데이터 소스 배지 바(`supabase`/`mock`/연결 확인 중)
+- 데이터 소스 배지 바(`supabase`/`mock`/연결 확인 중/연결 오류) — 연결 오류 시 "다시 시도" 버튼으로 `loadRows` 재호출
 - `CuteCard` 요약 영역 — 완료율 게이지 + 전체/대기/진행/보류/취소/완료 카드 6종
 - `CuteCard` 목록 테이블 — 작업상태(상태 변경 드롭다운 버튼)/작업구분/문서번호/완성품코드·명/LOT/작업수량/비고
 - `DetailFilterModal` — 년도/월/작업구분/문서번호/완성품코드/완성품명/LOT 검색 폼(초기화/취소/검색 버튼)
@@ -30,7 +30,7 @@
   - DB 변경 없이 `{ source: "mock", workId, status }`만 반환
 - PATCH Supabase 분기
   - `.from("works")`를 `status`, `latest_inspected_at`으로 update
-- 두 핸들러 모두 예외 시 `mockData(...)`(GET) 또는 500 에러(PATCH)로 폴백
+- 실DB 모드(`NEXT_PUBLIC_USE_MOCK_DATA === "false"`)에서 Supabase 조회/저장이 예외를 던지면 GET/PATCH 모두 mock 폴백 없이 `502/500 { error }`를 반환한다(mock 폴백은 mock 모드에서만 동작)
 
 ## 상태·필터
 - `useFilterStore`(zustand)에서 `departmentId`/`shipperId`를 읽어 `FilterScope`로 사용
@@ -63,5 +63,6 @@
 
 ## 주의사항
 - mock 모드의 `PATCH /api/work-status`는 DB를 갱신하지 않으므로, mock 데이터에서는 새로고침하면 상태 변경이 초기화된다.
+- 실DB 모드에서 GET이 502를 반환하면 화면은 mock으로 대체되지 않고 "연결 오류" 배지 + "다시 시도" 버튼을 표시한다(`loadError` 상태, 직전 목록은 유지).
 - `lot`, `quantity`, `workType` 값은 Supabase 조회 시 `works` 테이블에 `finished_product_lot`/`quantity`/`work_type` 컬럼이 없으면 `getFallbackFinishedProductLot`(work_date 기반 생성값)과 `workTypeOptions` 순환 인덱스로 대체된다(실제 저장값이 아닐 수 있음).
 - 상세필터의 문서번호/완성품코드/완성품명/LOT 검색은 대소문자 무시 부분일치(`includesText`)로, 서버 쿼리가 아닌 클라이언트 필터링이다.

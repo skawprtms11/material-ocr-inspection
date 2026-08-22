@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
       users: ((usersResult.data ?? []) as DbRow[]).map((row) => toUser(row, departmentsByUser[text(row.id)] ?? [], shippersByUser[text(row.id)] ?? []))
     });
   } catch (error) {
-    return NextResponse.json(mockData(departmentId, errorMessage(error, "Supabase 화주마스터 조회에 실패했습니다.")));
+    return NextResponse.json({ error: errorMessage(error, "Supabase 화주마스터 조회에 실패했습니다.") }, { status: 502 });
   }
 }
 

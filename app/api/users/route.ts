@@ -99,6 +99,6 @@ export async function GET() {
       shippers: ((shippersResult.data ?? []) as DbRow[]).map(toShipper)
     });
   } catch (error) {
-    return NextResponse.json(mockData(errorMessage(error, "Supabase 사용자관리 조회에 실패했습니다.")));
+    return NextResponse.json({ error: errorMessage(error, "Supabase 사용자관리 조회에 실패했습니다.") }, { status: 502 });
   }
 }

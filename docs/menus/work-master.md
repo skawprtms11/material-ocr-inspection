@@ -16,6 +16,7 @@
 ## 데이터 흐름
 - 조회: `GET /api/work-masters?department_id=...&shipper_id=...`
   - `route.ts`: mock이면 `appRepository.listWorkMasters`/`listMaterials`/`listWorkMasterMaterials` 조합. Supabase면 `resolveScopeIds` 후 `fetchWorkMasterData(supabase, departmentId, shipperId)`(`lib/repositories/work-master-supabase-repository.ts`) 호출.
+  - 실DB 모드에서 조회 중 예외가 발생하면 mock 폴백 없이 `502 { error }`를 반환한다. 화면은 더 이상 `applyMockData()`로 대체하지 않고 `loadError` 상태로 "연결 오류" 배지 + "다시 시도" 버튼을 표시한다.
   - `fetchWorkMasterData`: `.from("work_masters").select("*").eq("department_id",...).eq("shipper_id",...)`, `.from("material_masters").select("*").eq(...)`, 그리고 `selectMaybeEmpty`로 `.from("work_master_materials")`, `.from("work_master_products")`를 `work_master_id in (...)` 조건으로 조회.
 - 개별 등록: `POST /api/work-masters` body `{ mode: "single", departmentId, shipperId, draft }` → `createWorkMaster()`가 `.from("work_masters").insert({..., work_type, type, ...})`, 실패 시 `work_type`/`type` 컬럼을 뺀 폴백 insert 재시도.
 - 일괄 등록: `POST /api/work-masters` body `{ mode: "batch", ..., rows }` → `createBatchWorkMasters()`가 `createMissingMaterials()`(부자재코드가 없으면 `.from("material_masters").insert(...)`로 임시 부자재 자동 생성) → 행별 `createWorkMaster()` → `replaceWorkMasterMaterials()`/`replaceWorkMasterProducts()`.
@@ -25,7 +26,7 @@
 - 확인된 Supabase 테이블: `work_masters`, `material_masters`, `work_master_materials`, `work_master_products`.
 
 ## 상태·필터
-- `useFilterStore()`에서 `departmentId`, `shipperId` 구독. 값이 없으면 `applyMockData()`로 즉시 mock 데이터를 채운 뒤 `EmptyCloudState`를 반환(다른 마스터 화면과 달리 조회 자체를 mock으로 먼저 채워둔다).
+- `useFilterStore()`에서 `departmentId`, `shipperId` 구독. 값이 없으면 `applyMockData()`로 즉시 mock 데이터를 채운 뒤 `EmptyCloudState`를 반환(다른 마스터 화면과 달리 조회 자체를 mock으로 먼저 채워둔다). 이 mock 채움은 스코프 미선택 상태에서만 발생하며, 실DB 모드에서 API가 502를 반환하는 오류 경로에서는 더 이상 mock으로 대체되지 않는다(`loadError` 배지 + 다시 시도).
 - `AbortController`로 부서/화주 변경 시 이전 fetch를 취소.
 - 로컬 상태가 많음: `visibleWorkMasters`, `localMaterials`, `workMasterMeta`(work_type/type), `materialRowsByWork`, `productRowsByWork`, `selectedWorkMaster`/`selectedProductWorkMaster`(모달용), `selectedIds`(체크박스 다중 선택), `draftWorkMaster`, `isBatchOpen`.
 

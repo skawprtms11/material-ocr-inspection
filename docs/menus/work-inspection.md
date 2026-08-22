@@ -6,7 +6,7 @@
 ## 화면 구조
 `app/(workspace)/work-inspection/page.tsx`(클라이언트 컴포넌트) 구성:
 - `PageHeader` — 제목/설명만, 별도 액션 버튼 없음
-- 데이터 소스 배지 바(`supabase`/`mock`/연결 확인 중)
+- 데이터 소스 배지 바(`supabase`/`mock`/연결 확인 중/연결 오류) — 연결 오류 시 "다시 시도" 버튼으로 `loadRows` 재호출
 - `CuteCard` 목록 테이블 — 등록일자/작업구분/문서번호/완성품코드·명/작업수량/검수단계/검수처리/조정확인. "검수대상" 건수 배지 표시
   - 검수단계 배지 색상은 `getStepClassName`(문자열 포함 여부로 분기: 완료/승인→초록, 대상→보라, 보류/취소→회색, 요청→주황, 불일치/재검수→빨강, 진행/모바일→하늘)
   - 검수처리 컬럼: `CloudButton`으로 "검수완료" 처리(`work.status`가 `canceled`/`completed`면 비활성화)
@@ -31,6 +31,7 @@
   3. `.from("works")`를 department/shipper로 필터 조회
   4. `.from("work_inspections")`, `.from("inspection_images")`, `.from("admin_review_requests")`를 각각 `work_id in (...)`로 조회
   5. `getInspectionStep()`으로 표시용 검수단계 문자열 계산(취소 → 보류 → 조정승인 → 재검수 필요 → 재검수 요청 → 검수완료 → 검수대상/검수대기 → 확인요청 → 불일치·재검수 → 검수진행 → 모바일 검수중 순으로 우선순위 판정)
+- 실DB 모드에서 GET 조회 중 예외가 발생하면 mock 폴백 없이 `502 { error }`를 반환한다(mock 폴백은 mock 모드에서만 동작). 화면은 `loadError` 상태로 "연결 오류" 배지 + "다시 시도" 버튼을 표시한다(직전 목록 유지).
 - PATCH `complete`
   - `.from("works")`를 `status: "in_progress"`, `latest_inspected_at`으로 update
 - PATCH `adjustment` 처리 순서

@@ -15,6 +15,7 @@ export type MobileDataState<T> = {
   isLoading: boolean;
   error: string;
   reload: () => Promise<void>;
+  refetch: () => Promise<void>;
 };
 
 type MaterialMasterResponse = {
@@ -52,7 +53,7 @@ function useScopedMobileData<T>(
     try {
       const response = await fetch(buildPath(scope), { cache: "no-store" });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error ?? errorMessage);
+      if (!response.ok || payload?.error) throw new Error(payload?.error ?? errorMessage);
 
       const parsed = parse(payload);
       setData(parsed.data);
@@ -73,7 +74,7 @@ function useScopedMobileData<T>(
   }, [reload]);
 
   return useMemo(
-    () => ({ data, source, warning, isLoading, error, reload }),
+    () => ({ data, source, warning, isLoading, error, reload, refetch: reload }),
     [data, error, isLoading, reload, source, warning]
   );
 }

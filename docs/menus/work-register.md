@@ -6,7 +6,7 @@
 ## 화면 구조
 `app/(workspace)/work-register/page.tsx`(클라이언트 컴포넌트)는 다음 섹션으로 구성된다.
 - `PageHeader`(`@/components/common/PageHeader`) — 제목/설명 + "작업 등록" 버튼(`CloudButton`)
-- 데이터 소스 배지 바 — `dataSource`가 `supabase`/`mock`/`null`인지 표시
+- 데이터 소스 배지 바 — `dataSource`가 `supabase`/`mock`/`null`인지 표시. 조회 실패(`loadError`) 시 "연결 오류" 배지 + "다시 시도" 버튼으로 `loadWorkRegister` 재호출
 - `CuteCard`(`@/components/common/CuteCard`) 안의 "할당 대기중인 작업 목록" 테이블 — 등록일자/작업구분/문서번호/완성품코드·명/LOT/작업수량/완료요청일/비고/작업할당 컬럼
 - `departmentId`/`shipperId`가 없으면 `EmptyCloudState`(`@/components/common/EmptyCloudState`)를 렌더링
 
@@ -35,7 +35,7 @@
   1. `.from("work_masters")`에서 단건 조회
   2. `.from("works")`에 insert (실패 시 `work_type`/`quantity`/`due_date`/`finished_product_lot` 컬럼을 제외한 축소 payload로 재시도)
   3. `body.componentRows`가 있으면 `.from("work_components")`에 insert
-- 실패 시 두 라우트 모두 mock 데이터 또는 500 에러로 폴백
+- 실DB 모드에서 GET 조회 중 예외가 발생하면 mock 폴백 없이 `502 { error }`를 반환한다(POST는 기존대로 500 에러). mock 폴백은 mock 모드에서만 동작한다.
 
 `app/api/work-register/[workId]/assign/route.ts`(PATCH):
 - mock 분기: `{ source: "mock", workId, assignedTo }`만 반환(DB 미변경)

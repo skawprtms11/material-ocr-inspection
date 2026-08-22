@@ -698,8 +698,17 @@ export default function MobileMaterialRegistrationPage() {
       </CuteCard>
 
       {(warning || error) && (
-        <CuteCard className="p-3 text-xs font-bold leading-5 text-amber-700">
-          {error || warning}
+        <CuteCard className="flex items-center justify-between gap-3 p-3 text-xs font-bold leading-5 text-amber-700">
+          <span>{error || warning}</span>
+          {error && (
+            <button
+              type="button"
+              onClick={() => void reload()}
+              className="shrink-0 rounded-full bg-amber-100 px-3 py-1.5 text-[11px] font-black text-amber-800"
+            >
+              다시 시도
+            </button>
+          )}
         </CuteCard>
       )}
 
@@ -775,8 +784,15 @@ export default function MobileMaterialRegistrationPage() {
             </div>
           )}
           {!isInitialLoading && error && (
-            <div className="px-4 py-8 text-center text-sm font-bold leading-6 text-rose-600">
-              Supabase 부자재마스터 연결 오류가 발생했습니다.
+            <div className="space-y-3 px-4 py-8 text-center text-sm font-bold leading-6 text-rose-600">
+              <p>Supabase 부자재마스터 연결 오류가 발생했습니다.</p>
+              <button
+                type="button"
+                onClick={() => void reload()}
+                className="rounded-full bg-rose-50 px-4 py-2 text-xs font-black text-rose-700"
+              >
+                다시 시도
+              </button>
             </div>
           )}
           {!isInitialLoading &&
