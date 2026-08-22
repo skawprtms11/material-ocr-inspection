@@ -21,7 +21,7 @@
 - 일괄 등록: `POST /api/work-masters` body `{ mode: "batch", ..., rows }` → `createBatchWorkMasters()`가 `createMissingMaterials()`(부자재코드가 없으면 `.from("material_masters").insert(...)`로 임시 부자재 자동 생성) → 행별 `createWorkMaster()` → `replaceWorkMasterMaterials()`/`replaceWorkMasterProducts()`.
 - 삭제: `DELETE /api/work-masters` body `{ ids }` → `deleteWorkMasters()`가 `work_master_products`, `work_master_materials`를 먼저 삭제한 뒤 `work_masters` 삭제.
 - 부자재 구성 저장: `POST /api/work-masters/[workMasterId]/materials` body `{ rows }` → `replaceWorkMasterMaterials()`(전체 delete 후 insert, `unit_quantity` insert 실패 시 해당 컬럼 없이 폴백 재시도).
-- 제품코드 저장: `POST /api/work-masters/[workMasterId]/products` body `{ rows }` → `replaceWorkMasterProducts()`(전체 delete 후 insert).
+- 제품코드 저장: `POST /api/work-masters/[workMasterId]/products` body `{ rows }` → `replaceWorkMasterProducts()`(기존 행 확보 → 전체 delete → insert, insert 실패 시 확보해둔 기존 행 복원). insert 컬럼에 `sort_order`(입력 순서)가 포함되며 DB에도 해당 컬럼이 존재한다(2026-08-22 마이그레이션 `add_sort_order_to_work_master_products`).
 - 확인된 Supabase 테이블: `work_masters`, `material_masters`, `work_master_materials`, `work_master_products`.
 
 ## 상태·필터
