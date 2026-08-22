@@ -1,4 +1,5 @@
 import type { AdminReviewStatus, InspectionMethod, InspectionStatus, Role, WorkStatus } from "@/lib/types/domain";
+import type { DisplayWorkStatusDto } from "@/lib/types/work-status-api";
 
 export const roleLabels: Record<Role, string> = {
   admin: "관리자",
@@ -39,6 +40,15 @@ export const inspectionMethodLabels: Record<InspectionMethod, string> = {
   VISION: "비전",
   BOTH: "OCR + 비전"
 };
+
+// 작업상태를 화면 표시용 상태(대기/진행/보류/취소/완료)로 묶는다. work-status 웹/API/모바일이 공유한다.
+export function getDisplayStatus(status: WorkStatus): DisplayWorkStatusDto {
+  if (status === "registered") return "waiting";
+  if (status === "in_progress") return "progress";
+  if (status === "on_hold" || status === "inspection_failed" || status === "admin_review_requested") return "hold";
+  if (status === "canceled") return "cancel";
+  return "complete";
+}
 
 export const workStatusOrder: WorkStatus[] = [
   "registered",
