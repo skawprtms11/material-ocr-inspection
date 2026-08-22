@@ -1,7 +1,7 @@
 # 모바일 현장 검수 (`app/mobile`)
 
 ## 개요
-`app/mobile` 하위는 현장 작업자가 스마트폰 브라우저에서 사용하는 8개 화면으로 구성된다. `app/mobile/layout.tsx`가 모든 화면을 `MobileShell`로 감싸고, `MobileShell` 내부의 `MobileScopeInitializer`가 부서/화주 스코프(`useFilterStore`)를 자동으로 세팅한 뒤 children을 렌더링한다. 코드상 실제로는 두 갈래의 검수 플로우가 공존한다.
+`app/mobile` 하위는 현장 작업자가 스마트폰 브라우저에서 사용하는 8개 화면으로 구성된다. `app/mobile/layout.tsx`가 모든 화면을 `MobileShell`로 감싸고, `MobileShell` 내부의 `MobileScopeInitializer`가 부서/화주 스코프(`useFilterStore`)를 자동으로 세팅한 뒤 children을 렌더링한다. 헤더 우측에는 `MobileScopeBadge`가 현재 부서·화주명을 작게 표시하며(모든 모바일 화면 공통), 탭하면 설정 탭으로 이동한다. 코드상 실제로는 두 갈래의 검수 플로우가 공존한다.
 - 홈(`/mobile`, `MobileInspectionWorkflowPage`): 문서 스캔 → 제품검수(체크리스트+사진) 탭을 자체 내장한 단일 페이지 플로우. 사진 저장은 storagePath 문자열만 만드는 mock 처리이며 실제 업로드 API 호출이 없다.
 - `/mobile/scan` → `/mobile/inspection/[workId]` → `/mobile/sign/[workId]` → `/mobile/result/[workId]`: 바코드/문서번호로 작업을 찾은 뒤 STEP별 검수 상세, 서명, 결과 화면으로 이어지는 별도 플로우. 이 플로우의 재검수·관리자 요청·촬영 검수 버튼은 `toast`만 띄우는 mock이며 실제 저장 로직은 없다(`app/mobile/inspection/[workId]/page.tsx`).
 
