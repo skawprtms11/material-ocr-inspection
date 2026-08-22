@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ClipboardCheck, Cloud, Home, ListChecks, PackagePlus, Settings } from "lucide-react";
 import { Toaster } from "sonner";
+import { MobileScopeBadge } from "@/components/mobile/MobileScopeBadge";
 import { MobileScopeInitializer } from "@/components/mobile/MobileScopeInitializer";
 import { cn } from "@/lib/utils/cn";
 
@@ -26,9 +27,12 @@ export function MobileShell({ children }: { children: ReactNode }) {
           <Cloud className="size-5" fill="currentColor" />
           모바일 업무
         </Link>
-        <Link href="/work-register" aria-label="웹 업무 화면으로 이동" className="rounded-full bg-white p-2 text-slate-500 shadow-sm">
-          <Home className="size-5" />
-        </Link>
+        <div className="flex items-center gap-2">
+          <MobileScopeBadge />
+          <Link href="/work-register" aria-label="웹 업무 화면으로 이동" className="rounded-full bg-white p-2 text-slate-500 shadow-sm">
+            <Home className="size-5" />
+          </Link>
+        </div>
       </header>
       <main className="mx-auto min-h-[calc(100vh-57px)] w-full max-w-md px-4 pb-28 pt-5">
         <MobileScopeInitializer>{children}</MobileScopeInitializer>
