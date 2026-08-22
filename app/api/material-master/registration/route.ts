@@ -257,6 +257,41 @@ async function uploadFiles(
   );
 }
 
+function relativeStoragePath(path: string) {
+  return path.startsWith(`${materialImageBucket}/`) ? path.slice(materialImageBucket.length + 1) : path;
+}
+
+function regionImagePaths(region: MaterialInspectionRegion) {
+  const options = region.options as { uploadedPaths?: unknown; imagePath?: unknown };
+  const uploadedPaths = Array.isArray(options.uploadedPaths)
+    ? options.uploadedPaths.filter((path): path is string => typeof path === "string" && path.length > 0)
+    : [];
+
+  if (uploadedPaths.length > 0) return uploadedPaths;
+  return typeof options.imagePath === "string" && options.imagePath ? [options.imagePath] : [];
+}
+
+async function resolveRegionImageUrls(
+  supabase: NonNullable<ReturnType<typeof createServerSupabaseClient>>,
+  region: MaterialInspectionRegion
+) {
+  const relativePaths = regionImagePaths(region).map(relativeStoragePath);
+  if (relativePaths.length === 0) return [];
+
+  try {
+    const { data, error } = await supabase.storage.from(materialImageBucket).createSignedUrls(relativePaths, 60 * 60);
+    if (error) throw error;
+
+    return (data ?? [])
+      .filter((item) => !item.error && item.signedUrl)
+      .map((item) => item.signedUrl as string);
+  } catch (error) {
+    // 서명 URL 발급 실패는 미리보기에서만 조용히 제외한다.
+    console.error("서명 URL 발급에 실패했습니다.", error);
+    return [];
+  }
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const materialId = searchParams.get("material_id");
@@ -268,7 +303,10 @@ export async function GET(request: NextRequest) {
   const supabase = createServerSupabaseClient();
 
   if (!supabase || process.env.NEXT_PUBLIC_USE_MOCK_DATA !== "false") {
-    return NextResponse.json({ source: "mock", regions: appRepository.listMaterialRegions(materialId) });
+    const regions = appRepository
+      .listMaterialRegions(materialId)
+      .map((region) => ({ ...region, imageUrls: [] as string[] }));
+    return NextResponse.json({ source: "mock", regions });
   }
 
   try {
@@ -279,7 +317,15 @@ export async function GET(request: NextRequest) {
 
     if (error) throw error;
 
-    return NextResponse.json({ source: "supabase", regions: ((data ?? []) as DbRow[]).map(toRegion) });
+    const regions = await Promise.all(
+      ((data ?? []) as DbRow[]).map(async (row) => {
+        const region = toRegion(row);
+        const imageUrls = await resolveRegionImageUrls(supabase, region);
+        return { ...region, imageUrls };
+      })
+    );
+
+    return NextResponse.json({ source: "supabase", regions });
   } catch (error) {
     return NextResponse.json(
       { error: errorMessage(error, "등록 영역 조회에 실패했습니다.") },

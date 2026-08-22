@@ -207,6 +207,14 @@ export async function replaceWorkMasterProducts(
   workMasterId: string,
   rows: ProductUsageRowDto[]
 ) {
+  // 삭제 후 insert가 실패하면 기존 행을 복원해야 하므로 먼저 확보해 둔다
+  const { data: existingData, error: existingError } = await supabase
+    .from("work_master_products")
+    .select("*")
+    .eq("work_master_id", workMasterId);
+  if (existingError) throw existingError;
+  const existingRows = (existingData ?? []) as DbRow[];
+
   const deleteResult = await supabase.from("work_master_products").delete().eq("work_master_id", workMasterId);
   if (deleteResult.error) throw deleteResult.error;
 
@@ -221,7 +229,14 @@ export async function replaceWorkMasterProducts(
     sort_order: index + 1
   }));
   const { data, error } = await supabase.from("work_master_products").insert(payload).select("*");
-  if (error) throw error;
+  if (error) {
+    // 새 행 insert 실패 시 이미 삭제된 기존 행을 되살린다 (복원 실패보다 원래 에러 보고가 우선)
+    if (existingRows.length > 0) {
+      const restore = await supabase.from("work_master_products").insert(existingRows);
+      if (restore.error) console.error("사용제품코드 기존 행 복원 실패:", restore.error);
+    }
+    throw error;
+  }
 
   return (data ?? []) as DbRow[];
 }

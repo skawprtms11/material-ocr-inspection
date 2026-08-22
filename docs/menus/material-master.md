@@ -8,13 +8,15 @@
 - 사용 컴포넌트: `PageHeader`, `CloudButton`, `CuteCard`, `EmptyCloudState`, `InspectionRegionEditor`(`components/inspection/InspectionRegionEditor.tsx`)
 - `departmentId`/`shipperId`가 없으면 `EmptyCloudState`를 렌더링.
 - 부자재 테이블: 부자재코드, 부자재명, LOT, OCR등록(체크+이미지 유무), 비전스캔등록(체크+이미지 유무), 비고. 행 클릭으로 `selectedMaterialId` 지정.
+- 부자재명 셀은 밑줄 스타일의 클릭 가능한 버튼이다. 클릭 시(`stopPropagation`으로 행 선택 로직과 분리) `MaterialImagePreviewModal`(읽기 전용 미리보기 모달)을 연다.
 - 액션 버튼: 등록(`Plus`), 수정(`Pencil`, 선택된 행 필요), 삭제(`Trash2`, 선택된 행 필요), 모바일 사진등록 링크(`/mobile/material-photo?materialId=...`).
 - `MaterialEditorModal`(내부 컴포넌트, `mode: "create" | "edit"`): 기본정보 폼(code/name/lot/remark, OCR·비전 사용여부 체크박스) + `ImageRegistrationPanel` 2개(OCR/비전 이미지 파일 선택, `storageHint`로 저장 경로 예시 표시) + 수정 모드일 때만 `InspectionRegionEditor`로 등록된 ROI 미리보기 표시(모달이 열릴 때 `useEffect`로 `GET /api/material-master/registration?material_id=...`를 호출해 `regions` 상태를 채움. fetch 실패 시 mock 폴백 없이 빈 배열 + 콘솔 경고).
+- `MaterialImagePreviewModal`(내부 컴포넌트): 부자재명 클릭으로 열리는 읽기 전용 모달. 열릴 때 `GET /api/material-master/registration?material_id=...`를 호출해 method별(OCR/VISION) 이미지와 ROI를 조회한다. OCR 섹션은 첫 번째 이미지 위에 저장된 ROI를 퍼센트 좌표 절대배치 오버레이(`RoiOverlayImage`)로 표시하고 `expected_text`/`options.recognizedText`를 캡션으로 보여준다. 비전 섹션은 이미지 최대 5장을 그리드로 표시하며 각 이미지에 동일한 저장 ROI(비전 등록 시 첫 번째 사진의 영역만 저장됨)를 오버레이한다. 로딩 중에는 스피너, 등록 이미지가 없으면 빈 상태 문구를 표시한다.
 
 ## 데이터 흐름
 - 등록 영역 조회: `GET /api/material-master/registration?material_id=...`
-  - mock: `appRepository.listMaterialRegions(materialId)`.
-  - Supabase: `.from("material_inspection_regions").select("*").eq("material_id", materialId)`.
+  - mock: `appRepository.listMaterialRegions(materialId)`에 각 region마다 `imageUrls: []`를 붙여 반환.
+  - Supabase: `.from("material_inspection_regions").select("*").eq("material_id", materialId)` 조회 후, region별로 `options.uploadedPaths`(없으면 `options.imagePath` 단건)에서 버킷 프리픽스(`material-images/`)를 제거한 상대 경로로 `supabase.storage.from("material-images").createSignedUrls(paths, 60 * 60)`(1시간 만료)를 호출해 `imageUrls: string[]`로 각 region에 병합한다. 서명 URL 발급이 실패하면 해당 region은 `imageUrls: []`로 조용히 폴백한다(전체 요청은 실패시키지 않음).
 - 조회: `GET /api/material-master?department_id=...&shipper_id=...`
   - mock: `appRepository.listMaterials(toMockScopeIds(departmentId, shipperId))`.
   - Supabase: `resolveScopeIds` 후 `.from("material_masters").select("*").eq("department_id",...).eq("shipper_id",...).order("code")`. `material_id` 쿼리로 단건 조회하는 경로도 있음(`.from("material_masters").select("*").eq("id", materialId).single()`).

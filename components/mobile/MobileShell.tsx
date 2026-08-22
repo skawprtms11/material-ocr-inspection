@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ClipboardCheck, Cloud, Home, ListChecks, PackagePlus, Settings } from "lucide-react";
+import { Toaster } from "sonner";
 import { MobileScopeInitializer } from "@/components/mobile/MobileScopeInitializer";
 import { cn } from "@/lib/utils/cn";
 
@@ -19,6 +20,7 @@ export function MobileShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#e8f7ff_0%,#fff8e8_52%,#f6efff_100%)] text-slate-800">
+      <Toaster richColors position="top-center" />
       <header className="sticky top-0 z-20 flex items-center justify-between border-b border-white/70 bg-white/75 px-4 py-3 backdrop-blur">
         <Link href="/mobile" className="flex items-center gap-2 text-sm font-black text-sky-700">
           <Cloud className="size-5" fill="currentColor" />

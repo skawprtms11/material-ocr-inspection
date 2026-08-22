@@ -12,7 +12,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <Sidebar />
         <div className="min-w-0 flex-1">
           <TopFilterBar />
-          <main className="mx-auto w-full max-w-7xl px-4 py-6 md:px-8">{children}</main>
+          <main className="mx-auto w-full max-w-[96rem] px-4 py-6 md:px-8">{children}</main>
         </div>
       </div>
       <Toaster richColors position="top-right" />

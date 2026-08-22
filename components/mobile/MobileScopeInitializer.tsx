@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useFilterStore } from "@/lib/state/filter-store";
+import { loadMobileScope } from "@/lib/mobile/mobile-scope-storage";
 import type { ReactNode } from "react";
 import type { AppUser, Department, Shipper } from "@/lib/types/domain";
 
@@ -36,8 +37,12 @@ export function MobileScopeInitializer({ children }: { children: ReactNode }) {
         const allowedDepartments = data.departments.filter(
           (department) => department.is_active && (departmentPermissionIds.size === 0 || departmentPermissionIds.has(department.id))
         );
+        const storedScope = loadMobileScope();
+        const storedDepartment = storedScope ? allowedDepartments.find((department) => department.id === storedScope.departmentId) : undefined;
         const selectedDepartment =
-          allowedDepartments.find((department) => department.id === currentScope.departmentId) ?? allowedDepartments[0];
+          storedDepartment ??
+          allowedDepartments.find((department) => department.id === currentScope.departmentId) ??
+          allowedDepartments[0];
 
         if (!selectedDepartment) return;
 
@@ -47,7 +52,10 @@ export function MobileScopeInitializer({ children }: { children: ReactNode }) {
             shipper.department_id === selectedDepartment.id &&
             (shipperPermissionIds.size === 0 || shipperPermissionIds.has(shipper.id))
         );
-        const selectedShipper = allowedShippers.find((shipper) => shipper.id === currentScope.shipperId) ?? allowedShippers[0];
+        const storedShipper =
+          storedScope && storedDepartment ? allowedShippers.find((shipper) => shipper.id === storedScope.shipperId) : undefined;
+        const selectedShipper =
+          storedShipper ?? allowedShippers.find((shipper) => shipper.id === currentScope.shipperId) ?? allowedShippers[0];
 
         if (!isMounted || !selectedShipper) return;
         if (selectedDepartment.id !== currentScope.departmentId || selectedShipper.id !== currentScope.shipperId) {
