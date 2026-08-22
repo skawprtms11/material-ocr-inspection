@@ -268,14 +268,15 @@ export default function MaterialMasterPage() {
                     <td className="px-5 py-4">{material.lot || "-"}</td>
                     <td className="px-5 py-4 text-center">
                       <div className="inline-flex items-center gap-2">
-                        <ReadOnlyCheck checked={hasInspectionMethod(material.inspection_method, "OCR")} label={`${material.name} OCR 등록`} />
-                        <span className="text-xs font-bold text-slate-400">{material.ocr_image_path ? "이미지 있음" : "대기"}</span>
+                        {/* 등록 판정 기준: 모바일과 동일하게 이미지 실등록 여부(경로 존재)로 통일. 사용 설정(inspection_method)은 수정 모달에서 관리 */}
+                        <ReadOnlyCheck checked={Boolean(material.ocr_image_path)} label={`${material.name} OCR 등록`} />
+                        <span className="text-xs font-bold text-slate-400">{material.ocr_image_path ? "등록완료" : "대기"}</span>
                       </div>
                     </td>
                     <td className="px-5 py-4 text-center">
                       <div className="inline-flex items-center gap-2">
-                        <ReadOnlyCheck checked={hasInspectionMethod(material.inspection_method, "VISION")} label={`${material.name} 비전스캔 등록`} />
-                        <span className="text-xs font-bold text-slate-400">{material.vision_image_path ? "이미지 있음" : "대기"}</span>
+                        <ReadOnlyCheck checked={Boolean(material.vision_image_path)} label={`${material.name} 비전스캔 등록`} />
+                        <span className="text-xs font-bold text-slate-400">{material.vision_image_path ? "등록완료" : "대기"}</span>
                       </div>
                     </td>
                     <td className="px-5 py-4 text-slate-500">{material.remark || "-"}</td>
