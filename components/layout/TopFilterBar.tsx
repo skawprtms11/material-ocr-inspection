@@ -1,9 +1,10 @@
 "use client";
 
 import { ChevronDown, UserRound } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFilterStore } from "@/lib/state/filter-store";
 import { roleLabels } from "@/lib/constants/status";
+import { loadMobileScope, saveMobileScope } from "@/lib/mobile/mobile-scope-storage";
 import type { AppUser, Department, Shipper } from "@/lib/types/domain";
 
 type FilterOptionsResponse = {
@@ -14,11 +15,12 @@ type FilterOptionsResponse = {
 };
 
 export function TopFilterBar() {
-  const { departmentId, shipperId, setDepartmentId, setShipperId } = useFilterStore();
+  const { departmentId, shipperId, setScope, setDepartmentId, setShipperId } = useFilterStore();
   const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [shippers, setShippers] = useState<Shipper[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const hasRestoredScopeRef = useRef(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -64,34 +66,58 @@ export function TopFilterBar() {
     return scoped.length > 0 ? scoped : departments.filter((department) => department.is_active);
   }, [currentUser, departments]);
 
-  const allowedShippers = useMemo(() => {
-    if (!departmentId) return [];
-    const allowed = new Set(currentUser?.shipper_ids ?? []);
-    return shippers.filter(
-      (shipper) =>
-        shipper.is_active &&
-        shipper.department_id === departmentId &&
-        (allowed.size === 0 || allowed.has(shipper.id))
-    );
-  }, [currentUser, departmentId, shippers]);
+  const allowedShippersOf = useCallback(
+    (targetDepartmentId: string) => {
+      if (!targetDepartmentId) return [];
+      const allowed = new Set(currentUser?.shipper_ids ?? []);
+      return shippers.filter(
+        (shipper) =>
+          shipper.is_active &&
+          shipper.department_id === targetDepartmentId &&
+          (allowed.size === 0 || allowed.has(shipper.id))
+      );
+    },
+    [currentUser, shippers]
+  );
 
+  const allowedShippers = useMemo(() => allowedShippersOf(departmentId), [allowedShippersOf, departmentId]);
+
+  // 최초 1회는 저장된 모바일 스코프(localStorage)가 유효하면 그대로 복원하고,
+  // 이후에는 기존 로직대로 현재 값이 유효하면 유지, 아니면 첫 항목으로 폴백한다.
   useEffect(() => {
     if (isLoading || allowedDepartments.length === 0) return;
-    if (!departmentId || !allowedDepartments.some((department) => department.id === departmentId)) {
-      setDepartmentId(allowedDepartments[0].id);
-    }
-  }, [allowedDepartments, departmentId, isLoading, setDepartmentId]);
 
-  useEffect(() => {
-    if (isLoading || !departmentId) return;
-    if (allowedShippers.length === 0) {
-      if (shipperId) setShipperId("");
-      return;
+    const storedScope = hasRestoredScopeRef.current ? null : loadMobileScope();
+    const storedDepartment = storedScope
+      ? allowedDepartments.find((department) => department.id === storedScope.departmentId)
+      : undefined;
+    const currentDepartment = allowedDepartments.find((department) => department.id === departmentId);
+    const selectedDepartment = storedDepartment ?? currentDepartment ?? allowedDepartments[0];
+
+    const allowedShippersForDept = allowedShippersOf(selectedDepartment.id);
+    const storedShipper =
+      storedScope && storedDepartment ? allowedShippersForDept.find((shipper) => shipper.id === storedScope.shipperId) : undefined;
+    const currentShipper =
+      selectedDepartment.id === departmentId ? allowedShippersForDept.find((shipper) => shipper.id === shipperId) : undefined;
+    const selectedShipper = storedShipper ?? currentShipper ?? allowedShippersForDept[0];
+
+    hasRestoredScopeRef.current = true;
+
+    if (selectedDepartment.id !== departmentId || (selectedShipper?.id ?? "") !== shipperId) {
+      setScope({ departmentId: selectedDepartment.id, shipperId: selectedShipper?.id ?? "" });
     }
-    if (!shipperId || !allowedShippers.some((shipper) => shipper.id === shipperId)) {
-      setShipperId(allowedShippers[0].id);
-    }
-  }, [allowedShippers, departmentId, isLoading, setShipperId, shipperId]);
+  }, [allowedDepartments, allowedShippersOf, departmentId, isLoading, setScope, shipperId]);
+
+  const handleDepartmentChange = (nextDepartmentId: string) => {
+    setDepartmentId(nextDepartmentId);
+    const nextShipperId = allowedShippersOf(nextDepartmentId)[0]?.id ?? "";
+    saveMobileScope({ departmentId: nextDepartmentId, shipperId: nextShipperId });
+  };
+
+  const handleShipperChange = (nextShipperId: string) => {
+    setShipperId(nextShipperId);
+    saveMobileScope({ departmentId, shipperId: nextShipperId });
+  };
 
   const user = currentUser ?? {
     name: isLoading ? "불러오는 중" : "사용자",
@@ -107,7 +133,7 @@ export function TopFilterBar() {
             <span className="sr-only">부서명 필터</span>
             <select
               value={departmentId}
-              onChange={(event) => setDepartmentId(event.target.value)}
+              onChange={(event) => handleDepartmentChange(event.target.value)}
               className="h-11 min-w-44 appearance-none rounded-full border border-sky-100 bg-white px-4 pr-10 text-sm font-bold text-slate-700 shadow-sm outline-none focus:ring-2 focus:ring-sky-200"
             >
               <option value="">부서 선택</option>
@@ -123,7 +149,7 @@ export function TopFilterBar() {
             <span className="sr-only">화주명 필터</span>
             <select
               value={shipperId}
-              onChange={(event) => setShipperId(event.target.value)}
+              onChange={(event) => handleShipperChange(event.target.value)}
               disabled={!departmentId}
               className="h-11 min-w-44 appearance-none rounded-full border border-violet-100 bg-white px-4 pr-10 text-sm font-bold text-slate-700 shadow-sm outline-none focus:ring-2 focus:ring-violet-200 disabled:opacity-50"
             >

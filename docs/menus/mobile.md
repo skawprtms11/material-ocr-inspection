@@ -10,7 +10,7 @@
 ## 화면 플로우
 ```
 [하단 탭: 작업검수] /mobile (홈, 탭 UI: 작업문서스캔 → 제품검수 → 완료)
-[하단 탭: 작업현황] /mobile/status  (읽기 전용 현황 리스트)
+[하단 탭: 작업현황] /mobile/status  (읽기 전용 현황 리스트, 연/월 select로 조회)
 [하단 탭: 부자재등록] /mobile/material-photo (OCR/비전 등록)
 [하단 탭: 설정] /mobile/settings (현재 사용자 정보 + 부서/화주 설정)
 
@@ -30,7 +30,7 @@
 - `/mobile/inspection/[workId]`: 부자재별 STEP 검수 카드(재검수/관리자요청 mock 버튼).
 - `/mobile/sign/[workId]`: 작업자 서명 캡처.
 - `/mobile/result/[workId]`: 검수 결과 요약과 다음 문서 이동.
-- `/mobile/status`: 오늘 작업 현황 요약(진행/확인필요/완료 카운트 + 목록).
+- `/mobile/status`: 연/월 select(기본값 이번달)로 조회하는 작업 현황 요약(진행/확인필요/완료/취소 카운트 + 목록).
 - `/mobile/settings`: 로그인 사용자 표시 + 부서/화주 스코프 선택(select, 즉시 적용) + 카메라 권한/알림 안내(정적).
 
 ## 화면별 상세
@@ -82,7 +82,7 @@
 ### 8. `app/mobile/status/page.tsx`
 - 경로: `/mobile/status`
 - 주요 컴포넌트: `StatusBadge`
-- 하는 일: `useMobileWorkStatusRows`로 오늘 작업 목록을 불러와 상태별(`completed`/`in_progress`|`registered`/`inspection_failed`|`admin_review_requested`|`on_hold`) 카운트 카드와 개별 작업 리스트를 표시. 읽기 전용이며 클릭 동작이 없다.
+- 하는 일: `useMobileWorkStatusRows`로 작업 목록을 불러온 뒤, 상단 년도/월 `select` 2개(기본값은 `lib/utils/date.ts`의 `getCurrentYearMonth()` = 오늘 기준 연/월, select 스타일은 `/mobile/settings`의 select 패턴을 따름)로 선택한 연/월과 `work_date`가 일치하는 작업만 클라이언트에서 필터해 표시한다. 연도 선택지는 웹 `work-status/page.tsx`와 같은 방식(조회된 rows에 등장하는 연도 + 현재 연도 합집합, 내림차순)으로 구성되고, 월은 01~12 고정이며, 연/월 일치 판정은 `lib/utils/date.ts`의 `isYearMonthMatch`를 웹과 공유해서 쓴다. 카운트 카드는 각 행의 `displayStatus`(`GET /api/work-status`가 `lib/constants/status.ts`의 `getDisplayStatus`로 계산해 내려주는 값)를 기준으로 4종 집계한다: 진행(`waiting`+`progress`) / 확인필요(`hold`) / 완료(`complete`, `passed` 포함) / 취소(`cancel`). 네 카드 합계는 선택된 연/월로 필터된 전체 건수와 같다. 읽기 전용이며 목록 항목 클릭 동작은 없다.
 - 다음 화면 조건: 없음(다른 화면으로 이동하는 버튼/링크 없음).
 
 ### 9. `app/mobile/settings/page.tsx`
@@ -113,8 +113,9 @@
 
 ## 상태 관리
 - `lib/state/filter-store.ts`의 `useFilterStore`(zustand, 부서/화주 스코프, persist 없음)를 모든 모바일 데이터 훅과 웹 `TopFilterBar`가 공유한다. 이 스토어 자체에는 영속화를 붙이지 않는다(웹 동작 변경 방지).
-- `MobileScopeInitializer`의 초기화 우선순위: ① `lib/mobile/mobile-scope-storage.ts`(`localStorage` 키 `harness.mobile-scope.v1`)에 저장된 부서/화주가 있고 현재 사용자의 `department_ids`/`shipper_ids` 권한·`is_active` 기준으로 여전히 유효하면 그 값을 적용 ② 없거나 무효하면 기존 로직대로 이미 유효한 `currentScope`를 유지하거나, 그마저 없으면 권한 있는 첫 부서/화주로 자동 설정한다. 즉 모바일 설정 탭에서 고른 화주(예: 민트하우스)가 새로고침 후에도 유지되며, 웹에서 마지막으로 선택한 화주와는 독립적이다.
+- `MobileScopeInitializer`의 초기화 우선순위: ① `lib/mobile/mobile-scope-storage.ts`(`localStorage` 키 `harness.mobile-scope.v1`)에 저장된 부서/화주가 있고 현재 사용자의 `department_ids`/`shipper_ids` 권한·`is_active` 기준으로 여전히 유효하면 그 값을 적용 ② 없거나 무효하면 기존 로직대로 이미 유효한 `currentScope`를 유지하거나, 그마저 없으면 권한 있는 첫 부서/화주로 자동 설정한다.
 - `/mobile/settings`에서 부서/화주를 바꾸면 `useFilterStore.setScope`와 `saveMobileScope`(localStorage 저장, try/catch로 감쌈)가 함께 호출되어 즉시 반영·영속화된다. 저장 버튼은 없다.
+- 웹 `components/layout/TopFilterBar.tsx`도 같은 `lib/mobile/mobile-scope-storage.ts`(같은 `localStorage` 키)를 재사용한다: 최초 로드 시 저장된 스코프가 유효하면 복원하고(무효/없음이면 기존처럼 첫 허용 항목 폴백), select로 부서/화주를 바꾸면 `saveMobileScope`로 저장한다. 따라서 같은 브라우저에서는 모바일 설정 탭에서 고른 화주(예: 민트하우스)가 웹 `TopFilterBar`에도 반영되고, 반대로 웹에서 바꾼 값도 모바일에 반영된다(더 이상 서로 독립적이지 않음).
 - 화면 간 데이터 전달은 대부분 URL 파라미터(`[workId]`)와 서버 재조회로 이루어진다. 예: `/mobile/inspection/[workId]` → `/mobile/sign/[workId]` → `/mobile/result/[workId]`는 각 페이지가 자체적으로 `useMobileInspectionRows()`를 다시 호출해 `workId`로 `findInspectionById`를 수행하며, 클라이언트 전역 상태로 넘기는 값은 없다.
 - 홈 화면(`/mobile`)의 스캔 결과/체크리스트/사진 상태(`scannedWorkId`, `photoStates`)는 `useState`로만 관리되는 로컬 상태이며, 새로고침하면 초기화된다. 저장소(localStorage 등)에 영속화하지 않는다.
 - `lib/state/work-flow-store.ts`(`useWorkFlowState`, `assignWorkToInspection` 등, localStorage 키 `harness.work-flow.v1`)와 `lib/providers/inspection-provider.ts`(`mockInspectionProvider`)는 코드에서 `app/mobile/**`, `components/mobile/**` 어디에서도 import되지 않는다(grep 결과 0건). `work-flow-store`는 `app/(workspace)/work-register`, `work-status`(관리자 데스크톱 화면)에서만 사용되고, `inspection-provider`는 현재 어떤 화면에서도 사용되지 않는 미연결 코드다.

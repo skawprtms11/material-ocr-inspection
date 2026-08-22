@@ -9,8 +9,10 @@ import { EmptyCloudState } from "@/components/common/EmptyCloudState";
 import { PageHeader } from "@/components/common/PageHeader";
 import { useFilterStore } from "@/lib/state/filter-store";
 import { dashboardWorkStatusOptions } from "@/lib/state/work-flow-store";
+import { getDisplayStatus } from "@/lib/constants/status";
+import { getCurrentYearMonth, isYearMonthMatch } from "@/lib/utils/date";
 import type { Work, WorkStatus } from "@/lib/types/domain";
-import type { UpdateWorkStatusResponse, WorkStatusDataResponse } from "@/lib/types/work-status-api";
+import type { DisplayWorkStatusDto, UpdateWorkStatusResponse, WorkStatusDataResponse } from "@/lib/types/work-status-api";
 
 type WorkStatusFilter = {
   year: string;
@@ -22,7 +24,7 @@ type WorkStatusFilter = {
   lot: string;
 };
 
-type DisplayStatus = "waiting" | "progress" | "hold" | "cancel" | "complete";
+type DisplayStatus = DisplayWorkStatusDto;
 
 type WorkStatusRow = {
   work: Work;
@@ -72,24 +74,8 @@ const displayStatusMeta: Record<
   }
 };
 
-function getCurrentYearMonth() {
-  const now = new Date();
-  return {
-    year: String(now.getFullYear()),
-    month: String(now.getMonth() + 1).padStart(2, "0")
-  };
-}
-
 function includesText(value: string, keyword: string) {
   return value.toLowerCase().includes(keyword.trim().toLowerCase());
-}
-
-function getDisplayStatus(status: WorkStatus): DisplayStatus {
-  if (status === "registered") return "waiting";
-  if (status === "in_progress") return "progress";
-  if (status === "on_hold" || status === "inspection_failed" || status === "admin_review_requested") return "hold";
-  if (status === "canceled") return "cancel";
-  return "complete";
 }
 
 function getSelectableWorkStatus(status: WorkStatus): WorkStatus {
@@ -172,16 +158,14 @@ export default function WorkStatusPage() {
 
   const filteredRows = useMemo(() => {
     return rows.filter((row) => {
-      const workDate = new Date(row.work.work_date);
-      const yearMatched = String(workDate.getFullYear()) === filters.year;
-      const monthMatched = String(workDate.getMonth() + 1).padStart(2, "0") === filters.month;
+      const yearMonthMatched = isYearMonthMatch(row.work.work_date, filters.year, filters.month);
       const workTypeMatched = filters.workType ? row.workType === filters.workType : true;
       const documentMatched = filters.documentNo ? includesText(row.work.document_no, filters.documentNo) : true;
       const productCodeMatched = filters.productCode ? includesText(row.productCode, filters.productCode) : true;
       const productNameMatched = filters.productName ? includesText(row.productName, filters.productName) : true;
       const lotMatched = filters.lot ? includesText(row.lot, filters.lot) : true;
 
-      return yearMatched && monthMatched && workTypeMatched && documentMatched && productCodeMatched && productNameMatched && lotMatched;
+      return yearMonthMatched && workTypeMatched && documentMatched && productCodeMatched && productNameMatched && lotMatched;
     });
   }, [filters, rows]);
 

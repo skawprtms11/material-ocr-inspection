@@ -3,8 +3,9 @@ import { appRepository } from "@/lib/repositories/app-repository";
 import { errorMessage, resolveScopeIds, toMockScopeIds } from "@/lib/repositories/supabase-scope";
 import { fetchWorkMasterData } from "@/lib/repositories/work-master-supabase-repository";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getDisplayStatus } from "@/lib/constants/status";
 import type { Work, WorkStatus } from "@/lib/types/domain";
-import type { DisplayWorkStatusDto, UpdateWorkStatusResponse, WorkStatusDataResponse, WorkStatusRowDto } from "@/lib/types/work-status-api";
+import type { UpdateWorkStatusResponse, WorkStatusDataResponse, WorkStatusRowDto } from "@/lib/types/work-status-api";
 
 type DbRow = Record<string, unknown>;
 
@@ -12,14 +13,6 @@ const workTypeOptions = ["리드레싱", "세트작업", "해체작업", "기타
 
 function text(value: unknown, fallback = "") {
   return typeof value === "string" ? value : fallback;
-}
-
-function getDisplayStatus(status: WorkStatus): DisplayWorkStatusDto {
-  if (status === "registered") return "waiting";
-  if (status === "in_progress") return "progress";
-  if (status === "on_hold" || status === "inspection_failed" || status === "admin_review_requested") return "hold";
-  if (status === "canceled") return "cancel";
-  return "complete";
 }
 
 function getFallbackFinishedProductLot(work: Work, index: number) {
