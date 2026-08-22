@@ -3,10 +3,11 @@ import { appRepository } from "@/lib/repositories/app-repository";
 import { errorMessage, resolveScopeIds, toMockScopeIds } from "@/lib/repositories/supabase-scope";
 import { fetchWorkMasterData } from "@/lib/repositories/work-master-supabase-repository";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import type { AdminReviewRequest, InspectionImage, Work, WorkInspection } from "@/lib/types/domain";
+import type { AdminReviewRequest, InspectionImage, MaterialMaster, Work, WorkInspection } from "@/lib/types/domain";
 import type {
   AdjustmentStatusDto,
   InspectionTableRowDto,
+  InspectionWithVerificationDto,
   WorkInspectionAction,
   WorkInspectionActionResponse,
   WorkInspectionDataResponse
@@ -88,6 +89,16 @@ function toRequest(row: DbRow): AdminReviewRequest {
   };
 }
 
+function withVerificationValue(
+  inspections: WorkInspection[],
+  materialById: Map<string, MaterialMaster>
+): InspectionWithVerificationDto[] {
+  return inspections.map((inspection) => ({
+    ...inspection,
+    materialVerificationValue: materialById.get(inspection.material_id)?.verification_value || undefined
+  }));
+}
+
 function groupBy<T>(rows: T[], getKey: (row: T) => string) {
   return rows.reduce<Record<string, T[]>>((acc, row) => {
     const key = getKey(row);
@@ -125,11 +136,12 @@ function mockRows(departmentId: string, shipperId: string) {
   const works = appRepository.listWorks(scope);
   const workMasters = appRepository.listWorkMasters(scope);
   const requests = appRepository.listAdminReviewRequests();
+  const materialById = new Map(appRepository.listMaterials({}).map((material) => [material.id, material]));
 
   return works.map((work, index): InspectionTableRowDto => {
     const workMaster = workMasters.find((item) => item.id === work.work_master_id);
     const request = requests.find((item) => item.work_id === work.id);
-    const inspections = appRepository.listInspections(work.id);
+    const inspections = withVerificationValue(appRepository.listInspections(work.id), materialById);
     const images = appRepository.listInspectionImages(work.id);
     const adjustmentStatus = request?.status;
 
@@ -208,6 +220,7 @@ export async function GET(request: NextRequest) {
     const imagesByWork = groupBy(imageRows, (image) => image.work_id);
     const requestByWork = new Map(requestRows.map((reviewRequest) => [reviewRequest.work_id, reviewRequest]));
     const workMasterById = new Map(masterData.workMasters.map((workMaster) => [workMaster.id, workMaster]));
+    const materialById = new Map(masterData.materials.map((material) => [material.id, material]));
 
     const rows = works.map((work, index): InspectionTableRowDto => {
       const workMaster = workMasterById.get(work.work_master_id);
@@ -223,7 +236,7 @@ export async function GET(request: NextRequest) {
               status: "requested" as const
             }
           : undefined);
-      const workInspections = inspectionsByWork[work.id] ?? [];
+      const workInspections = withVerificationValue(inspectionsByWork[work.id] ?? [], materialById);
       const adjustmentStatus = requestRow?.status;
       const inspectionCompleted = work.status === "passed" || work.status === "completed";
 

@@ -118,7 +118,8 @@ export async function POST(request: NextRequest) {
               inspection_method: "BOTH",
               reference_image_path: "",
               remark: "작업마스터 일괄등록에서 자동 생성됨. 부자재마스터 등록 필요",
-              is_active: true
+              is_active: true,
+              verification_value: ""
             };
             createdMaterials.push(material);
           }

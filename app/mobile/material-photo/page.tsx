@@ -528,7 +528,8 @@ export default function MobileMaterialRegistrationPage() {
     formData.append("imagePath", buildMobileMaterialImagePath(material, method, payload.fileName));
     if (payload.roi) formData.append("roi", JSON.stringify(payload.roi));
     if (payload.expectedText) formData.append("expectedText", payload.expectedText);
-    if (payload.recognizedText) formData.append("recognizedText", payload.recognizedText);
+    // OCR 검토를 거친 경우 인식값이 빈 문자열이어도(canVerify=false 등) 그대로 전송해야 서버가 검증값을 빈 값으로 저장한다.
+    if (payload.recognizedText !== undefined) formData.append("recognizedText", payload.recognizedText);
     if (typeof payload.similarity === "number") formData.append("similarity", String(payload.similarity));
     files.forEach((file) => formData.append("images", file));
 
@@ -630,6 +631,9 @@ export default function MobileMaterialRegistrationPage() {
               <p className="mt-2 text-sm font-bold text-slate-500">
                 {selectedMaterial.code} / LOT {selectedMaterial.lot ?? "-"}
               </p>
+              {selectedMaterial.verification_value && (
+                <p className="mt-1 text-xs font-bold text-emerald-600">검증값 {selectedMaterial.verification_value}</p>
+              )}
               <div className="mt-3 flex gap-1 text-[10px] font-black">
                 <span className={cn("rounded-full px-2 py-1", ocrRegistered ? "bg-emerald-100 text-emerald-700" : "bg-sky-100 text-sky-700")}>
                   OCR {ocrRegistered ? "등록완료" : "대기"}
@@ -815,6 +819,9 @@ export default function MobileMaterialRegistrationPage() {
                     <p className="text-xs font-black text-sky-600">{material.code}</p>
                     <p className="mt-1 font-black text-slate-800">{material.name}</p>
                     <p className="mt-1 text-xs font-bold text-slate-400">LOT {material.lot ?? "-"}</p>
+                    {material.verification_value && (
+                      <p className="mt-1 text-xs font-bold text-emerald-600">검증값 {material.verification_value}</p>
+                    )}
                     <div className="mt-2 flex flex-wrap gap-1 text-[10px] font-black">
                       <span className={cn("rounded-full px-2 py-0.5", ocrRegistered ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-400")}>
                         OCR {ocrRegistered ? "완료" : "대기"}
@@ -887,9 +894,9 @@ function OcrRegistration({
   const [saveLoading, setSaveLoading] = useState(false);
   const [saved, setSaved] = useState(false);
   const expectedText = material.code;
-  const matched = ocrReviewed && ocrMatched;
-  // 검증 가능하면 텍스트 일치가 필수, 검증 불가(OCR 서버 미설정 등)이면 검토 완료 상태에서 저장을 허용한다.
-  const canSaveOcr = ocrReviewed && (ocrCanVerify ? ocrMatched : true);
+  // 부자재코드 일치는 참고 정보일 뿐 저장을 막지 않는다. 검증 가능하면 인식 텍스트가 있어야 저장 가능,
+  // 검증 불가(OCR 서버 미설정 등)이면 검토 완료 상태에서 저장을 허용한다.
+  const canSaveOcr = ocrReviewed && (ocrCanVerify ? recognizedText.trim().length > 0 : true);
 
   useEffect(() => {
     return () => {
@@ -1067,27 +1074,35 @@ function OcrRegistration({
         <div
           className={cn(
             "mt-3 rounded-2xl p-3 text-sm font-bold leading-6",
-            !ocrCanVerify ? "bg-amber-50 text-amber-700" : matched ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
+            !ocrCanVerify ? "bg-amber-50 text-amber-700" : "bg-sky-50 text-sky-700"
           )}
         >
           <p className="text-xs font-black">
             {!ocrCanVerify
               ? "⚠️ OCR 서버 검증 불가 — 텍스트 검증 없이 저장됩니다 (관리자에게 OCR 설정을 문의하세요)"
-              : matched
-                ? "OCR 검토 결과 일치"
-                : "OCR 검토 결과 불일치"}
+              : "OCR 검토 완료"}
           </p>
           <p className="mt-1 text-xs">{ocrSummary || "선택 영역 기준 OCR 결과입니다."}</p>
           {ocrProvider && <p className="mt-1 text-xs">OCR provider: {ocrProvider}</p>}
           <label className="mt-2 block">
-            <span className="text-xs">OCR로 읽은 텍스트</span>
+            <span className="text-xs">인식값 (검증값으로 저장됩니다)</span>
             <textarea
               value={recognizedText || "인식된 텍스트 없음"}
               readOnly
               className="mt-1 min-h-16 w-full rounded-2xl border border-white/80 bg-white/80 p-3 text-sm font-black text-slate-800 outline-none"
             />
           </label>
-          <p className="mt-2 text-xs">기준 텍스트: {expectedText}</p>
+          <p className="mt-2 text-xs">기준 텍스트(부자재코드): {expectedText}</p>
+          {ocrCanVerify && (
+            <span
+              className={cn(
+                "mt-2 inline-flex rounded-full px-2 py-1 text-[11px] font-black",
+                ocrMatched ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
+              )}
+            >
+              {ocrMatched ? "코드와 일치" : "코드와 다름 (참고용, 저장 가능)"}
+            </span>
+          )}
         </div>
       )}
 

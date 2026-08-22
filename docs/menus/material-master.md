@@ -7,8 +7,9 @@
 - `app/(workspace)/material-master/page.tsx` (`MaterialMasterPage`)
 - 사용 컴포넌트: `PageHeader`, `CloudButton`, `CuteCard`, `EmptyCloudState`, `InspectionRegionEditor`(`components/inspection/InspectionRegionEditor.tsx`)
 - `departmentId`/`shipperId`가 없으면 `EmptyCloudState`를 렌더링.
-- 부자재 테이블: 부자재코드, 부자재명, LOT, OCR등록, 비전스캔등록, 비고. 행 클릭으로 `selectedMaterialId` 지정.
+- 부자재 테이블: 부자재코드, 부자재명, LOT, **검증값**, OCR등록, 비전스캔등록, 비고. 행 클릭으로 `selectedMaterialId` 지정.
   - **등록 판정 기준(모바일과 통일)**: OCR등록/비전스캔등록 체크와 "등록완료/대기" 라벨은 `ocr_image_path`/`vision_image_path` **이미지 실등록 여부**로 표시한다. 사용 설정(`inspection_method`)은 수정 모달에서만 관리하며 목록 체크박스와 무관하다.
+  - **검증값 컬럼**(LOT 바로 우측): `material_masters.verification_value`를 그대로 표시하고 값이 없으면 "-"로 표시한다. 이 컬럼은 읽기 전용이며 웹 화면에서 직접 입력/수정할 수 없다 — 모바일 부자재등록(`/mobile/material-photo`)의 OCR 등록·저장에서만 갱신된다(아래 "검증값 데이터 흐름" 참조). 수정 모달(`MaterialEditorModal`)에도 수정 모드일 때 현재 검증값을 읽기 전용 한 줄로 함께 보여준다.
 - 부자재명 셀은 밑줄 스타일의 클릭 가능한 버튼이다. 클릭 시(`stopPropagation`으로 행 선택 로직과 분리) `MaterialImagePreviewModal`(읽기 전용 미리보기 모달)을 연다.
 - 액션 버튼: 등록(`Plus`), 수정(`Pencil`, 선택된 행 필요), 삭제(`Trash2`, 선택된 행 필요), 모바일 사진등록 링크(`/mobile/material-photo?materialId=...`).
 - `MaterialEditorModal`(내부 컴포넌트, `mode: "create" | "edit"`): 기본정보 폼(code/name/lot/remark, OCR·비전 사용여부 체크박스) + `ImageRegistrationPanel` 2개(OCR/비전 이미지 파일 선택, `storageHint`로 저장 경로 예시 표시) + 수정 모드일 때만 `InspectionRegionEditor`로 등록된 ROI 미리보기 표시(모달이 열릴 때 `useEffect`로 `GET /api/material-master/registration?material_id=...`를 호출해 `regions` 상태를 채움. fetch 실패 시 mock 폴백 없이 빈 배열 + 콘솔 경고).
@@ -31,13 +32,21 @@
   - DELETE 핸들러는 등록된 이미지/영역 삭제(`material_inspection_regions` 삭제 + `material_masters`의 경로 필드 초기화)를 지원하지만, 현재 `material-master` 페이지 UI에서는 이 DELETE를 호출하는 곳이 없다.
 - 확인된 Supabase 테이블: `material_masters`, `material_inspection_regions`. Storage 버킷: `material-images`.
 
+### 검증값(`verification_value`) 데이터 흐름
+- `material_masters.verification_value text NOT NULL DEFAULT ''` 컬럼(모바일 OCR 등록 검수·저장 값)을 GET 응답(`/api/material-master`, `/api/material-master/registration`, `fetchWorkMasterData`)의 `toMaterial()`이 모두 그대로 매핑해서 내려준다.
+- 갱신 지점은 `app/api/material-master/registration/route.ts` POST 하나뿐이다(`method === "OCR"`일 때):
+  - 모바일 OCR 등록 화면(`/mobile/material-photo`)에서 OCR 검토(`/api/ocr`)를 거쳐 저장하면 `recognizedText`(빈 문자열 포함) FormData 필드가 항상 함께 전송되고(`recognizedTextProvided: true`), 서버는 `recognizedText`를 **있는 그대로**(빈 값이어도) `verification_value`에 저장한다. 즉 OCR 서버 검증이 불가능해 인식 텍스트가 없었던 경우 검증값도 빈 문자열로 저장된다 — 임의로 부자재코드로 대체하지 않는다.
+  - `recognizedText` 필드 자체가 전송되지 않은 요청(예: 웹 `material-master` 페이지의 `ImageRegistrationPanel` 단순 이미지 등록 — OCR 검토 절차 없이 이미지만 올림)은 `expectedText`(보통 부자재코드)가 있으면 그 값으로, 없으면 기존 `verification_value`를 유지한다.
+  - DELETE(OCR 등록 삭제, `deleted.ocr === true`)는 `verification_value: ""`로 초기화한다.
+- 작업검수(`work-inspection`) 화면은 이 값을 검수 항목의 참고 기준값("검증값(기대값)")으로 함께 표시한다 — 상세는 `docs/menus/work-inspection.md` 참고.
+
 ## 상태·필터
 - `useFilterStore()`에서 `departmentId`, `shipperId` 모두 구독. 두 값이 바뀌면 `loadMaterials` 재실행.
 - 부서/화주 미선택 시 `EmptyCloudState`로 조기 반환.
 - 로컬 상태: `materials`, `selectedMaterialId`, `modalMode`, `isLoading`, `dataSource`, `loadError`.
 
 ## 주요 타입
-- `MaterialMaster`(`lib/types/domain.ts`): `id`, `department_id`, `shipper_id`, `name`, `code`, `lot?`, `inspection_method: "OCR"|"VISION"|"BOTH"`, `reference_image_path`, `ocr_image_path?`, `vision_image_path?`, `remark?`, `is_active`.
+- `MaterialMaster`(`lib/types/domain.ts`): `id`, `department_id`, `shipper_id`, `name`, `code`, `lot?`, `inspection_method: "OCR"|"VISION"|"BOTH"`, `reference_image_path`, `ocr_image_path?`, `vision_image_path?`, `remark?`, `is_active`, `verification_value: string`(모바일 OCR 등록 검수값, 실 DB 컬럼 `NOT NULL DEFAULT ''`).
 - `InspectionMethod`: `"OCR" | "VISION" | "BOTH"`.
 - `MaterialFormValue`(페이지 로컬 타입): `MaterialMaster`의 일부 필드 + `ocrFile?: File`, `visionFile?: File`.
 - `RoiRect`(`lib/types/domain.ts`, registration route에서 검증): `{ x, y, width, height }`, 0~100 범위.

@@ -2,6 +2,9 @@ import type { AdminReviewRequest, InspectionImage, Work, WorkInspection } from "
 
 export type AdjustmentStatusDto = "requested" | "approved" | "rejected" | "retry_requested";
 
+// material_masters.verification_value(모바일 OCR 검수 확정값)를 검수 항목별 참고 기준값으로 함께 내려준다.
+export type InspectionWithVerificationDto = WorkInspection & { materialVerificationValue?: string };
+
 export type InspectionTableRowDto = {
   work: Work & {
     work_type?: string;
@@ -17,7 +20,7 @@ export type InspectionTableRowDto = {
   quantity: number;
   inspectionStep: string;
   request?: AdminReviewRequest;
-  inspections: WorkInspection[];
+  inspections: InspectionWithVerificationDto[];
   images: InspectionImage[];
   adjustmentStatus?: AdjustmentStatusDto;
   inspectionCompleted: boolean;

@@ -71,6 +71,7 @@ export type MaterialMaster = {
   vision_image_path?: string;
   remark?: string;
   is_active: boolean;
+  verification_value: string;
 };
 
 export type MaterialInspectionRegion = {

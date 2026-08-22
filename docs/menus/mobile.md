@@ -62,9 +62,10 @@
 - 경로: `/mobile/material-photo`
 - 주요 컴포넌트: 페이지 내부 정의 `OcrRegistration`, `VisionRegistration`, `TouchRegionSelector`(직접 구현한 드래그/리사이즈 ROI 선택기)
 - 하는 일: 관리자웹에서 등록된 부자재(`useMobileMaterials`) 목록을 조회 필터(코드/명/LOT)와 등록상태(전체/등록/미등록)로 조회. 부자재를 선택하면 OCR 등록 또는 비전 등록 화면으로 전환된다.
-  - OCR 등록: 사진 1장 촬영 → `TouchRegionSelector`로 읽을 영역(ROI) 지정 → `cropImageFile`로 캔버스 크롭 → `/api/ocr`에 FormData POST → 서버 검증이 가능(`canVerify: true`)하면 인식 텍스트가 부자재코드(`expectedText`)와 일치해야 저장 가능, 서버 검증이 불가(`canVerify: false`)하면 검토 완료 상태에서 경고 배지와 함께 저장 가능 → 저장 시 `/api/material-master/registration`에 POST.
+  - OCR 등록: 사진 1장 촬영 → `TouchRegionSelector`로 읽을 영역(ROI) 지정 → `cropImageFile`로 캔버스 크롭 → `/api/ocr`에 FormData POST → OCR 검토(`ocrReviewed`)가 끝나면 저장 가능 여부는 **부자재코드 일치 여부와 무관**하다: 서버 검증이 가능(`canVerify: true`)하면 인식 텍스트가 비어있지 않아야 저장 가능, 서버 검증이 불가(`canVerify: false`, OCR 미설정 등)하면 검토 완료 상태에서 경고 배지와 함께 저장 가능(이 경우 인식 텍스트는 항상 빈 문자열). 부자재코드와의 일치 여부(`matched`)는 "코드와 일치"/"코드와 다름" 참고용 뱃지로만 표시하며 저장을 막지 않는다 → 저장 시 인식된 텍스트(`recognizedText`, 빈 문자열 포함)가 그대로 `/api/material-master/registration`에 POST되어 `material_masters.verification_value`(작업검수 검수 기준값)에 저장된다.
   - 비전 등록: 사진 최대 5장을 `browser-image-compression`으로 압축(0.8MB, 1600px, 품질 0.82) 후 사진별로 ROI 확정 → 5장 모두 확정되면 250ms 디바운스 후 클라이언트에서 24x32 그레이스케일 샘플 기반 유사도(`getVisionSignature`/`compareVisionSignatures`)를 계산해 화면에만 표시(서버 검증 아님) → 저장 시 `/api/material-master/registration`에 5장 모두 FormData POST.
   - 삭제: `/api/material-master/registration` DELETE 호출.
+  - 검증값 표시: 목록 행과 등록 방식 선택 화면(부자재 상세)에 `material.verification_value`가 있으면 "검증값 {값}" 한 줄을 초록색 텍스트로 보여준다(읽기 전용, 이 화면에서 직접 입력하는 필드는 아니고 OCR 등록 저장 결과가 반영된 값).
 - 다음 화면 조건: 별도 라우트 이동 없음. "목록으로" 버튼으로 목록 화면 복귀, 저장 성공 시 같은 화면에 "등록 저장 완료" 배지 표시.
 
 ### 6. `app/mobile/sign/[workId]/page.tsx`
@@ -101,7 +102,7 @@
 
 부자재등록 화면(`material-photo`)이 추가로 호출하는 API:
 - `POST /api/ocr` — `image`(크롭된 File), `expectedText`, `roi` 등을 FormData로 전송. `OCR_PROVIDER=google-vision` 환경변수와 Google Cloud 서비스계정 자격증명이 없으면 `mockOcr()`로 `matched: false, canVerify: false` 응답만 반환.
-- `POST /api/material-master/registration` — `materialId`, `method`(OCR|VISION), `roi`, `expectedText`, `recognizedText`, `similarity`, `images`(File[])를 FormData로 전송. Supabase 사용 시 `material-images` 스토리지 버킷에 `mobile/{materialId}/{method}/{timestamp}-{index}-{fileName}.{ext}` 경로로 업로드(`ensureMaterialImageBucket`이 버킷을 없으면 자동 생성, `public: false`, 8MB 제한, jpeg/png/webp만 허용)한 뒤 `material_masters.ocr_image_path`/`vision_image_path`/`reference_image_path`를 갱신하고 `material_inspection_regions` 테이블에 ROI·인식결과를 upsert(기존 삭제 후 insert) 한다.
+- `POST /api/material-master/registration` — `materialId`, `method`(OCR|VISION), `roi`, `expectedText`, `recognizedText`, `similarity`, `images`(File[])를 FormData로 전송. Supabase 사용 시 `material-images` 스토리지 버킷에 `mobile/{materialId}/{method}/{timestamp}-{index}-{fileName}.{ext}` 경로로 업로드(`ensureMaterialImageBucket`이 버킷을 없으면 자동 생성, `public: false`, 8MB 제한, jpeg/png/webp만 허용)한 뒤 `material_masters.ocr_image_path`/`vision_image_path`/`reference_image_path`를 갱신하고 `material_inspection_regions` 테이블에 ROI·인식결과를 upsert(기존 삭제 후 insert) 한다. `method === "OCR"`이면 `material_masters.verification_value`도 함께 갱신한다: OCR 등록 화면은 OCR 검토를 거쳤으므로 `recognizedText` FormData 필드를 값이 비어있어도 항상 전송하고, 서버는 그 값을 그대로(빈 문자열이어도) 저장한다. `recognizedText` 필드가 아예 전송되지 않은 요청(OCR 검토 없이 이미지만 등록하는 웹 관리자 플로우)만 `expectedText`(부자재코드)로 대신 채운다. 저장 완료 후 응답에 담긴 `material`(갱신된 `verification_value` 포함)로 `reload()`가 로컬 상태를 다시 채운다.
 - `DELETE /api/material-master/registration` — `material_masters`의 이미지 경로 초기화 + `material_inspection_regions` 삭제.
 
 설정/스코프 초기화 화면이 호출하는 API:
@@ -127,6 +128,6 @@
 - `SignaturePad.onSave`는 서명 이미지를 어디에도 저장하지 않고 즉시 다음 페이지로 이동한다. 안내 문구의 "signatures 버킷 저장"은 아직 코드로 연결되어 있지 않다.
 - 홈 화면(`/mobile`)의 제품 사진 촬영도 압축·업로드가 실제로 일어나지 않고 `storagePath` 문자열만 만들어 "서버 저장 mock 완료"로 표시한다.
 - 비전 등록의 일치율(`getVisionSignature`/`compareVisionSignatures`)은 클라이언트에서 24x32 그레이스케일 픽셀 차이로 계산하는 근사값이며, 서버로 전송되거나 저장 가능 여부를 막는 검증으로 쓰이지 않는다(참고용 표시일 뿐 저장 버튼 활성화 조건이 아님).
-- OCR 등록은 `OCR_PROVIDER=google-vision` 환경변수와 `GOOGLE_CLOUD_PROJECT_ID`/`GOOGLE_CLOUD_CLIENT_EMAIL`/`GOOGLE_CLOUD_PRIVATE_KEY`가 모두 설정되어야 실제 Google Vision을 호출한다. 하나라도 없으면 `/api/ocr`는 `canVerify: false`인 mock 응답을 반환한다. 이 경우 프론트(`OcrRegistration`)는 텍스트 일치 여부를 강제하지 않고 검토 완료(`ocrReviewed`) 상태에서 저장을 허용하며, 화면에 "⚠️ OCR 서버 검증 불가 — 텍스트 검증 없이 저장됩니다" 경고 배지를 표시한다. `canVerify`가 true인 정상 환경에서는 기존대로 `matched`(텍스트 일치)가 true여야만 저장 버튼이 활성화된다.
+- OCR 등록은 `OCR_PROVIDER=google-vision` 환경변수와 `GOOGLE_CLOUD_PROJECT_ID`/`GOOGLE_CLOUD_CLIENT_EMAIL`/`GOOGLE_CLOUD_PRIVATE_KEY`가 모두 설정되어야 실제 Google Vision을 호출한다. 하나라도 없으면 `/api/ocr`는 `canVerify: false`, `extractedText: ""`인 mock 응답을 반환한다. 이 경우 프론트(`OcrRegistration`)는 검토 완료(`ocrReviewed`) 상태에서 저장을 허용하며, 화면에 "⚠️ OCR 서버 검증 불가 — 텍스트 검증 없이 저장됩니다" 경고 배지를 표시한다(이때 검증값은 빈 문자열로 저장됨). **부자재코드와 인식 텍스트의 일치(`matched`) 여부는 저장 조건이 아니다** — `canVerify`가 true인 정상 환경에서는 `ocrReviewed && 인식 텍스트가 비어있지 않음`이면 저장 버튼이 활성화되고, `matched`는 "코드와 일치"/"코드와 다름" 참고용 뱃지로만 노출된다. 저장되는 검증값은 항상 실제 인식된 텍스트(`recognizedText`)이며 부자재코드로 강제 치환되지 않는다.
 - `lib/state/work-flow-store.ts`, `lib/providers/inspection-provider.ts`는 모바일 화면 어디서도 사용되지 않는다(코드 검색 기준). 향후 모바일 검수 플로우에 실제 저장 로직을 연결할 때 이 두 파일을 재사용할지, 새로 만들지 판단이 필요하다.
 - `MobileScopeInitializer`와 `/mobile/settings`는 각각 독립적으로 `/api/users`를 호출한다. 두 화면을 동시에 열면 동일 데이터를 중복 조회한다.

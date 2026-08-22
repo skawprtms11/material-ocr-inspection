@@ -39,7 +39,8 @@ function toMaterial(row: DbRow): MaterialMaster {
     ocr_image_path: text(row.ocr_image_path) || undefined,
     vision_image_path: text(row.vision_image_path) || undefined,
     remark: text(row.remark) || undefined,
-    is_active: typeof row.is_active === "boolean" ? row.is_active : true
+    is_active: typeof row.is_active === "boolean" ? row.is_active : true,
+    verification_value: text(row.verification_value)
   };
 }
 
