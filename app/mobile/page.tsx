@@ -4,6 +4,7 @@ import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import { Barcode, Camera, CheckCircle2, ClipboardCheck, FileSearch, PackageCheck, RotateCcw } from "lucide-react";
 import { CloudButton } from "@/components/common/CloudButton";
 import { CuteCard } from "@/components/common/CuteCard";
+import { OcrInspectionCard } from "@/components/mobile/OcrInspectionCard";
 import { useMobileInspectionRows, useMobileMaterials } from "@/lib/mobile/mobile-api";
 import type { MaterialMaster } from "@/lib/types/domain";
 import type { InspectionTableRowDto } from "@/lib/types/work-inspection-api";
@@ -161,7 +162,13 @@ export default function MobileInspectionWorkflowPage() {
 
   const scannedRow = rows.find((row) => row.work.id === scannedWorkId);
   const targets = useMemo(() => getProductTargets(scannedRow, materials), [materials, scannedRow]);
-  const completedCount = targets.filter((target) => isProductSaved(photoStates[target.id])).length;
+  const completedCount = useMemo(() => {
+    return targets.filter((target) => {
+      const inspection = scannedRow?.inspections.find((item) => item.id === target.id);
+      if (inspection?.method === "OCR") return inspection.status === "passed" || inspection.status === "admin_approved";
+      return isProductSaved(photoStates[target.id]);
+    }).length;
+  }, [targets, scannedRow, photoStates]);
   const allProductsSaved = targets.length > 0 && completedCount === targets.length;
 
   const updateProductState = (targetId: string, next: Partial<ProductPhotoState>) => {
@@ -319,6 +326,21 @@ export default function MobileInspectionWorkflowPage() {
           </CuteCard>
 
           {targets.map((target, index) => {
+            const inspection = scannedRow.inspections.find((item) => item.id === target.id);
+
+            if (inspection?.method === "OCR") {
+              return (
+                <OcrInspectionCard
+                  key={target.id}
+                  workId={scannedRow.work.id}
+                  inspection={inspection}
+                  material={materials.find((item) => item.id === inspection.material_id)}
+                  index={index}
+                  onSubmitted={refetch}
+                />
+              );
+            }
+
             const state = photoStates[target.id] ?? emptyPhotoState;
             const ready = isProductReady(state);
             const saved = isProductSaved(state);

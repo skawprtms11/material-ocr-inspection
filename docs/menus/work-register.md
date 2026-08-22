@@ -41,8 +41,11 @@
 - mock 분기: `{ source: "mock", workId, assignedTo }`만 반환(DB 미변경)
 - Supabase 분기 처리 순서
   1. `assigneeId`가 UUID가 아니면 `.from("app_users")`에서 이름으로 재조회
-  2. `.from("works")`를 `assigned_to`/`assigned_to_name`/`assigned_at`/`worker_name`/`status: "registered"`로 update
+  2. `.from("works")`를 `assigned_to`/`assigned_to_name`/`assigned_at`/`worker_name`/`status: "registered"`로 update(응답에 `work_master_id`도 함께 select)
   3. 실패 시 `assigned_to`/`assigned_to_name`/`assigned_at`을 제외한 축소 payload로 재시도
+  4. **검수 행 자동 생성**(`setupWorkInspections`): 배정 성공 직후 해당 `work_id`의 `work_inspections`를 조회해 이미 1건이라도 있으면 스킵(`inspectionSetup: "skipped_existing"`, 재배정 시 진행 상황 보존을 위한 멱등 처리). 없으면 `work_master_id`로 `work_master_materials`(`inspection_order` 오름차순)를 조회하고, 각 `material_id`의 `material_masters.inspection_method`를 확인해 `OCR`/`VISION`이면 검수 행 1개, `BOTH`면 `OCR`·`VISION` 각 1개(`status: "pending"`, `attempt_count: 0`, `result_summary: ""`)를 insert한다. 작업마스터 미연결/부자재 구성 없음은 각각 `"skipped_no_master"`/`"skipped_no_materials"`로, 조회·insert 중 예외가 나면 `"failed"`로 표시하되 **배정 자체는 롤백하지 않는다**(응답에 `inspectionSetup` 필드로만 알림).
+- 응답: `{ source: "supabase", workId, assignedTo, assignedAt, inspectionSetup }` — `inspectionSetup`은 `"created" | "skipped_existing" | "skipped_no_master" | "skipped_no_materials" | "failed"` 중 하나.
+- mock 분기(`{ source: "mock", ... }`)에는 `inspectionSetup`이 없다(검수 행 생성 로직 자체가 실DB 모드 전용).
 
 ## 상태·필터
 - `useFilterStore`(`@/lib/state/filter-store`, zustand)에서 `departmentId`/`shipperId`를 읽어 `FilterScope`로 사용
@@ -69,3 +72,4 @@
 - `WorkRegisterModal`의 구성품 표는 제품(`productRowsByWork`)이 비어 있을 때 `makeFallbackProductRows`로 하드코딩된 `productTemplates`(PRD-MT-001 등)를 사용해 임의 대체 데이터를 보여준다.
 - POST insert 실패 시 재시도하는 축소 payload는 `work_type`/`quantity`/`due_date`/`finished_product_lot` 컬럼이 Supabase `works` 테이블에 없을 수 있음을 전제로 한 방어 코드다.
 - PATCH(할당) mock 분기는 DB에 아무것도 반영하지 않고 성공 응답만 반환하므로, mock 모드에서는 새로고침 시 할당 이력이 사라진다(클라이언트 localStorage에만 남음).
+- 실DB 스모크 테스트(2026-08) 결과 `works.assigned_to`/`assigned_at` full payload update가 매번 실패해 축소 payload(`worker_name`/`status`만 반영)로 폴백되는 것이 관찰됐다(테스트 환경 컬럼 상태 문제로 추정, 이번 작업 범위 밖이라 별도 수정하지 않음). 이 경우 작업검수 화면의 `getInspectionStep`이 배정 여부(`assigned_to`/`assigned_at`)로 "검수대상"/"검수대기"를 구분하지 못해 배정 후에도 "검수대기"로 보일 수 있다. 검수 행 생성 자체(`inspectionSetup`)는 이 컬럼과 무관하게 정상 동작한다.
