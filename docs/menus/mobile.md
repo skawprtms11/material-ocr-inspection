@@ -43,13 +43,13 @@
 ### 2. `app/mobile/page.tsx` (홈, `MobileInspectionWorkflowPage`)
 - 경로: `/mobile`
 - 주요 컴포넌트: `CloudButton`, `CuteCard`, `OcrInspectionCard`(`components/mobile/OcrInspectionCard.tsx`), `useMobileInspectionRows`, `useMobileMaterials`
-- 하는 일: `tab` 상태(`scan`/`product`/`done`)로 3단계 진행. scan 탭에서 문서번호를 입력하면 `rows`(작업검수 데이터) 중 `document_no`가 일치하는 행을 찾아 `scannedRow`로 저장. product 탭에서는 대상(`target`)별로 `scannedRow.inspections`에서 같은 id의 검수 항목을 찾아 `method`를 확인한다.
+- 하는 일: `tab` 상태(`scan`/`product`/`done`)로 3단계 진행. scan 탭에서 문서번호를 입력하고 "스캔"을 누르면 `handleScan`이 `rows`(작업검수 데이터) 중 `document_no`가 일치하는 행을 찾는다. 매칭된 작업의 `inspections`가 0건이면(검수 행이 아직 한 번도 만들어지지 않은 기존 작업) 화면에 "검수 대상 준비 중..." 문구를 보여주며 `POST /api/work-inspection/setup`(body `{ workId }`)을 호출해 검수 행을 lazy 생성하고, 성공하면 `refetch()`로 목록을 갱신한 뒤 스캔을 완료 처리한다(실패 시 에러 메시지만 표시하고 스캔 미완료 상태로 남는다). `inspections`가 이미 있으면 이 단계를 건너뛰고 바로 `scannedRow`로 저장한다. product 탭에서는 대상(`target`)별로 `scannedRow.inspections`에서 같은 id의 검수 항목을 찾아 `method`를 확인한다.
   - **`method === "OCR"`인 대상**: `OcrInspectionCard`를 렌더링해 실동작 OCR 검수를 수행한다(아래 "OCR 검수 카드" 참고). 체크리스트 3개 체크는 요구하지 않는다.
   - **그 외(비전 등)**: 제품코드/제품명/LOT 체크 3개를 모두 체크해야(`isProductReady`) 사진 촬영 input이 활성화된다. 촬영하면 `browser-image-compression`으로 압축(0.8MB/1600px, 품질 0.82) 후 `checks`(3개 체크값)와 함께 `POST /api/work-inspection/product`로 실제 업로드·저장한다(작업검수 8단계 스펙 ②). 성공하면 서버 응답의 `resultSummary`를 카드에 "서버 저장 완료"로 표시하고 `refetch()`를 호출한다. **예외**: `scannedRow.inspections`가 비어 있어 실제 `work_inspections` 행이 없는 대상(작업마스터에 부자재 구성이 없는 등)은 저장할 검수 행 자체가 없으므로 여전히 `storagePath`(예: `inspection-images/{workId}/products/{materialCode}-{fileName}`) 문자열만 로컬 상태에 채우는 로컬 전용 완료 처리를 한다(서버 호출 없음).
 - 완료 판정(`completedCount`): OCR 대상은 최신 `inspection.status`가 `passed` 또는 `admin_approved`일 때 완료로 집계하고, 그 외 대상은 기존 `isProductSaved`(체크 3개 + storagePath 존재) 기준을 그대로 사용한다.
 - 다음 화면 조건: 별도 라우트 이동은 없다(같은 페이지 내 탭 전환). "검수시작" 버튼은 `scannedRow`와 `targets.length > 0`일 때 활성화되어 product 탭으로 전환. "제품검수 완료" 버튼은 `targets` 전원이 완료 상태일 때 활성화되어 done 탭으로 전환. done 탭의 "다음 작업문서 스캔"은 상태를 초기화하고 scan 탭으로 복귀.
 
-**검수 카드가 뜨는 조건**: product 탭의 검수 대상(`target`)은 `scannedRow.inspections`(작업검수와 동일한 `work_inspections`)에서 온다. 이 행은 관리자 웹 작업등록(work-register) 화면에서 담당자를 배정할 때 자동 생성되므로(`docs/menus/work-inspection.md`의 "검수 행 생성 출처" 참고), **배정되지 않은 작업이거나 작업마스터에 부자재 구성이 없는 작업은 `inspections`가 비어 있어 product 탭에 아무 카드도 뜨지 않는다**("검수시작" 버튼도 `targets.length > 0`이 아니면 비활성화). `method === "OCR"`인 항목만 `OcrInspectionCard`(실동작)로 렌더링되고, 그 외(`VISION` 등)는 기존 체크리스트+사진 mock UI로 렌더링된다.
+**검수 카드가 뜨는 조건**: product 탭의 검수 대상(`target`)은 `scannedRow.inspections`(작업검수와 동일한 `work_inspections`)에서 온다. 이 행은 작업등록(등록/배정 시점) 또는 위에서 설명한 모바일 스캔 시점 lazy 생성으로 만들어진다(`docs/menus/work-inspection.md`의 "검수 행 생성 출처" 참고). **작업마스터에 부자재 구성이 없는 작업만 `inspections`가 계속 비어 있어 product 탭에 아무 카드도 뜨지 않는다**("검수시작" 버튼도 `targets.length > 0`이 아니면 비활성화) — 배정 전이라도 스캔 시점에 검수 행이 채워지므로 더 이상 "배정되지 않아서" 카드가 안 뜨는 경우는 없다. `method === "OCR"`인 항목만 `OcrInspectionCard`(실동작)로 렌더링되고, 그 외(`VISION` 등)는 기존 체크리스트+사진 mock UI로 렌더링된다.
 
 #### OCR 검수 카드 (`components/mobile/OcrInspectionCard.tsx`)
 - 부자재마스터에 등록된 **기준 사진**을 먼저 보여준 뒤 촬영하는 실동작 카드. 마운트 시 `GET /api/material-master/registration?material_id={inspection.material_id}`를 호출해 `method === "OCR"`이고 `imageUrls.length > 0`인 region을 찾는다.
@@ -120,6 +120,9 @@
 | `useMobileWorkStatusRows()` | `GET /api/work-status?department_id&shipper_id` | `works` (+ `work-master-supabase-repository`가 조회하는 워크마스터 테이블) |
 | `useMobileInspectionRows()` | `GET /api/work-inspection?department_id&shipper_id` | `works`, `work_inspections`, `inspection_images`, `admin_review_requests` |
 | `useMobileMaterials()` | `GET /api/material-master?department_id&shipper_id[&material_id]` | `material_masters` |
+
+홈(`/mobile`)의 문서 스캔(`handleScan`)이 검수 행이 없는 작업에 대해서만 추가로 호출하는 API:
+- `POST /api/work-inspection/setup` — `{ workId }`를 JSON으로 전송. 상세 동작은 `docs/menus/work-inspection.md`의 "검수 대상 lazy 생성 API" 참고.
 
 홈(`/mobile`)의 OCR 검수 카드(`OcrInspectionCard`)가 추가로 호출하는 API:
 - `GET /api/material-master/registration?material_id=...` — 기준 사진(ROI 포함) 미리보기 조회. 부자재마스터 화면과 동일한 라우트를 재사용한다.
