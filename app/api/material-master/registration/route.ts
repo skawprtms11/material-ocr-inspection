@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { appRepository } from "@/lib/repositories/app-repository";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import type { InspectionMethod, MaterialMaster, RoiRect } from "@/lib/types/domain";
+import type { InspectionMethod, MaterialInspectionRegion, MaterialMaster, RoiRect } from "@/lib/types/domain";
 
 type DbRow = Record<string, unknown>;
 
@@ -52,6 +53,21 @@ function toMaterial(row: DbRow): MaterialMaster {
     vision_image_path: text(row.vision_image_path) || undefined,
     remark: text(row.remark) || undefined,
     is_active: typeof row.is_active === "boolean" ? row.is_active : true
+  };
+}
+
+function toRegion(row: DbRow): MaterialInspectionRegion {
+  const method = row.method === "OCR" || row.method === "VISION" ? row.method : "OCR";
+
+  return {
+    id: text(row.id),
+    material_id: text(row.material_id),
+    method,
+    name: text(row.name),
+    roi: (row.roi as RoiRect) ?? defaultRoi(),
+    expected_text: text(row.expected_text) || undefined,
+    similarity_threshold: typeof row.similarity_threshold === "number" ? row.similarity_threshold : undefined,
+    options: (row.options as Record<string, unknown>) ?? {}
   };
 }
 
@@ -241,6 +257,37 @@ async function uploadFiles(
   );
 }
 
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url);
+  const materialId = searchParams.get("material_id");
+
+  if (!materialId) {
+    return NextResponse.json({ error: "material_id가 필요합니다." }, { status: 400 });
+  }
+
+  const supabase = createServerSupabaseClient();
+
+  if (!supabase || process.env.NEXT_PUBLIC_USE_MOCK_DATA !== "false") {
+    return NextResponse.json({ source: "mock", regions: appRepository.listMaterialRegions(materialId) });
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("material_inspection_regions")
+      .select("*")
+      .eq("material_id", materialId);
+
+    if (error) throw error;
+
+    return NextResponse.json({ source: "supabase", regions: ((data ?? []) as DbRow[]).map(toRegion) });
+  } catch (error) {
+    return NextResponse.json(
+      { error: errorMessage(error, "등록 영역 조회에 실패했습니다.") },
+      { status: 500 }
+    );
+  }
+}
+
 export async function POST(request: NextRequest) {
   let body: RegistrationPayload & { files: File[] };
 
@@ -292,18 +339,38 @@ export async function POST(request: NextRequest) {
       ...(body.method === "VISION" ? { vision_image_path: imagePath } : {})
     };
 
-    const { data, error } = await supabase
-      .from("material_masters")
-      .update(updatePayload)
-      .eq("id", body.materialId)
-      .select("*")
-      .single();
+    let data: DbRow;
 
-    if (error) throw error;
+    try {
+      const { data: updated, error } = await supabase
+        .from("material_masters")
+        .update(updatePayload)
+        .eq("id", body.materialId)
+        .select("*")
+        .single();
 
-    await saveInspectionRegion(supabase, body, uploadedPaths, imagePath);
+      if (error) throw error;
 
-    return NextResponse.json({ source: "supabase", material: toMaterial(data as DbRow), uploadedPaths });
+      data = updated as DbRow;
+
+      await saveInspectionRegion(supabase, body, uploadedPaths, imagePath);
+    } catch (dbError) {
+      // 업로드 성공 후 DB 저장이 실패하면 고아 파일이 남지 않도록 스토리지를 정리한다.
+      if (uploadedPaths.length > 0) {
+        try {
+          const relativePaths = uploadedPaths.map((path) =>
+            path.startsWith(`${materialImageBucket}/`) ? path.slice(materialImageBucket.length + 1) : path
+          );
+          await supabase.storage.from(materialImageBucket).remove(relativePaths);
+        } catch (cleanupError) {
+          console.error("업로드된 파일 정리에 실패했습니다.", cleanupError);
+        }
+      }
+
+      throw dbError;
+    }
+
+    return NextResponse.json({ source: "supabase", material: toMaterial(data), uploadedPaths });
   } catch (error) {
     return NextResponse.json({ error: errorMessage(error, "부자재 등록 정보를 저장하지 못했습니다.") }, { status: 500 });
   }
