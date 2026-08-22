@@ -6,7 +6,7 @@
 ## 화면 구조
 - `app/(workspace)/department-master/page.tsx` (`DepartmentMasterPage`)
 - 사용 컴포넌트: `PageHeader`(`components/common/PageHeader.tsx`), `CloudButton`(`components/common/CloudButton.tsx`), `CuteCard`(`components/common/CuteCard.tsx`), `DataTable`(`components/common/DataTable.tsx`)
-- 상단에 로딩 상태 문구와 `dataSource`(Supabase/Mock) 배지를 보여주는 안내 바가 있다.
+- 상단에 로딩 상태 문구와 `dataSource`(Supabase/Mock/연결 오류) 배지를 보여주는 안내 바가 있다. 연결 오류 시 "다시 시도" 버튼으로 `loadDepartments`를 재호출한다(직전 목록은 유지).
 - 테이블 컬럼: 정렬, 부서명, 화주 수, 사용자 수, 사용여부. 화주 수/사용자 수는 `shipperCounts`/`userCounts` 맵에서 부서 id로 조회.
 - 등록/수정/삭제 모달은 없다(조회 전용).
 
@@ -15,12 +15,12 @@
 2. API(`app/api/department-master/route.ts`):
    - `NEXT_PUBLIC_USE_MOCK_DATA !== "false"`이거나 Supabase 클라이언트가 없으면 `mockData()` 반환 (`appRepository.listDepartments()`, `listShippers`, `listUsers` 기반 카운트 계산).
    - Supabase 분기: `.from("departments").select("*").order("sort_order")` → `.from("shippers").select("department_id").in("department_id", ...)` → `.from("user_department_permissions").select("department_id").in(...)` 로 각각 화주 수/사용자 수 집계.
-   - 조회 중 오류 발생 시 `mockData(errorMessage(...))`로 폴백하고 `warning` 문자열 포함.
+   - 실DB 모드에서 조회 중 오류가 발생하면 mock 폴백 없이 `502 { error }`를 반환한다(mock 폴백은 mock 모드에서만 동작).
 3. 확인된 Supabase 테이블: `departments`, `shippers`, `user_department_permissions`.
 
 ## 상태·필터
 - zustand `useFilterStore`를 사용하지 않는다(부서/화주 스코프 필터 미적용). 전체 부서를 한 번에 조회하는 전역 마스터 화면이다.
-- 로컬 `useState`로 `departments`, `shipperCounts`, `userCounts`, `isLoading`, `dataSource`만 관리.
+- 로컬 `useState`로 `departments`, `shipperCounts`, `userCounts`, `isLoading`, `dataSource`, `loadError`만 관리.
 
 ## 주요 타입
 - `Department`(`lib/types/domain.ts`): `id`, `name`, `is_active`, `sort_order`, `created_at`, `updated_at`.

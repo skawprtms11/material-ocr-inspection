@@ -72,6 +72,6 @@ export async function GET() {
 
     return NextResponse.json({ source: "supabase", departments, shipperCounts, userCounts });
   } catch (error) {
-    return NextResponse.json(mockData(errorMessage(error, "Supabase 부서마스터 조회에 실패했습니다.")));
+    return NextResponse.json({ error: errorMessage(error, "Supabase 부서마스터 조회에 실패했습니다.") }, { status: 502 });
   }
 }

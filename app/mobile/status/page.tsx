@@ -8,7 +8,7 @@ import { useMobileWorkStatusRows } from "@/lib/mobile/mobile-api";
 import { getCurrentYearMonth, isYearMonthMatch } from "@/lib/utils/date";
 
 export default function MobileStatusPage() {
-  const { data: rows, source, warning, isLoading, error } = useMobileWorkStatusRows();
+  const { data: rows, source, warning, isLoading, error, refetch } = useMobileWorkStatusRows();
   const defaultYearMonth = useMemo(() => getCurrentYearMonth(), []);
   const [year, setYear] = useState(defaultYearMonth.year);
   const [month, setMonth] = useState(defaultYearMonth.month);
@@ -46,8 +46,17 @@ export default function MobileStatusPage() {
       </CuteCard>
 
       {(warning || error) && (
-        <CuteCard className="p-3 text-xs font-bold leading-5 text-amber-700">
-          {error || warning}
+        <CuteCard className="flex items-center justify-between gap-3 p-3 text-xs font-bold leading-5 text-amber-700">
+          <span>{error || warning}</span>
+          {error && (
+            <button
+              type="button"
+              onClick={() => void refetch()}
+              className="shrink-0 rounded-full bg-amber-100 px-3 py-1.5 text-[11px] font-black text-amber-800"
+            >
+              다시 시도
+            </button>
+          )}
         </CuteCard>
       )}
 

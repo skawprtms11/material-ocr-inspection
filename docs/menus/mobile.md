@@ -91,7 +91,7 @@
 - 다음 화면 조건: 없음.
 
 ## 데이터 흐름
-`lib/mobile/mobile-api.ts`는 `useFilterStore`의 `departmentId`/`shipperId`를 쿼리스트링에 실어 `fetch`하는 공통 훅 `useScopedMobileData`를 기반으로 3개의 훅을 제공한다.
+`lib/mobile/mobile-api.ts`는 `useFilterStore`의 `departmentId`/`shipperId`를 쿼리스트링에 실어 `fetch`하는 공통 훅 `useScopedMobileData`를 기반으로 3개의 훅을 제공한다. 응답이 `!response.ok`이거나 JSON에 `error`가 포함되면(실DB 모드에서 API가 mock 폴백 없이 `502 { error }`를 반환하는 경우 포함) `error` 상태로 노출하고 mock 데이터를 보여주지 않는다. 반환값에 `reload`/`refetch`(동일 함수의 별칭) 함수가 포함되어 있으며, 홈(`/mobile`)·작업현황(`/mobile/status`)·부자재등록(`/mobile/material-photo`) 화면은 오류 배지 옆에 "다시 시도" 버튼을 두어 이 함수를 호출한다.
 
 | 함수 | 호출 API | 응답에서 읽는 Supabase 테이블(각 API 라우트 코드 기준) |
 |---|---|---|

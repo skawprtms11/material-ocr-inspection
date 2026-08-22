@@ -21,6 +21,7 @@
 - 조회: `GET /api/material-master?department_id=...&shipper_id=...`
   - mock: `appRepository.listMaterials(toMockScopeIds(departmentId, shipperId))`.
   - Supabase: `resolveScopeIds` 후 `.from("material_masters").select("*").eq("department_id",...).eq("shipper_id",...).order("code")`. `material_id` 쿼리로 단건 조회하는 경로도 있음(`.from("material_masters").select("*").eq("id", materialId).single()`).
+  - 실DB 모드에서 조회 중 예외가 발생하면 mock 폴백 없이 `502 { error }`를 반환한다. 화면(`page.tsx`)은 `loadError` 상태로 "연결 오류" 배지 + "다시 시도" 버튼을 표시한다(직전에 표시 중이던 목록은 그대로 유지).
 - 등록/수정: `POST`/`PATCH /api/material-master`
   - POST는 `departmentId`/`shipperId`/`code`/`name` 필수, PATCH는 `id`/`code`/`name` 필수.
   - Supabase 분기: `.from("material_masters").insert(...)` 또는 `.update(...).eq("id", id)`.
@@ -33,7 +34,7 @@
 ## 상태·필터
 - `useFilterStore()`에서 `departmentId`, `shipperId` 모두 구독. 두 값이 바뀌면 `loadMaterials` 재실행.
 - 부서/화주 미선택 시 `EmptyCloudState`로 조기 반환.
-- 로컬 상태: `materials`, `selectedMaterialId`, `modalMode`, `isLoading`, `dataSource`.
+- 로컬 상태: `materials`, `selectedMaterialId`, `modalMode`, `isLoading`, `dataSource`, `loadError`.
 
 ## 주요 타입
 - `MaterialMaster`(`lib/types/domain.ts`): `id`, `department_id`, `shipper_id`, `name`, `code`, `lot?`, `inspection_method: "OCR"|"VISION"|"BOTH"`, `reference_image_path`, `ocr_image_path?`, `vision_image_path?`, `remark?`, `is_active`.

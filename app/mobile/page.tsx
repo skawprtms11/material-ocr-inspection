@@ -147,7 +147,7 @@ function ScanDocumentInfo({ row, targets }: { row: InspectionTableRowDto; target
 }
 
 export default function MobileInspectionWorkflowPage() {
-  const { data: rows, source, warning, isLoading, error } = useMobileInspectionRows();
+  const { data: rows, source, warning, isLoading, error, refetch } = useMobileInspectionRows();
   const { data: materials } = useMobileMaterials();
   const [tab, setTab] = useState<InspectionTab>("scan");
   const [documentNo, setDocumentNo] = useState("");
@@ -252,8 +252,17 @@ export default function MobileInspectionWorkflowPage() {
       </CuteCard>
 
       {(warning || error) && (
-        <CuteCard className="p-3 text-xs font-bold leading-5 text-amber-700">
-          {error || warning}
+        <CuteCard className="flex items-center justify-between gap-3 p-3 text-xs font-bold leading-5 text-amber-700">
+          <span>{error || warning}</span>
+          {error && (
+            <button
+              type="button"
+              onClick={() => void refetch()}
+              className="shrink-0 rounded-full bg-amber-100 px-3 py-1.5 text-[11px] font-black text-amber-800"
+            >
+              다시 시도
+            </button>
+          )}
         </CuteCard>
       )}
 

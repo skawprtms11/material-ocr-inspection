@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(await fetchWorkMasterData(supabase, scope.departmentId, scope.shipperId));
   } catch (error) {
     const message = errorMessage(error, "Supabase 작업마스터 조회에 실패했습니다.");
-    return NextResponse.json(mockData(departmentId, shipperId, message));
+    return NextResponse.json({ error: message }, { status: 502 });
   }
 }
 

@@ -110,7 +110,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ source: "supabase", rows } satisfies WorkStatusDataResponse);
   } catch (error) {
-    return NextResponse.json(mockData(departmentId, shipperId, errorMessage(error, "Supabase 작업현황 조회에 실패했습니다.")));
+    return NextResponse.json({ error: errorMessage(error, "Supabase 작업현황 조회에 실패했습니다.") }, { status: 502 });
   }
 }
 
