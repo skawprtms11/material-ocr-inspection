@@ -1,4 +1,5 @@
 import type { AppUser, MaterialMaster, WorkMaster } from "@/lib/types/domain";
+import type { InspectionSetupResult } from "@/lib/server/inspection-setup";
 import type { ProductUsageRowDto, WorkMaterialRowDto, WorkMasterMetaDto } from "@/lib/types/work-master-api";
 
 export type ComponentKindDto = "제품" | "부자재";
@@ -59,4 +60,5 @@ export type CreateWorkRegistrationRequest = {
 export type CreateWorkRegistrationResponse = {
   source: "supabase" | "mock";
   work: PendingAssignmentWorkDto;
+  inspectionSetup?: InspectionSetupResult;
 };

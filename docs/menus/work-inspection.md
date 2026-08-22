@@ -16,7 +16,14 @@
 - `departmentId`/`shipperId`가 없으면 `EmptyCloudState`
 
 ## 검수 행(`work_inspections`) 생성 출처
-이 화면과 모바일이 읽는 `work_inspections` 행은 **작업등록(work-register) 화면의 담당자 배정 시점**에 자동 생성된다. `app/api/work-register/[workId]/assign/route.ts`의 PATCH가 배정 update 성공 직후 `work_master_materials`(해당 작업의 `work_master_id` 기준, `inspection_order` 순)를 조회해 부자재별로 `material_masters.inspection_method`에 따라 검수 행을 만든다: `OCR`/`VISION`은 1건, `BOTH`는 `OCR`·`VISION` 각 1건(`status: "pending"`, `attempt_count: 0`). 이미 해당 `work_id`에 검수 행이 있으면(재배정 포함) 다시 만들지 않는다(멱등). 작업마스터에 부자재 구성이 없거나 작업마스터가 연결되지 않은 작업은 검수 행이 생기지 않는다. 상세는 `docs/menus/work-register.md`의 PATCH 설명 참고.
+이 화면과 모바일이 읽는 `work_inspections` 행은 `lib/server/inspection-setup.ts`의 공유 함수 `setupWorkInspections(supabase, workId, workMasterId)`가 만든다. 이 함수는 `work_master_materials`(해당 작업의 `work_master_id` 기준, `inspection_order` 순)를 조회해 부자재별로 `material_masters.inspection_method`에 따라 검수 행을 만든다: `OCR`/`VISION`은 1건, `BOTH`는 `OCR`·`VISION` 각 1건(`status: "pending"`, `attempt_count: 0`). 이미 해당 `work_id`에 검수 행이 있으면 다시 만들지 않는다(멱등). 작업마스터에 부자재 구성이 없거나 작업마스터가 연결되지 않은 작업은 검수 행이 생기지 않는다(`inspectionSetup: "skipped_no_master" | "skipped_no_materials"`).
+
+이 함수는 세 지점에서 호출된다(어느 순서로 호출돼도 멱등이라 결과는 동일):
+1. **작업등록 시**(`app/api/work-register/route.ts` POST) — 작업 insert 성공 직후. 신규 작업은 이 시점에 바로 검수 행이 생긴다.
+2. **담당자 배정 시**(`app/api/work-register/[workId]/assign/route.ts` PATCH) — 배정 update 성공 직후. 1번에서 이미 생성됐다면 `skipped_existing`.
+3. **모바일 스캔 시 lazy 생성**(`app/api/work-inspection/setup/route.ts` POST, body `{ workId }`) — 위 두 지점 이전에 만들어진 기존 작업처럼 검수 행이 아직 없는 작업을 모바일에서 문서 스캔할 때 자동으로 채워준다. `app/mobile/page.tsx`가 스캔 매칭된 작업의 `inspections`가 0건이면 이 API를 호출하고 성공 시 `refetch()`로 목록을 갱신한다(상세는 `docs/menus/mobile.md` 참고). work가 존재하지 않으면 `404`.
+
+상세는 `docs/menus/work-register.md`의 POST/PATCH 설명 참고.
 
 ## 데이터 흐름
 - 페이지 로드/재조회(`loadRows`): `GET /api/work-inspection?department_id=&shipper_id=` 호출
@@ -82,6 +89,12 @@ OCR 실제 호출 로직은 `lib/server/ocr.ts`의 `runOcr()`에 있다(Google C
 - 응답: `{ source: "supabase" | "mock", status: "passed", resultSummary }`.
 - mock 모드에서는 DB를 건드리지 않고 동일한 형태의 성공 응답만 반환한다.
 - 필수값(`inspectionId`/`workId`/`checks`/`image`) 누락 또는 `checks` 미충족 시 `400`을 반환한다.
+
+### 검수 대상 lazy 생성 API (`app/api/work-inspection/setup/route.ts`)
+- `POST`, JSON body: `{ workId }`. 호출 주체는 모바일 홈(`/mobile`)의 문서 스캔 매칭 로직(`app/mobile/page.tsx`의 `handleScan`)이며, 매칭된 작업의 `inspections`가 0건일 때만 호출된다.
+- 처리 순서(mock 모드가 아닐 때): `.from("works")`에서 `id`(=workId)로 존재 확인(없으면 `404`) → `work_master_id`로 위 "검수 행 생성 출처"의 `setupWorkInspections`를 호출.
+- 응답: `{ source: "supabase", workId, inspectionSetup }`. mock 모드는 DB를 건드리지 않고 `{ source: "mock", workId, inspectionSetup: "skipped_existing" }`을 반환한다.
+- `workId` 누락 시 `400`.
 
 ## 상태·필터
 - `useFilterStore`(zustand)에서 `departmentId`/`shipperId`를 읽어 `FilterScope`로 사용

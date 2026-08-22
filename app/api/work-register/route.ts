@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { appRepository } from "@/lib/repositories/app-repository";
 import { errorMessage, isUuid, resolveScopeIds } from "@/lib/repositories/supabase-scope";
 import { fetchWorkMasterData } from "@/lib/repositories/work-master-supabase-repository";
+import { setupWorkInspections } from "@/lib/server/inspection-setup";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { AppUser, WorkMaster } from "@/lib/types/domain";
 import type {
@@ -279,8 +280,12 @@ export async function POST(request: NextRequest) {
       await supabase.from("work_components").insert(componentPayload);
     }
 
+    // 작업 등록 직후 검수 대상 행을 생성한다(등록 시점 생성, 실패해도 등록 자체는 성공 유지)
+    const inspectionSetup = await setupWorkInspections(supabase, workId, body.workMasterId);
+
     const response: CreateWorkRegistrationResponse = {
       source: "supabase",
+      inspectionSetup,
       work: makePendingWork(
         workRow,
         workMaster

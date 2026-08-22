@@ -161,6 +161,7 @@ export default function MobileInspectionWorkflowPage() {
   const [scannedWorkId, setScannedWorkId] = useState("");
   const [scanError, setScanError] = useState("");
   const [photoStates, setPhotoStates] = useState<Record<string, ProductPhotoState>>({});
+  const [preparingInspections, setPreparingInspections] = useState(false);
 
   useEffect(() => {
     if (!documentNo && rows[0]) setDocumentNo(rows[0].work.document_no);
@@ -168,6 +169,12 @@ export default function MobileInspectionWorkflowPage() {
 
   const scannedRow = rows.find((row) => row.work.id === scannedWorkId);
   const targets = useMemo(() => getProductTargets(scannedRow, materials), [materials, scannedRow]);
+
+  // 스캔 단계에서만 검수 대상 체크리스트를 재초기화한다(제품검수 진행 중 refetch로 인한 사진 상태 유실 방지).
+  useEffect(() => {
+    if (tab !== "scan" || !scannedWorkId) return;
+    setPhotoStates(getInitialPhotoMap(targets));
+  }, [scannedWorkId, targets, tab]);
   const completedCount = useMemo(() => {
     return targets.filter((target) => {
       const inspection = scannedRow?.inspections.find((item) => item.id === target.id);
@@ -187,7 +194,7 @@ export default function MobileInspectionWorkflowPage() {
     }));
   };
 
-  const handleScan = () => {
+  const handleScan = async () => {
     const matched = rows.find((row) => row.work.document_no.toLowerCase() === documentNo.trim().toLowerCase());
 
     if (!matched) {
@@ -197,10 +204,29 @@ export default function MobileInspectionWorkflowPage() {
       return;
     }
 
-    const nextTargets = getProductTargets(matched, materials);
+    if (matched.inspections.length === 0) {
+      // 기존에 배정 시점에만 생성되던 검수 행을 스캔 시점에 lazy 생성해 커버한다.
+      setPreparingInspections(true);
+      setScanError("");
+      try {
+        const response = await fetch("/api/work-inspection/setup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ workId: matched.work.id })
+        });
+        const payload = (await response.json()) as { error?: string };
+        if (!response.ok || payload?.error) throw new Error(payload?.error ?? "검수 대상 준비에 실패했습니다.");
+        await refetch();
+      } catch (error) {
+        setPreparingInspections(false);
+        setScanError(error instanceof Error ? error.message : "검수 대상 준비에 실패했습니다.");
+        return;
+      }
+      setPreparingInspections(false);
+    }
+
     setScannedWorkId(matched.work.id);
     setScanError("");
-    setPhotoStates(getInitialPhotoMap(nextTargets));
   };
 
   const startInspection = () => {
@@ -362,7 +388,10 @@ export default function MobileInspectionWorkflowPage() {
               />
             </label>
             {scanError && <p className="mt-3 rounded-2xl bg-rose-50 p-3 text-sm font-bold text-rose-600">{scanError}</p>}
-            <CloudButton className="mt-4 w-full" onClick={handleScan}>
+            {preparingInspections && (
+              <p className="mt-3 rounded-2xl bg-sky-50 p-3 text-sm font-bold text-sky-600">검수 대상 준비 중...</p>
+            )}
+            <CloudButton className="mt-4 w-full" disabled={preparingInspections} onClick={() => void handleScan()}>
               <FileSearch className="size-4" />
               스캔
             </CloudButton>
