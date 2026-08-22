@@ -18,6 +18,9 @@ type ProductPhotoState = {
   photoName: string;
   storagePath: string;
   compressed: boolean;
+  uploading: boolean;
+  uploadError: string;
+  saved: boolean;
 };
 
 type ProductTarget = {
@@ -35,7 +38,10 @@ const emptyPhotoState: ProductPhotoState = {
   lotChecked: false,
   photoName: "",
   storagePath: "",
-  compressed: false
+  compressed: false,
+  uploading: false,
+  uploadError: "",
+  saved: false
 };
 
 function getProductTargets(row: InspectionTableRowDto | undefined, materials: MaterialMaster[]): ProductTarget[] {
@@ -80,7 +86,7 @@ function isProductReady(state?: ProductPhotoState) {
 }
 
 function isProductSaved(state?: ProductPhotoState) {
-  return Boolean(isProductReady(state) && state?.storagePath);
+  return Boolean(isProductReady(state) && state?.saved);
 }
 
 function ChecklistRow({
@@ -202,24 +208,83 @@ export default function MobileInspectionWorkflowPage() {
     setTab("product");
   };
 
-  const captureProductPhoto = (target: ProductTarget, event: ChangeEvent<HTMLInputElement>) => {
+  const captureProductPhoto = async (target: ProductTarget, state: ProductPhotoState, event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
+    event.target.value = "";
     if (!file || !scannedRow) return;
 
-    const safeName = file.name.replace(/\s+/g, "-");
-    updateProductState(target.id, {
-      photoName: file.name,
-      storagePath: `inspection-images/${scannedRow.work.id}/products/${target.materialCode}-${safeName}`,
-      compressed: true
-    });
-    event.target.value = "";
+    const inspection = scannedRow.inspections.find((item) => item.id === target.id);
+
+    updateProductState(target.id, { photoName: file.name, uploading: true, uploadError: "" });
+
+    if (!inspection) {
+      // 배정된 검수 행이 없는 예외 상황(작업마스터에 부자재 구성이 없는 등)은 저장할 대상이 없어
+      // 로컬 표시만 완료 처리한다(서버 저장 없음).
+      const safeName = file.name.replace(/\s+/g, "-");
+      updateProductState(target.id, {
+        storagePath: `inspection-images/${scannedRow.work.id}/products/${target.materialCode}-${safeName}`,
+        compressed: false,
+        saved: true,
+        uploading: false
+      });
+      return;
+    }
+
+    try {
+      const { default: imageCompression } = await import("browser-image-compression");
+      const compressed = await imageCompression(file, {
+        maxSizeMB: 0.8,
+        maxWidthOrHeight: 1600,
+        useWebWorker: false,
+        fileType: "image/jpeg",
+        initialQuality: 0.82
+      });
+      const compressedFile = new File([compressed], `product-${file.name.replace(/\.[^.]+$/, "")}.jpg`, {
+        type: "image/jpeg",
+        lastModified: Date.now()
+      });
+
+      const formData = new FormData();
+      formData.append("inspectionId", inspection.id);
+      formData.append("workId", scannedRow.work.id);
+      formData.append(
+        "checks",
+        JSON.stringify({
+          productCode: state.productCodeChecked,
+          productName: state.productNameChecked,
+          lot: state.lotChecked
+        })
+      );
+      formData.append("image", compressedFile);
+
+      const response = await fetch("/api/work-inspection/product", { method: "POST", body: formData });
+      const payload = (await response.json()) as { error?: string; resultSummary?: string };
+
+      if (!response.ok) throw new Error(payload.error ?? "제품검수 저장에 실패했습니다.");
+
+      updateProductState(target.id, {
+        storagePath: payload.resultSummary || "서버 저장 완료",
+        compressed: true,
+        saved: true,
+        uploading: false
+      });
+      await refetch();
+    } catch (error) {
+      updateProductState(target.id, {
+        uploading: false,
+        uploadError: error instanceof Error ? error.message : "제품검수 저장에 실패했습니다."
+      });
+    }
   };
 
   const resetProductPhoto = (targetId: string) => {
     updateProductState(targetId, {
       photoName: "",
       storagePath: "",
-      compressed: false
+      compressed: false,
+      uploading: false,
+      uploadError: "",
+      saved: false
     });
   };
 
@@ -387,28 +452,34 @@ export default function MobileInspectionWorkflowPage() {
                 <label
                   className={cn(
                     "mt-4 flex aspect-[4/3] flex-col items-center justify-center rounded-[1.4rem] border-2 border-dashed text-center transition",
-                    ready ? "cursor-pointer border-sky-200 bg-sky-50/70" : "cursor-not-allowed border-slate-200 bg-slate-100/80"
+                    ready && !state.uploading ? "cursor-pointer border-sky-200 bg-sky-50/70" : "cursor-not-allowed border-slate-200 bg-slate-100/80"
                   )}
                 >
                   <Camera className="mb-3 size-12 text-sky-400" />
                   <p className="font-black text-slate-800">대상 제품 사진 촬영</p>
                   <p className="mt-2 px-4 text-xs font-semibold leading-5 text-slate-500">
-                    {state.photoName || (ready ? "촬영하면 압축 후 서버 저장 mock 처리됩니다." : "제품정보 3개 항목을 먼저 체크해주세요.")}
+                    {state.uploading
+                      ? "압축 후 서버에 저장하는 중입니다..."
+                      : state.photoName || (ready ? "촬영하면 압축 후 서버에 저장됩니다." : "제품정보 3개 항목을 먼저 체크해주세요.")}
                   </p>
                   <input
                     type="file"
                     accept="image/*"
                     capture="environment"
-                    disabled={!ready}
+                    disabled={!ready || state.uploading}
                     className="sr-only"
-                    onChange={(event) => captureProductPhoto(target, event)}
+                    onChange={(event) => void captureProductPhoto(target, state, event)}
                     aria-label={`${target.productName} 제품 사진 촬영`}
                   />
                 </label>
 
-                {state.storagePath && (
+                {state.uploadError && (
+                  <div className="mt-3 rounded-2xl bg-rose-50 p-3 text-xs font-bold leading-5 text-rose-700">{state.uploadError}</div>
+                )}
+
+                {state.saved && state.storagePath && (
                   <div className="mt-3 rounded-2xl bg-emerald-50 p-3 text-xs font-bold leading-5 text-emerald-700">
-                    서버 저장 mock 완료
+                    서버 저장 완료
                     <br />
                     {state.storagePath}
                     <br />
@@ -416,7 +487,7 @@ export default function MobileInspectionWorkflowPage() {
                   </div>
                 )}
 
-                {state.photoName && (
+                {state.photoName && !state.uploading && (
                   <CloudButton className="mt-3 w-full" tone="soft" onClick={() => resetProductPhoto(target.id)}>
                     <RotateCcw className="size-4" />
                     다시 촬영

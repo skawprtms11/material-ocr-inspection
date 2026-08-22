@@ -289,6 +289,63 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ source: "supabase", workId: body.workId } satisfies WorkInspectionActionResponse);
     }
 
+    if (body.action.type === "request_review") {
+      const { inspectionId } = body.action;
+      if (!inspectionId) {
+        return NextResponse.json({ error: "inspectionId가 필요합니다." }, { status: 400 });
+      }
+
+      const reason = body.action.reason?.trim()
+        ? `현장 검수 취소 요청 - ${body.action.reason.trim()}`
+        : "현장 검수 취소 요청";
+      const requestedAt = new Date().toISOString();
+
+      // 멱등: 같은 검수 건에 처리 대기 중인 요청이 이미 있으면 다시 만들지 않는다.
+      const { data: existingRequest, error: existingError } = await supabase
+        .from("admin_review_requests")
+        .select("id")
+        .eq("inspection_id", inspectionId)
+        .eq("status", "requested")
+        .maybeSingle();
+      if (existingError) throw existingError;
+
+      let requestId = (existingRequest as DbRow | null)?.id as string | undefined;
+
+      if (!requestId) {
+        const { data: insertedRequest, error: insertError } = await supabase
+          .from("admin_review_requests")
+          .insert({
+            work_id: body.workId,
+            inspection_id: inspectionId,
+            // requester_id는 uuid 컬럼이라 모바일에서 특정할 수 없는 경우 비워둔다(NULL 허용).
+            reason,
+            status: "requested"
+          })
+          .select("id")
+          .maybeSingle();
+        if (insertError) throw insertError;
+        requestId = (insertedRequest as DbRow | null)?.id as string | undefined;
+      }
+
+      const { error: inspectionUpdateError } = await supabase
+        .from("work_inspections")
+        .update({ status: "admin_requested", result_summary: reason, updated_at: requestedAt })
+        .eq("id", inspectionId);
+      if (inspectionUpdateError) throw inspectionUpdateError;
+
+      const { error: workUpdateError } = await supabase
+        .from("works")
+        .update({ status: "admin_review_requested", latest_inspected_at: requestedAt })
+        .eq("id", body.workId);
+      if (workUpdateError) throw workUpdateError;
+
+      return NextResponse.json({
+        source: "supabase",
+        workId: body.workId,
+        requestId
+      } satisfies WorkInspectionActionResponse);
+    }
+
     const status = body.action.status;
     const processedAt = new Date().toISOString();
     const updatePayload = {
