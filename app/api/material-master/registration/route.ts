@@ -52,7 +52,8 @@ function toMaterial(row: DbRow): MaterialMaster {
     ocr_image_path: text(row.ocr_image_path) || undefined,
     vision_image_path: text(row.vision_image_path) || undefined,
     remark: text(row.remark) || undefined,
-    is_active: typeof row.is_active === "boolean" ? row.is_active : true
+    is_active: typeof row.is_active === "boolean" ? row.is_active : true,
+    verification_value: text(row.verification_value)
   };
 }
 
@@ -133,12 +134,19 @@ function validateRoi(value: unknown) {
   return { x, y, width, height };
 }
 
-async function parseRequest(request: NextRequest): Promise<RegistrationPayload & { files: File[] }> {
+async function parseRequest(
+  request: NextRequest
+): Promise<RegistrationPayload & { files: File[]; recognizedTextProvided: boolean }> {
   const contentType = request.headers.get("content-type") ?? "";
 
   if (!contentType.includes("multipart/form-data")) {
     const body = (await request.json()) as RegistrationPayload;
-    return { ...body, roi: validateRoi(body.roi), files: [] };
+    return {
+      ...body,
+      roi: validateRoi(body.roi),
+      files: [],
+      recognizedTextProvided: typeof body.recognizedText === "string"
+    };
   }
 
   const formData = await request.formData();
@@ -155,7 +163,9 @@ async function parseRequest(request: NextRequest): Promise<RegistrationPayload &
     imagePath: text(formData.get("imagePath")) || undefined,
     roi: validateRoi(parseOptionalJson<RoiRect>(text(formData.get("roi")), "roi")),
     expectedText: text(formData.get("expectedText")) || undefined,
-    recognizedText: text(formData.get("recognizedText")) || undefined,
+    // 값이 빈 문자열이어도(OCR 검증불가 등) 실제로 전송됐는지를 구분해야 검증값 저장 시 fallback 여부를 판단할 수 있다.
+    recognizedText: formData.has("recognizedText") ? text(formData.get("recognizedText")) : undefined,
+    recognizedTextProvided: formData.has("recognizedText"),
     similarity: text(formData.get("similarity")) ? Number(text(formData.get("similarity"))) : undefined,
     files
   };
@@ -335,7 +345,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  let body: RegistrationPayload & { files: File[] };
+  let body: RegistrationPayload & { files: File[]; recognizedTextProvided: boolean };
 
   try {
     body = await parseRequest(request);
@@ -382,7 +392,17 @@ export async function POST(request: NextRequest) {
       inspection_method: nextMethod,
       reference_image_path: currentReferencePath || imagePath,
       ...(body.method === "OCR" ? { ocr_image_path: imagePath } : {}),
-      ...(body.method === "VISION" ? { vision_image_path: imagePath } : {})
+      ...(body.method === "VISION" ? { vision_image_path: imagePath } : {}),
+      // 검증값은 모바일 OCR 검수·저장 시 확정된 인식값을 작업검수 기준값으로 사용한다.
+      // recognizedText가 실제로 전송된 경우(OCR 검토를 거친 경우)는 빈 값이어도 그대로 저장하고,
+      // 전송되지 않은 경우(예: 웹 관리자의 단순 이미지 등록)만 부자재코드로 폴백한다.
+      ...(body.method === "OCR"
+        ? {
+            verification_value: body.recognizedTextProvided
+              ? body.recognizedText ?? ""
+              : body.expectedText || text(currentRow.verification_value)
+          }
+        : {})
     };
 
     let data: DbRow;
@@ -457,7 +477,7 @@ export async function DELETE(request: NextRequest) {
     const currentRow = current as DbRow;
     const updatePayload = {
       reference_image_path: nextReferencePath(currentRow, deleted.ocr, deleted.vision),
-      ...(deleted.ocr ? { ocr_image_path: "" } : {}),
+      ...(deleted.ocr ? { ocr_image_path: "", verification_value: "" } : {}),
       ...(deleted.vision ? { vision_image_path: "" } : {})
     };
 

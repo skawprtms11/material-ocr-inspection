@@ -50,7 +50,8 @@ function toMaterial(row: DbRow): MaterialMaster {
     ocr_image_path: text(row.ocr_image_path) || undefined,
     vision_image_path: text(row.vision_image_path) || undefined,
     remark: text(row.remark) || undefined,
-    is_active: bool(row.is_active)
+    is_active: bool(row.is_active),
+    verification_value: text(row.verification_value)
   };
 }
 

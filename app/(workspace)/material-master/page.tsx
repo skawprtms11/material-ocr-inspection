@@ -24,7 +24,7 @@ type MaterialFormValue = Pick<
   visionFile?: File;
 };
 
-const tableHeaders = ["부자재코드", "부자재명", "LOT", "OCR등록", "비전스캔등록", "비고"];
+const tableHeaders = ["부자재코드", "부자재명", "LOT", "검증값", "OCR등록", "비전스캔등록", "비고"];
 
 function hasInspectionMethod(method: InspectionMethod | undefined, target: "OCR" | "VISION") {
   return method === target || method === "BOTH";
@@ -276,6 +276,7 @@ export default function MaterialMasterPage() {
                       </button>
                     </td>
                     <td className="px-5 py-4">{material.lot || "-"}</td>
+                    <td className="px-5 py-4">{material.verification_value || "-"}</td>
                     <td className="px-5 py-4 text-center">
                       <div className="inline-flex items-center gap-2">
                         {/* 등록 판정 기준: 모바일과 동일하게 이미지 실등록 여부(경로 존재)로 통일. 사용 설정(inspection_method)은 수정 모달에서 관리 */}
@@ -424,6 +425,12 @@ function MaterialEditorModal({
                 placeholder="LOT"
                 aria-label="LOT"
               />
+              {isEditMode && (
+                <div className="flex min-h-11 items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 px-3 text-sm font-bold text-slate-500 sm:col-span-2">
+                  <span>검증값(모바일 OCR 등록 기준)</span>
+                  <span className="text-slate-700">{material?.verification_value || "-"}</span>
+                </div>
+              )}
               <FormCheck name="ocr" defaultChecked={isEditMode ? hasInspectionMethod(material?.inspection_method, "OCR") : true} label="OCR등록" />
               <FormCheck name="vision" defaultChecked={isEditMode ? hasInspectionMethod(material?.inspection_method, "VISION") : true} label="비전스캔등록" />
               <textarea

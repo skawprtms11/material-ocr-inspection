@@ -289,6 +289,7 @@ function AdjustmentReviewModal({
                     <th className="px-4 py-3">검수방식</th>
                     <th className="px-4 py-3">판정상태</th>
                     <th className="px-4 py-3">OCR/비전 결과</th>
+                    <th className="px-4 py-3">검증값(기대값)</th>
                     <th className="px-4 py-3">요약</th>
                   </tr>
                 </thead>
@@ -302,6 +303,7 @@ function AdjustmentReviewModal({
                           ? inspection.ocr_result_text ?? "-"
                           : `${Math.round((inspection.vision_similarity ?? 0) * 100)}%`}
                       </td>
+                      <td className="px-4 py-3 font-bold text-sky-700">{inspection.materialVerificationValue || "-"}</td>
                       <td className="px-4 py-3">{inspection.result_summary}</td>
                     </tr>
                   ))}

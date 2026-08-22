@@ -11,7 +11,8 @@
   - 검수단계 배지 색상은 `getStepClassName`(문자열 포함 여부로 분기: 완료/승인→초록, 대상→보라, 보류/취소→회색, 요청→주황, 불일치/재검수→빨강, 진행/모바일→하늘)
   - 검수처리 컬럼: `CloudButton`으로 "검수완료" 처리(`work.status`가 `canceled`/`completed`면 비활성화)
   - 조정확인 컬럼: `row.request`가 있으면 상태 배지 버튼(`adjustmentLabels`: requested/approved/rejected/retry_requested)으로 `AdjustmentReviewModal` 오픈, 없으면 "요청없음" 배지
-- `AdjustmentReviewModal` — 작업 기본정보(`InfoItem` 4종) + 현장 확인 요청 사유 + 검수방식/판정상태/OCR·비전 결과/요약 표(`row.inspections`) + 검수 이미지 미리보기(현재는 플레이스홀더 박스, `image?.storage_path` 텍스트만 표시) + 조정승인/재검수 요청/조정 미승인 버튼
+- `AdjustmentReviewModal` — 작업 기본정보(`InfoItem` 4종) + 현장 확인 요청 사유 + 검수방식/판정상태/OCR·비전 결과/**검증값(기대값)**/요약 표(`row.inspections`) + 검수 이미지 미리보기(현재는 플레이스홀더 박스, `image?.storage_path` 텍스트만 표시) + 조정승인/재검수 요청/조정 미승인 버튼
+  - **검증값(기대값) 컬럼**: 검수 항목의 `material_id`로 연결된 부자재의 `material_masters.verification_value`(모바일 OCR 등록 검수값)를 참고용으로 보여준다. 값이 없으면 "-". 판정 로직에는 관여하지 않는 순수 표시용 컬럼이다.
 - `departmentId`/`shipperId`가 없으면 `EmptyCloudState`
 
 ## 데이터 흐름
@@ -31,6 +32,7 @@
   3. `.from("works")`를 department/shipper로 필터 조회
   4. `.from("work_inspections")`, `.from("inspection_images")`, `.from("admin_review_requests")`를 각각 `work_id in (...)`로 조회
   5. `getInspectionStep()`으로 표시용 검수단계 문자열 계산(취소 → 보류 → 조정승인 → 재검수 필요 → 재검수 요청 → 검수완료 → 검수대상/검수대기 → 확인요청 → 불일치·재검수 → 검수진행 → 모바일 검수중 순으로 우선순위 판정)
+- **검증값 연계**: `fetchWorkMasterData`가 조회한 `masterData.materials`(부서/화주 스코프의 `material_masters` 전체, `verification_value` 포함)로 `materialById` 맵을 만들고, `withVerificationValue()`가 각 `work_inspections` 행에 `materialVerificationValue`(해당 `material_id`의 `verification_value`, 없으면 `undefined`)를 붙여 `InspectionWithVerificationDto`로 확장한다. mock 모드도 동일하게 `appRepository.listMaterials({})`로 맵을 만들어 같은 필드를 붙인다. `lib/types/work-inspection-api.ts`의 `InspectionTableRowDto.inspections`는 이제 `InspectionWithVerificationDto[]` 타입이다.
 - 실DB 모드에서 GET 조회 중 예외가 발생하면 mock 폴백 없이 `502 { error }`를 반환한다(mock 폴백은 mock 모드에서만 동작). 화면은 `loadError` 상태로 "연결 오류" 배지 + "다시 시도" 버튼을 표시한다(직전 목록 유지).
 - PATCH `complete`
   - `.from("works")`를 `status: "in_progress"`, `latest_inspected_at`으로 update
@@ -56,7 +58,8 @@ OCR 실제 호출은 `app/api/ocr/route.ts`(POST, `runtime = "nodejs"`)에서 �
 ## 주요 타입
 - `lib/types/work-inspection-api.ts`
   - `AdjustmentStatusDto`: requested/approved/rejected/retry_requested
-  - `InspectionTableRowDto`: work + registeredAt/workType/finishedProductCode·Name/quantity/inspectionStep/request?/inspections/images/adjustmentStatus?/inspectionCompleted
+  - `InspectionWithVerificationDto`: `WorkInspection & { materialVerificationValue?: string }` — `material_masters.verification_value`를 검수 항목에 참고용으로 붙인 확장 타입
+  - `InspectionTableRowDto`: work + registeredAt/workType/finishedProductCode·Name/quantity/inspectionStep/request?/inspections(`InspectionWithVerificationDto[]`)/images/adjustmentStatus?/inspectionCompleted
   - `WorkInspectionDataResponse`: GET 응답
   - `WorkInspectionAction`: complete | adjustment
   - `WorkInspectionActionResponse`: PATCH 응답

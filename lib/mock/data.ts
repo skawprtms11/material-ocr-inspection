@@ -118,7 +118,8 @@ export const materialMasters: MaterialMaster[] = [
     reference_image_path: "material-images/dept-fulfillment/shipper-mint/lbl-mt-01.png",
     ocr_image_path: "material-images/dept-fulfillment/shipper-mint/lbl-mt-01-ocr.png",
     remark: "문서번호 OCR 확인",
-    is_active: true
+    is_active: true,
+    verification_value: "DOC-2026-1001"
   },
   {
     id: "mat-sticker",
@@ -131,7 +132,8 @@ export const materialMasters: MaterialMaster[] = [
     reference_image_path: "material-images/dept-fulfillment/shipper-mint/stk-mt-02.png",
     vision_image_path: "material-images/dept-fulfillment/shipper-mint/stk-mt-02-vision.png",
     remark: "로고 위치 비전 스캔",
-    is_active: true
+    is_active: true,
+    verification_value: ""
   },
   {
     id: "mat-manual",
@@ -145,7 +147,8 @@ export const materialMasters: MaterialMaster[] = [
     ocr_image_path: "material-images/dept-fulfillment/shipper-cloud/man-cl-03-ocr.png",
     vision_image_path: "material-images/dept-fulfillment/shipper-cloud/man-cl-03-vision.png",
     remark: "OCR/비전 동시 확인",
-    is_active: true
+    is_active: true,
+    verification_value: "CLOUD GUIDE"
   },
   {
     id: "mat-band",
@@ -158,7 +161,8 @@ export const materialMasters: MaterialMaster[] = [
     reference_image_path: "material-images/dept-package/shipper-lavender/bnd-lv-01.png",
     vision_image_path: "material-images/dept-package/shipper-lavender/bnd-lv-01-vision.png",
     remark: "색상/형상 매칭",
-    is_active: true
+    is_active: true,
+    verification_value: ""
   }
 ];
 
