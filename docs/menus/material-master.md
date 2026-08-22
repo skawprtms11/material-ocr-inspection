@@ -7,7 +7,8 @@
 - `app/(workspace)/material-master/page.tsx` (`MaterialMasterPage`)
 - 사용 컴포넌트: `PageHeader`, `CloudButton`, `CuteCard`, `EmptyCloudState`, `InspectionRegionEditor`(`components/inspection/InspectionRegionEditor.tsx`)
 - `departmentId`/`shipperId`가 없으면 `EmptyCloudState`를 렌더링.
-- 부자재 테이블: 부자재코드, 부자재명, LOT, OCR등록(체크+이미지 유무), 비전스캔등록(체크+이미지 유무), 비고. 행 클릭으로 `selectedMaterialId` 지정.
+- 부자재 테이블: 부자재코드, 부자재명, LOT, OCR등록, 비전스캔등록, 비고. 행 클릭으로 `selectedMaterialId` 지정.
+  - **등록 판정 기준(모바일과 통일)**: OCR등록/비전스캔등록 체크와 "등록완료/대기" 라벨은 `ocr_image_path`/`vision_image_path` **이미지 실등록 여부**로 표시한다. 사용 설정(`inspection_method`)은 수정 모달에서만 관리하며 목록 체크박스와 무관하다.
 - 부자재명 셀은 밑줄 스타일의 클릭 가능한 버튼이다. 클릭 시(`stopPropagation`으로 행 선택 로직과 분리) `MaterialImagePreviewModal`(읽기 전용 미리보기 모달)을 연다.
 - 액션 버튼: 등록(`Plus`), 수정(`Pencil`, 선택된 행 필요), 삭제(`Trash2`, 선택된 행 필요), 모바일 사진등록 링크(`/mobile/material-photo?materialId=...`).
 - `MaterialEditorModal`(내부 컴포넌트, `mode: "create" | "edit"`): 기본정보 폼(code/name/lot/remark, OCR·비전 사용여부 체크박스) + `ImageRegistrationPanel` 2개(OCR/비전 이미지 파일 선택, `storageHint`로 저장 경로 예시 표시) + 수정 모드일 때만 `InspectionRegionEditor`로 등록된 ROI 미리보기 표시(모달이 열릴 때 `useEffect`로 `GET /api/material-master/registration?material_id=...`를 호출해 `regions` 상태를 채움. fetch 실패 시 mock 폴백 없이 빈 배열 + 콘솔 경고).
