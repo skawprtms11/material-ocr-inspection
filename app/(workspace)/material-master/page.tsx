@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Camera, Pencil, Plus, Save, Trash2, X } from "lucide-react";
+import { Camera, Loader2, Pencil, Plus, Save, Trash2, X } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { CloudButton } from "@/components/common/CloudButton";
@@ -12,6 +12,8 @@ import { InspectionRegionEditor } from "@/components/inspection/InspectionRegion
 import { useFilterStore } from "@/lib/state/filter-store";
 import type { InspectionMethod, MaterialInspectionRegion, MaterialMaster } from "@/lib/types/domain";
 import { cn } from "@/lib/utils/cn";
+
+type MaterialInspectionRegionWithImages = MaterialInspectionRegion & { imageUrls: string[] };
 
 type MaterialModalMode = "create" | "edit";
 type MaterialFormValue = Pick<
@@ -70,6 +72,7 @@ export default function MaterialMasterPage() {
   const [modalMode, setModalMode] = useState<MaterialModalMode | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [dataSource, setDataSource] = useState<"supabase" | "mock" | null>(null);
+  const [previewMaterial, setPreviewMaterial] = useState<MaterialMaster | null>(null);
 
   const selectedMaterial = materials.find((material) => material.id === selectedMaterialId) ?? materials[0];
   const modalMaterial = modalMode === "edit" ? selectedMaterial : undefined;
@@ -251,7 +254,16 @@ export default function MaterialMasterPage() {
                       <span className="font-black text-sky-700">{material.code}</span>
                     </td>
                     <td className="px-5 py-4">
-                      <span className="font-bold text-slate-800">{material.name}</span>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setPreviewMaterial(material);
+                        }}
+                        className="font-bold text-sky-700 underline decoration-sky-300 decoration-2 underline-offset-2 transition hover:text-sky-500"
+                      >
+                        {material.name}
+                      </button>
                     </td>
                     <td className="px-5 py-4">{material.lot || "-"}</td>
                     <td className="px-5 py-4 text-center">
@@ -282,6 +294,10 @@ export default function MaterialMasterPage() {
           onSave={handleSave}
           onClose={() => setModalMode(null)}
         />
+      )}
+
+      {previewMaterial && (
+        <MaterialImagePreviewModal material={previewMaterial} onClose={() => setPreviewMaterial(null)} />
       )}
     </>
   );
@@ -497,5 +513,128 @@ function ImageRegistrationPanel({
         현재 경로: {currentPath || "아직 등록된 이미지가 없어요."}
       </div>
     </CuteCard>
+  );
+}
+
+function RoiOverlayImage({ imageUrl, roi, tone }: { imageUrl: string; roi: MaterialInspectionRegion["roi"]; tone: "OCR" | "VISION" }) {
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={imageUrl} alt="등록 이미지" className="block w-full max-w-full" />
+      <div
+        className={cn(
+          "absolute rounded-md border-2 bg-white/20 shadow-sm",
+          tone === "OCR" ? "border-sky-400" : "border-violet-400"
+        )}
+        style={{
+          left: `${roi.x}%`,
+          top: `${roi.y}%`,
+          width: `${roi.width}%`,
+          height: `${roi.height}%`
+        }}
+      />
+    </div>
+  );
+}
+
+function MaterialImagePreviewModal({ material, onClose }: { material: MaterialMaster; onClose: () => void }) {
+  const [regions, setRegions] = useState<MaterialInspectionRegionWithImages[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoading(true);
+    setError("");
+
+    const loadRegions = async () => {
+      try {
+        const response = await fetch(`/api/material-master/registration?material_id=${material.id}`);
+        if (!response.ok) throw new Error("등록 이미지 조회에 실패했습니다.");
+        const data = (await response.json()) as { regions?: MaterialInspectionRegionWithImages[] };
+        if (!cancelled) setRegions(data.regions ?? []);
+      } catch (fetchError) {
+        if (!cancelled) {
+          setError(fetchError instanceof Error ? fetchError.message : "등록 이미지 조회에 실패했습니다.");
+          setRegions([]);
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    };
+
+    void loadRegions();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [material.id]);
+
+  const ocrRegion = regions.find((region) => region.method === "OCR");
+  const visionRegion = regions.find((region) => region.method === "VISION");
+  const ocrRecognizedText = typeof ocrRegion?.options?.recognizedText === "string" ? ocrRegion.options.recognizedText : "";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/35 px-4 py-8 backdrop-blur-sm">
+      <div className="w-full max-w-4xl rounded-[1.4rem] border border-white/80 bg-[#f8fbff] p-5 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
+        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-black text-sky-600">등록 이미지 미리보기</p>
+            <h2 className="mt-1 text-2xl font-black tracking-normal text-slate-800">{material.name}</h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="팝업 닫기"
+            className="inline-flex size-10 items-center justify-center rounded-full bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:bg-sky-50"
+          >
+            <X className="size-5" />
+          </button>
+        </div>
+
+        {isLoading ? (
+          <div className="flex min-h-40 flex-col items-center justify-center gap-2 rounded-[1.2rem] bg-white/70 text-sm font-bold text-slate-500">
+            <Loader2 className="size-6 animate-spin text-sky-400" />
+            등록 이미지를 불러오는 중이에요.
+          </div>
+        ) : error ? (
+          <div className="rounded-[1.2rem] bg-rose-50 p-6 text-center text-sm font-bold text-rose-600">{error}</div>
+        ) : (
+          <div className="grid gap-5">
+            <CuteCard>
+              <h3 className="mb-3 text-lg font-black text-slate-800">OCR 등록 이미지</h3>
+              {ocrRegion && ocrRegion.imageUrls.length > 0 ? (
+                <div className="grid gap-3">
+                  <RoiOverlayImage imageUrl={ocrRegion.imageUrls[0]} roi={ocrRegion.roi} tone="OCR" />
+                  <div className="rounded-2xl bg-slate-50 p-3 text-xs font-bold leading-5 text-slate-500">
+                    <p>기준 텍스트: {ocrRegion.expected_text || "-"}</p>
+                    <p>인식된 텍스트: {ocrRecognizedText || "-"}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-[1.2rem] bg-slate-50 p-6 text-center text-sm font-bold text-slate-400">
+                  등록된 이미지가 없습니다.
+                </div>
+              )}
+            </CuteCard>
+
+            <CuteCard>
+              <h3 className="mb-3 text-lg font-black text-slate-800">비전 등록 이미지</h3>
+              {visionRegion && visionRegion.imageUrls.length > 0 ? (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {visionRegion.imageUrls.slice(0, 5).map((imageUrl, index) => (
+                    <RoiOverlayImage key={`${imageUrl}-${index}`} imageUrl={imageUrl} roi={visionRegion.roi} tone="VISION" />
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-[1.2rem] bg-slate-50 p-6 text-center text-sm font-bold text-slate-400">
+                  등록된 이미지가 없습니다.
+                </div>
+              )}
+            </CuteCard>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
