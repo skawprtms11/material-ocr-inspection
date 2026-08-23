@@ -63,7 +63,8 @@ function buildMockResponse(inspectionId: string, workId: string) {
     recognizedText: canVerify ? expectedValue : "",
     expectedValue,
     matched: canVerify,
-    canVerify
+    canVerify,
+    saved: canVerify
   };
 }
 
@@ -146,17 +147,30 @@ export async function POST(request: NextRequest) {
         recognizedText: "",
         expectedValue,
         matched: false,
-        canVerify: false
+        canVerify: false,
+        saved: false
       });
     }
 
     const recognizedText = ocrResult.extractedText;
     const matched = normalize(recognizedText) === normalize(expectedValue);
-    const nextStatus = matched ? "passed" : "failed";
+
+    // 불합격 판정은 재검수가 전제이므로 스토리지 업로드·DB 갱신 없이 판정 결과만 응답한다.
+    if (!matched) {
+      return NextResponse.json({
+        source: "supabase",
+        status: text(inspection.status, "pending"),
+        recognizedText,
+        expectedValue,
+        matched: false,
+        canVerify: true,
+        saved: false
+      });
+    }
+
+    const nextStatus = "passed";
     const attemptCount = (numberField(inspection.attempt_count) ?? 0) + 1;
-    const resultSummary = matched
-      ? `OCR 일치 (기대값: ${expectedValue || "-"})`
-      : `OCR 불일치 (기대값: ${expectedValue || "-"}, 인식값: ${recognizedText || "-"})`;
+    const resultSummary = `OCR 일치 (기대값: ${expectedValue || "-"})`;
 
     await ensureInspectionImageBucket(supabase);
     const storagePath = `${workId}/${inspectionId}/${Date.now()}-ocr.jpg`;
@@ -213,7 +227,8 @@ export async function POST(request: NextRequest) {
       recognizedText,
       expectedValue,
       matched,
-      canVerify: true
+      canVerify: true,
+      saved: true
     });
   } catch (error) {
     return NextResponse.json({ error: errorMessage(error, "OCR 검수 저장에 실패했습니다.") }, { status: 500 });
