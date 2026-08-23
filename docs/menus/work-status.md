@@ -9,7 +9,8 @@
 - 상세필터 적용 중 요약 배지 바(적용된 조건 chip 표시)
 - 데이터 소스 배지 바(`supabase`/`mock`/연결 확인 중/연결 오류) — 연결 오류 시 "다시 시도" 버튼으로 `loadRows` 재호출
 - `CuteCard` 요약 영역 — 완료율 게이지 + 전체/대기/진행/보류/취소/완료 카드 6종
-- `CuteCard` 목록 테이블 — 작업상태(상태 변경 드롭다운 버튼)/작업구분/문서번호/완성품코드·명/LOT/작업수량/비고
+- `CuteCard` 목록 테이블 — 검수/작업상태(상태 변경 드롭다운 버튼)/작업구분/문서번호/완성품코드·명/LOT/작업수량/비고
+  - "검수" 컬럼(작업상태 컬럼 바로 왼쪽)은 작업에 연결된 `work_inspections` 집계 상태를 배지로 표시한다: 검수완료(초록)/검수대기(회색)/검수취소(주황). 판정 규칙은 아래 "검수 집계 상태" 참고. 상태 변경 UI는 없고 표시 전용이다.
 - `DetailFilterModal` — 년도/월/작업구분/문서번호/완성품코드/완성품명/LOT 검색 폼(초기화/취소/검색 버튼)
 - `departmentId`/`shipperId`가 없으면 `EmptyCloudState`
 
@@ -26,6 +27,7 @@
   1. `resolveScopeIds`로 부서/화주 UUID 보정
   2. `fetchWorkMasterData`(`@/lib/repositories/work-master-supabase-repository`)로 작업마스터 조회
   3. `.from("works")`를 `department_id`/`shipper_id`로 필터 후 `work_date` 내림차순 조회
+  4. 조회된 work id들로 `.from("work_inspections")`를 `work_id`/`status`만 select해 한 번의 `in()` 쿼리로 조회하고, `getInspectionAggregateStatus`(`lib/server/inspection-status.ts`)로 작업별 `inspectionStatus`(`completed`/`waiting`/`canceled`)를 계산해 각 row에 포함한다. mock 분기(`mockRows`)도 `appRepository.listInspections(work.id)`로 동일 규칙을 적용한다(데이터가 없으면 `waiting`).
 - PATCH mock 분기
   - DB 변경 없이 `{ source: "mock", workId, status }`만 반환
 - PATCH Supabase 분기
@@ -52,13 +54,23 @@
   - `canceled → cancel`
   - 그 외(`passed`/`completed`) → `complete`
 
+## 검수 집계 상태(`inspectionStatus`)
+작업(work)에 연결된 `work_inspections` 행들을 아래 규칙으로 집계한다(`lib/server/inspection-status.ts`의 `getInspectionAggregateStatus`, `app/api/work-status/route.ts`와 `app/api/work-register/route.ts` GET이 공유 import). 우선순위는 취소 > 완료 > 대기.
+- **검수취소(`canceled`)**: 검수 행 중 하나라도 `status = "admin_requested"`(현장 검수취소 = 관리자 확인요청 체계)가 있으면
+- **검수완료(`completed`)**: 검수 행이 1개 이상이고 전부 `passed` 또는 `admin_approved`이면
+- **검수대기(`waiting`)**: 그 외 전부(검수 행 없음, `pending`/`failed`/`retrying` 포함)
+
+`app/api/work-register/route.ts` GET(할당대기 목록)은 이 값이 `completed`인 작업을 목록에서 제외한다(상세는 `docs/menus/work-register.md` 참고). 즉 검수완료 작업은 작업등록 화면에는 더 이상 노출되지 않고 이 작업현황 화면에서만 조회된다.
+
 ## 주요 타입
 - `lib/types/work-status-api.ts`
   - `DisplayWorkStatusDto`
-  - `WorkStatusRowDto`: work + displayStatus + workType/productCode/productName/lot/quantity
+  - `InspectionAggregateStatusDto`: `"completed" | "waiting" | "canceled"`
+  - `WorkStatusRowDto`: work + displayStatus + inspectionStatus + workType/productCode/productName/lot/quantity
   - `WorkStatusDataResponse`: GET 응답
   - `UpdateWorkStatusResponse`: PATCH 응답
-- `lib/types/domain.ts`: `Work`, `WorkStatus`
+- `lib/types/domain.ts`: `Work`, `WorkStatus`, `InspectionStatus`
+- `lib/server/inspection-status.ts`: `getInspectionAggregateStatus`(검수 집계 판정 공유 함수)
 - `lib/state/work-flow-store.ts`: `dashboardWorkStatusOptions`(상태 드롭다운 옵션 목록)
 
 ## 주의사항

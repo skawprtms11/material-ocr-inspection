@@ -1,7 +1,7 @@
 # 작업등록 (`app/(workspace)/work-register`)
 
 ## 개요
-작업등록 화면은 완성품/구성품 정보를 입력해 새 작업을 등록하고, 등록된 작업 중 담당자가 아직 할당되지 않은 건("할당대기")을 목록으로 관리한다. 목록에서 담당자를 지정하면 해당 작업은 할당대기 목록에서 사라지고 검수 단계로 넘어간다.
+작업등록 화면은 완성품/구성품 정보를 입력해 새 작업을 등록하고, 등록된 작업 중 담당자가 아직 할당되지 않은 건("할당대기")을 목록으로 관리한다. 목록에서 담당자를 지정하면 해당 작업은 할당대기 목록에서 사라지고 검수 단계로 넘어간다. **검수완료(작업에 연결된 `work_inspections`가 1건 이상이고 전부 `passed`/`admin_approved`)로 판정된 작업은 이 화면의 할당대기 목록에 노출되지 않고 작업현황(`docs/menus/work-status.md`) 화면에서만 조회된다.**
 
 ## 화면 구조
 `app/(workspace)/work-register/page.tsx`(클라이언트 컴포넌트)는 다음 섹션으로 구성된다.
@@ -30,7 +30,8 @@
   1. `resolveScopeIds`로 부서/화주 UUID 보정
   2. `fetchWorkMasterData`(`@/lib/repositories/work-master-supabase-repository`)로 작업마스터/자재/제품 매핑 조회
   3. `.from("works")`에서 `status = "registered"`이고 `assigned_to`/`assigned_at`이 없는 행 조회
-  4. `.from("work_components")`에서 해당 work_id들의 구성품 조회
+  4. 위 행들의 `work_id in (...)`로 `.from("work_inspections")`를 `work_id`/`status`만 조회해 `getInspectionAggregateStatus`(`lib/server/inspection-status.ts`, work-status API와 공유하는 판정 함수)로 작업별 검수 집계 상태를 계산하고, **검수완료(`completed`)인 작업은 목록에서 제외**한다(검수완료 작업은 작업현황 화면에서만 조회됨). mock 분기(`mockPendingWorks`)도 `appRepository.listInspections(work.id)`로 동일 규칙을 적용해 검수완료 작업을 제외한다.
+  5. `.from("work_components")`에서 남은 work_id들의 구성품 조회
 - POST 처리 순서
   1. `.from("work_masters")`에서 단건 조회
   2. `.from("works")`에 insert (실패 시 `work_type`/`quantity`/`due_date`/`finished_product_lot` 컬럼을 제외한 축소 payload로 재시도)

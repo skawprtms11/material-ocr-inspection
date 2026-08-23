@@ -6,6 +6,14 @@ import { CuteCard } from "@/components/common/CuteCard";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { useMobileWorkStatusRows } from "@/lib/mobile/mobile-api";
 import { getCurrentYearMonth, isYearMonthMatch } from "@/lib/utils/date";
+import type { InspectionAggregateStatusDto } from "@/lib/types/work-status-api";
+
+// 웹 work-status와 동일한 라벨/색상 매핑(검수완료=초록, 검수대기=회색, 검수취소=주황).
+const inspectionStatusMeta: Record<InspectionAggregateStatusDto, { label: string; badge: string }> = {
+  completed: { label: "검수완료", badge: "bg-emerald-100 text-emerald-700 ring-emerald-200" },
+  waiting: { label: "검수대기", badge: "bg-slate-100 text-slate-600 ring-slate-200" },
+  canceled: { label: "검수취소", badge: "bg-orange-100 text-orange-700 ring-orange-200" }
+};
 
 export default function MobileStatusPage() {
   const { data: rows, source, warning, isLoading, error, refetch } = useMobileWorkStatusRows();
@@ -122,20 +130,29 @@ export default function MobileStatusPage() {
       </div>
 
       <div className="space-y-2">
-        {filteredRows.map((row) => (
-          <CuteCard key={row.work.id} className="p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-black text-sky-600">{row.work.document_no}</p>
-                <p className="mt-1 font-black text-slate-800">{row.productName}</p>
-                <p className="mt-1 text-xs font-bold text-slate-400">
-                  {row.productCode} · LOT {row.lot || "-"} · {row.work.worker_name || "미할당"}
-                </p>
+        {filteredRows.map((row) => {
+          const inspection = inspectionStatusMeta[row.inspectionStatus];
+
+          return (
+            <CuteCard key={row.work.id} className="p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-black text-sky-600">{row.work.document_no}</p>
+                  <p className="mt-1 font-black text-slate-800">{row.productName}</p>
+                  <p className="mt-1 text-xs font-bold text-slate-400">
+                    {row.productCode} · LOT {row.lot || "-"} · {row.work.worker_name || "미할당"}
+                  </p>
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  <StatusBadge type="work" status={row.work.status} />
+                  <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-black ring-1 ${inspection.badge}`}>
+                    {inspection.label}
+                  </span>
+                </div>
               </div>
-              <StatusBadge type="work" status={row.work.status} />
-            </div>
-          </CuteCard>
-        ))}
+            </CuteCard>
+          );
+        })}
         {!isLoading && filteredRows.length === 0 && (
           <CuteCard className="p-4 text-center text-sm font-bold text-slate-400">
             조회된 작업이 없습니다.

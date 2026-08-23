@@ -12,7 +12,12 @@ import { dashboardWorkStatusOptions } from "@/lib/state/work-flow-store";
 import { getDisplayStatus } from "@/lib/constants/status";
 import { getCurrentYearMonth, isYearMonthMatch } from "@/lib/utils/date";
 import type { Work, WorkStatus } from "@/lib/types/domain";
-import type { DisplayWorkStatusDto, UpdateWorkStatusResponse, WorkStatusDataResponse } from "@/lib/types/work-status-api";
+import type {
+  DisplayWorkStatusDto,
+  InspectionAggregateStatusDto,
+  UpdateWorkStatusResponse,
+  WorkStatusDataResponse
+} from "@/lib/types/work-status-api";
 
 type WorkStatusFilter = {
   year: string;
@@ -29,6 +34,7 @@ type DisplayStatus = DisplayWorkStatusDto;
 type WorkStatusRow = {
   work: Work;
   displayStatus: DisplayStatus;
+  inspectionStatus: InspectionAggregateStatusDto;
   workType: string;
   productCode: string;
   productName: string;
@@ -72,6 +78,12 @@ const displayStatusMeta: Record<
     badge: "bg-emerald-100 text-emerald-700 ring-emerald-200",
     iconBox: "bg-emerald-500 text-white"
   }
+};
+
+const inspectionStatusMeta: Record<InspectionAggregateStatusDto, { label: string; badge: string }> = {
+  completed: { label: "검수완료", badge: "bg-emerald-100 text-emerald-700 ring-emerald-200" },
+  waiting: { label: "검수대기", badge: "bg-slate-100 text-slate-600 ring-slate-200" },
+  canceled: { label: "검수취소", badge: "bg-orange-100 text-orange-700 ring-orange-200" }
 };
 
 function includesText(value: string, keyword: string) {
@@ -329,7 +341,7 @@ export default function WorkStatusPage() {
           <table className="w-full min-w-[1320px] text-left text-sm">
             <thead className="bg-sky-50/80 text-xs font-black text-sky-700">
               <tr>
-                {["작업상태", "작업구분", "문서번호", "완성품코드", "완성품명", "LOT", "작업수량", "비고"].map((header) => (
+                {["검수", "작업상태", "작업구분", "문서번호", "완성품코드", "완성품명", "LOT", "작업수량", "비고"].map((header) => (
                   <th key={header} className="px-4 py-3">
                     {header}
                   </th>
@@ -341,8 +353,15 @@ export default function WorkStatusPage() {
                 const status = displayStatusMeta[row.displayStatus];
                 const Icon = status.icon;
 
+                const inspection = inspectionStatusMeta[row.inspectionStatus];
+
                 return (
                   <tr key={row.work.id} className="text-slate-600 transition hover:bg-sky-50/70">
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex rounded-full px-3 py-1.5 text-xs font-black ring-1 ${inspection.badge}`}>
+                        {inspection.label}
+                      </span>
+                    </td>
                     <td className="px-4 py-3">
                       <div className="relative inline-block">
                         <button
@@ -399,7 +418,7 @@ export default function WorkStatusPage() {
               })}
               {filteredRows.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-sm font-bold text-slate-400">
+                  <td colSpan={9} className="px-4 py-12 text-center text-sm font-bold text-slate-400">
                     조회 조건에 맞는 작업현황이 없습니다.
                   </td>
                 </tr>
