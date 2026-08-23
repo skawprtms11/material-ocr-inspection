@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
-import { Barcode, Camera, CheckCircle2, ClipboardCheck, FileSearch, PackageCheck, RotateCcw } from "lucide-react";
+import { AlertTriangle, Barcode, Camera, CheckCircle2, ClipboardCheck, FileSearch, PackageCheck, RotateCcw } from "lucide-react";
 import { CloudButton } from "@/components/common/CloudButton";
 import { CuteCard } from "@/components/common/CuteCard";
 import { OcrInspectionCard } from "@/components/mobile/OcrInspectionCard";
@@ -21,6 +21,8 @@ type ProductPhotoState = {
   uploading: boolean;
   uploadError: string;
   saved: boolean;
+  reviewLoading: boolean;
+  reviewError: string;
 };
 
 type ProductTarget = {
@@ -41,7 +43,9 @@ const emptyPhotoState: ProductPhotoState = {
   compressed: false,
   uploading: false,
   uploadError: "",
-  saved: false
+  saved: false,
+  reviewLoading: false,
+  reviewError: ""
 };
 
 function getProductTargets(row: InspectionTableRowDto | undefined, materials: MaterialMaster[]): ProductTarget[] {
@@ -178,6 +182,8 @@ export default function MobileInspectionWorkflowPage() {
   const completedCount = useMemo(() => {
     return targets.filter((target) => {
       const inspection = scannedRow?.inspections.find((item) => item.id === target.id);
+      // 확인요청 중인 항목은 이전에 로컬에서 저장 완료 처리했더라도 완료 집계에서 제외한다.
+      if (inspection?.status === "admin_requested") return false;
       if (inspection?.method === "OCR") return inspection.status === "passed" || inspection.status === "admin_approved";
       return isProductSaved(photoStates[target.id]);
     }).length;
@@ -299,6 +305,39 @@ export default function MobileInspectionWorkflowPage() {
       updateProductState(target.id, {
         uploading: false,
         uploadError: error instanceof Error ? error.message : "제품검수 저장에 실패했습니다."
+      });
+    }
+  };
+
+  const requestProductReview = async (target: ProductTarget, inspectionId: string) => {
+    if (!scannedRow) return;
+
+    const confirmed = window.confirm("특이사항을 관리자에게 확인 요청하시겠습니까?");
+    if (!confirmed) return;
+
+    const memo = window.prompt("확인요청 사유를 입력하세요 (선택, 비워두면 기본 사유로 저장됩니다)", "");
+    const trimmedMemo = memo && memo.trim() ? memo.trim() : undefined;
+
+    updateProductState(target.id, { reviewLoading: true, reviewError: "" });
+
+    try {
+      const response = await fetch("/api/work-inspection", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workId: scannedRow.work.id,
+          action: { type: "request_review", inspectionId, reason: trimmedMemo, label: "현장 확인요청" }
+        })
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(payload.error ?? "확인요청 처리에 실패했습니다.");
+
+      updateProductState(target.id, { reviewLoading: false });
+      await refetch();
+    } catch (error) {
+      updateProductState(target.id, {
+        reviewLoading: false,
+        reviewError: error instanceof Error ? error.message : "확인요청 처리에 실패했습니다."
       });
     }
   };
@@ -438,6 +477,7 @@ export default function MobileInspectionWorkflowPage() {
             const state = photoStates[target.id] ?? emptyPhotoState;
             const ready = isProductReady(state);
             const saved = isProductSaved(state);
+            const isAdminRequested = inspection?.status === "admin_requested";
 
             return (
               <CuteCard key={target.id} className="p-4">
@@ -450,12 +490,41 @@ export default function MobileInspectionWorkflowPage() {
                   <span
                     className={cn(
                       "rounded-full px-3 py-1 text-xs font-black",
-                      saved ? "bg-emerald-100 text-emerald-700" : ready ? "bg-sky-100 text-sky-700" : "bg-slate-100 text-slate-500"
+                      isAdminRequested
+                        ? "bg-amber-100 text-amber-700"
+                        : saved
+                          ? "bg-emerald-100 text-emerald-700"
+                          : ready
+                            ? "bg-sky-100 text-sky-700"
+                            : "bg-slate-100 text-slate-500"
                     )}
                   >
-                    {saved ? "저장완료" : ready ? "촬영대기" : "확인필요"}
+                    {isAdminRequested ? "확인요청" : saved ? "저장완료" : ready ? "촬영대기" : "확인필요"}
                   </span>
                 </div>
+
+                {inspection && !isAdminRequested && (
+                  <CloudButton
+                    tone="soft"
+                    className="mb-3 w-full"
+                    disabled={state.reviewLoading}
+                    onClick={() => void requestProductReview(target, inspection.id)}
+                  >
+                    <AlertTriangle className="size-4" />
+                    {state.reviewLoading ? "요청 중..." : "확인요청"}
+                  </CloudButton>
+                )}
+
+                {isAdminRequested && (
+                  <div className="mb-3 flex items-center gap-2 rounded-2xl bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-700">
+                    <AlertTriangle className="size-4 shrink-0" />
+                    관리자 확인 대기 중입니다. 관리자 처리 결과를 기다려주세요.
+                  </div>
+                )}
+
+                {state.reviewError && (
+                  <div className="mb-3 rounded-2xl bg-rose-50 p-3 text-xs font-bold leading-5 text-rose-700">{state.reviewError}</div>
+                )}
 
                 <div className="space-y-2">
                   <ChecklistRow
@@ -481,21 +550,25 @@ export default function MobileInspectionWorkflowPage() {
                 <label
                   className={cn(
                     "mt-4 flex aspect-[4/3] flex-col items-center justify-center rounded-[1.4rem] border-2 border-dashed text-center transition",
-                    ready && !state.uploading ? "cursor-pointer border-sky-200 bg-sky-50/70" : "cursor-not-allowed border-slate-200 bg-slate-100/80"
+                    ready && !state.uploading && !isAdminRequested
+                      ? "cursor-pointer border-sky-200 bg-sky-50/70"
+                      : "cursor-not-allowed border-slate-200 bg-slate-100/80"
                   )}
                 >
                   <Camera className="mb-3 size-12 text-sky-400" />
                   <p className="font-black text-slate-800">대상 제품 사진 촬영</p>
                   <p className="mt-2 px-4 text-xs font-semibold leading-5 text-slate-500">
-                    {state.uploading
-                      ? "압축 후 서버에 저장하는 중입니다..."
-                      : state.photoName || (ready ? "촬영하면 압축 후 서버에 저장됩니다." : "제품정보 3개 항목을 먼저 체크해주세요.")}
+                    {isAdminRequested
+                      ? "관리자 확인 처리 후 다시 촬영할 수 있습니다."
+                      : state.uploading
+                        ? "압축 후 서버에 저장하는 중입니다..."
+                        : state.photoName || (ready ? "촬영하면 압축 후 서버에 저장됩니다." : "제품정보 3개 항목을 먼저 체크해주세요.")}
                   </p>
                   <input
                     type="file"
                     accept="image/*"
                     capture="environment"
-                    disabled={!ready || state.uploading}
+                    disabled={!ready || state.uploading || isAdminRequested}
                     className="sr-only"
                     onChange={(event) => void captureProductPhoto(target, state, event)}
                     aria-label={`${target.productName} 제품 사진 촬영`}

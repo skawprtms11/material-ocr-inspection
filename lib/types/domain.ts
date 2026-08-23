@@ -148,6 +148,7 @@ export type AdminReviewRequest = {
   admin_id?: string;
   admin_comment?: string;
   processed_at?: string;
+  created_at?: string;
 };
 
 export type WorkerSignature = {

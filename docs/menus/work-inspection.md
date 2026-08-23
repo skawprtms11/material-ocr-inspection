@@ -1,18 +1,23 @@
 # 작업검수 (`app/(workspace)/work-inspection`)
 
 ## 개요
-현장(모바일)에서 진행한 OCR/비전 검수 이력을 표로 확인하고, 관리자가 "검수완료" 처리 또는 현장에서 올라온 OCR/비전 불일치 확인 요청(조정확인)을 승인/재검수요청/미승인 처리하는 화면이다.
+현장(모바일)에서 진행한 OCR/비전 검수 이력을 표로 확인하고, 관리자가 "검수완료" 처리 또는 현장에서 올라온 검수 중 특이사항 확인요청(조정확인)을 승인/재검수요청/미승인 처리하는 화면이다.
 
 ## 화면 구조
 `app/(workspace)/work-inspection/page.tsx`(클라이언트 컴포넌트) 구성:
 - `PageHeader` — 제목/설명만, 별도 액션 버튼 없음
 - 데이터 소스 배지 바(`supabase`/`mock`/연결 확인 중/연결 오류) — 연결 오류 시 "다시 시도" 버튼으로 `loadRows` 재호출
+- **확인요청 섹션**(`pendingReviewRequests.length > 0`일 때만 목록 최상단에 표시) — 미처리(`admin_review_requests.status === "requested"`) 확인요청을 검수 항목 단위(문서번호/부자재(또는 제품)명/검수방식/요청사유/요청시각)로 나열하는 별도 `CuteCard` 표. 각 행에 버튼 2개:
+  - **검수승인**: `PATCH /api/work-inspection`(`action: { type: "adjustment", requestId, status: "approved", inspectionId }`) 호출. 해당 검수 항목만 `admin_approved`로 좁혀 처리한다(아래 "PATCH `adjustment`" 참고).
+  - **재검수**: 같은 API를 `status: "retry_requested"`로 호출. 해당 검수 항목만 `retrying`(모바일에서 다시 검수 가능한 기존 재검수 상태)으로 되돌린다.
+  - 두 버튼 모두 처리 중에는 `processingRequestId`로 해당 행만 비활성화하고, 성공 시 `loadRows()`로 섹션과 표를 함께 갱신한다.
 - `CuteCard` 목록 테이블 — 등록일자/작업구분/문서번호/완성품코드·명/작업수량/검수단계/검수처리/조정확인. "검수대상" 건수 배지 표시
   - 검수단계 배지 색상은 `getStepClassName`(문자열 포함 여부로 분기: 완료/승인→초록, 대상→보라, 보류/취소→회색, 요청→주황, 불일치/재검수→빨강, 진행/모바일→하늘)
   - 검수처리 컬럼: `CloudButton`으로 "검수완료" 처리(`work.status`가 `canceled`/`completed`면 비활성화)
   - 조정확인 컬럼: `row.request`가 있으면 상태 배지 버튼(`adjustmentLabels`: requested/approved/rejected/retry_requested)으로 `AdjustmentReviewModal` 오픈, 없으면 "요청없음" 배지
 - `AdjustmentReviewModal` — 작업 기본정보(`InfoItem` 4종) + 현장 확인 요청 사유 + 검수방식/판정상태/OCR·비전 결과/**검증값(기대값)**/요약 표(`row.inspections`) + 검수 이미지 미리보기(현재는 플레이스홀더 박스, `image?.storage_path` 텍스트만 표시) + 조정승인/재검수 요청/조정 미승인 버튼
   - **검증값(기대값) 컬럼**: 검수 항목의 `material_id`로 연결된 부자재의 `material_masters.verification_value`(모바일 OCR 등록 검수값)를 참고용으로 보여준다. 값이 없으면 "-". 판정 로직에는 관여하지 않는 순수 표시용 컬럼이다.
+  - 이 모달은 work 단위(기존 `row.request`, `requestByWork` 맵)로 동작하며, 위 확인요청 섹션(검수 항목 단위)과는 별개의 진입점이다. 둘 다 같은 PATCH `adjustment` 액션을 쓰지만 모달 쪽은 `inspectionId`를 넘기지 않아 기존처럼 work의 `admin_requested` 검수 항목 전체를 대상으로 처리한다.
 - `departmentId`/`shipperId`가 없으면 `EmptyCloudState`
 
 ## 검수 행(`work_inspections`) 생성 출처
@@ -27,11 +32,13 @@
 
 ## 데이터 흐름
 - 페이지 로드/재조회(`loadRows`): `GET /api/work-inspection?department_id=&shipper_id=` 호출
-  - 응답(`WorkInspectionDataResponse`)의 `rows`/`source`를 `tableRows`/`dataSource`로 반영
+  - 응답(`WorkInspectionDataResponse`)의 `rows`/`pendingReviewRequests`/`source`를 `tableRows`/`pendingReviewRequests`/`dataSource`로 반영
 - 검수완료: `PATCH /api/work-inspection` (body: `{ workId, action: { type: "complete" } }`)
   - 성공 시 `loadRows()` 재호출
-- 조정 처리: `PATCH /api/work-inspection` (body: `{ workId, action: { type: "adjustment", requestId, status } }`)
+- 조정 처리(기존 `AdjustmentReviewModal`, work 단위): `PATCH /api/work-inspection` (body: `{ workId, action: { type: "adjustment", requestId, status } }`)
   - 성공 시 `loadRows()` 재호출
+- **확인요청 섹션 처리(검수 항목 단위)**: 같은 `adjustment` 액션에 `inspectionId`를 추가로 실어 `PATCH /api/work-inspection` 호출(body: `{ workId, action: { type: "adjustment", requestId, status: "approved" | "retry_requested", inspectionId } }`)
+  - 성공 시 `loadRows()` 재호출(섹션 목록과 표를 함께 갱신)
 
 `app/api/work-inspection/route.ts`:
 - GET mock 분기
@@ -43,16 +50,17 @@
   4. `.from("work_inspections")`, `.from("inspection_images")`, `.from("admin_review_requests")`를 각각 `work_id in (...)`로 조회
   5. `getInspectionStep()`으로 표시용 검수단계 문자열 계산(취소 → 보류 → 조정승인 → 재검수 필요 → 재검수 요청 → 검수완료 → 검수대상/검수대기 → 확인요청 → 불일치·재검수 → 검수진행 → 모바일 검수중 순으로 우선순위 판정)
 - **검증값 연계**: `fetchWorkMasterData`가 조회한 `masterData.materials`(부서/화주 스코프의 `material_masters` 전체, `verification_value` 포함)로 `materialById` 맵을 만들고, `withVerificationValue()`가 각 `work_inspections` 행에 `materialVerificationValue`(해당 `material_id`의 `verification_value`, 없으면 `undefined`)를 붙여 `InspectionWithVerificationDto`로 확장한다. mock 모드도 동일하게 `appRepository.listMaterials({})`로 맵을 만들어 같은 필드를 붙인다. `lib/types/work-inspection-api.ts`의 `InspectionTableRowDto.inspections`는 이제 `InspectionWithVerificationDto[]` 타입이다.
+- **확인요청 목록 연계**: `buildPendingReviewRequests()`가 `admin_review_requests`(`status === "requested"`인 실제 행만) 각각을 `inspection_id`로 `work_inspections`, `material_id`로 `material_masters`, `work_id`로 `works`와 조인해 `PendingReviewRequestDto`(`requestId`/`workId`/`documentNo`/`materialName`/`method`/`inspectionId`/`reason`/`requestedAt`)로 변환한다. `requestedAt`은 `admin_review_requests.created_at`(DB 컬럼은 존재하지만 `lib/types/domain.ts`의 `AdminReviewRequest`에는 선택 필드로만 있었고 이번에 `created_at?: string`으로 추가했다). 기존 `row.request`(work당 1건, `AdjustmentReviewModal`용)와 달리 이 목록은 work당 여러 건이 동시에 잡힐 수 있다(항목별 확인요청이므로). GET 응답 상단(work.status가 `admin_review_requested`인데 실제 요청 행이 없는) "virtual-" 가상 요청은 이 목록에 포함되지 않는다(기존 `AdjustmentReviewModal`에서만 계속 노출).
 - 실DB 모드에서 GET 조회 중 예외가 발생하면 mock 폴백 없이 `502 { error }`를 반환한다(mock 폴백은 mock 모드에서만 동작). 화면은 `loadError` 상태로 "연결 오류" 배지 + "다시 시도" 버튼을 표시한다(직전 목록 유지).
 - PATCH `complete`
   - `.from("works")`를 `status: "in_progress"`, `latest_inspected_at`으로 update
-- PATCH `adjustment` 처리 순서
+- PATCH `adjustment` 처리 순서 — body에 `inspectionId`(선택)가 추가됐다: `{ workId, action: { type: "adjustment", requestId, status, inspectionId? } }`
   1. `.from("admin_review_requests")`를 `status`/`processed_at`/`admin_comment`로 update
      - `requestId`가 `"virtual-"`로 시작하면 이 update는 건너뜀(DB에 실제 요청 행이 없는 가상 요청이므로)
-  2. `.from("work_inspections")`에서 `work_id` + `status = "admin_requested"` 조건으로 `admin_approved`/`retrying`/`failed`로 update
-  3. `.from("works")`를 `status`(approved→in_progress, retry_requested/rejected→inspection_failed)와 `latest_inspected_at`으로 update
-- PATCH `request_review`(모바일 검수 취소 = 관리자 확인 요청, 작업검수 8단계 스펙 ⑧) — body: `{ workId, action: { type: "request_review", inspectionId, reason? } }`. 호출 주체는 모바일 홈의 `OcrInspectionCard`("검수 취소" 버튼)이며, 관리자 웹 화면에는 이 액션을 직접 호출하는 UI가 없다(생성된 요청은 기존 `AdjustmentReviewModal`의 승인/재검수/거부 흐름으로만 처리된다).
-  1. `reason`이 있으면 `"현장 검수 취소 요청 - {reason}"`, 없으면 `"현장 검수 취소 요청"`을 최종 사유로 만든다.
+  2. `.from("work_inspections")`에서 `work_id` + `status = "admin_requested"` 조건으로 `admin_approved`/`retrying`/`failed`로 update — `inspectionId`가 있으면 `.eq("id", inspectionId)`를 추가로 걸어 **해당 검수 항목 1건만** 처리한다(확인요청 섹션 용도). 없으면 기존처럼 work의 `admin_requested` 검수 항목 전체가 대상이다(`AdjustmentReviewModal` 기존 동작 유지).
+  3. 같은 work에 아직 처리되지 않은 `admin_requested` 검수 항목이 남아있는지 `count`로 다시 확인한다. **남아있으면 `works` update를 건너뛴다**(다른 확인요청 처리와 상태 충돌 방지, work 상태는 `admin_review_requested` 유지). 남은 항목이 없으면 기존처럼 `.from("works")`를 `status`(approved→in_progress, retry_requested/rejected→inspection_failed)와 `latest_inspected_at`으로 update한다.
+- PATCH `request_review`(모바일 검수 진행 중 특이사항 확인요청. 실패 후 "검수 취소"도 이 액션의 한 형태다) — body: `{ workId, action: { type: "request_review", inspectionId, reason?, label? } }`. 호출 주체는 모바일 홈의 `OcrInspectionCard`("확인요청"/"검수 취소" 버튼)와 제품검수 카드("확인요청" 버튼)이며, 관리자 웹 화면에는 이 액션을 직접 호출하는 UI가 없다(생성된 요청은 확인요청 섹션 또는 기존 `AdjustmentReviewModal`의 승인/재검수/거부 흐름으로 처리된다).
+  1. 저장되는 사유의 접두 라벨은 `label`(선택, 기본값 `"현장 검수 취소 요청"`)이다. `reason`이 있으면 `"{label} - {reason}"`, 없으면 `label` 그대로를 최종 사유로 만든다. 모바일의 일반 "확인요청" 버튼은 `label: "현장 확인요청"`을, 실패 상태의 "검수 취소" 버튼은 `label`을 생략해(기본값) 기존과 동일한 문구를 유지한다.
   2. 멱등 처리: `.from("admin_review_requests")`에서 `inspection_id` + `status = "requested"` 조건으로 기존 미처리 요청을 조회하고, 있으면 재사용(중복 insert 안 함)하고 없으면 `work_id`/`inspection_id`/`reason`/`status: "requested"`로 새로 insert한다(`requester_id`는 uuid 컬럼이라 모바일에서 특정 사용자를 알 수 없는 경우 비워둔다 = `NULL`).
   3. `.from("work_inspections")`를 `status: "admin_requested"`/`result_summary`(=사유)/`updated_at`으로 update한다.
   4. `.from("works")`를 `status: "admin_review_requested"`/`latest_inspected_at`으로 update한다.
@@ -70,13 +78,15 @@ OCR 실제 호출 로직은 `lib/server/ocr.ts`의 `runOcr()`에 있다(Google C
   1. `work_inspections`에서 `id`(=inspectionId) + `work_id`(=workId)로 검수 대상을 조회한다. 없으면 `404`.
   2. `material_masters.verification_value`를 `material_id`로 조회해 기대값(`expectedValue`)으로 사용한다.
   3. `lib/server/ocr.ts`의 `runOcr()`을 `isCropped: true`로 호출한다(클라이언트가 이미 ROI로 크롭해서 보내므로 서버에서는 전체 크롭본을 그대로 읽는다).
-  4. `canVerify`가 `false`(OCR 환경변수 미설정 등)이면 **DB를 전혀 변경하지 않고** 현재 `status`를 그대로 반환한다(`{ status: 기존값, recognizedText: "", expectedValue, matched: false, canVerify: false }`).
-  5. `canVerify`가 `true`이면 인식 텍스트와 `expectedValue`를 각각 trim 후 대소문자 무시 비교(`normalize(a) === normalize(b)`)하여 일치하면 `status: "passed"`, 불일치하면 `status: "failed"`로 판정한다.
-  6. 판정 후 스토리지 버킷 `inspection-images`(없으면 `material-images`와 동일한 패턴으로 자동 생성, `public: false`, 8MB 제한, jpeg/png/webp만 허용)에 `{workId}/{inspectionId}/{timestamp}-ocr.jpg` 경로로 크롭본을 업로드하고, `work_inspections`를 `status`/`ocr_result_text`(인식 텍스트)/`result_summary`(예: `"OCR 일치 (기대값: xxx)"`)/`attempt_count`(+1)/`updated_at`으로 update한 뒤 `inspection_images`에 `image_type: "ocr_capture"` 행을 insert한다(`metadata`에 `roi`/`expectedValue`/`recognizedText`/`matched` 저장).
-  7. 업로드 후 `work_inspections`/`inspection_images` 저장이 실패하면 `material-master/registration` 라우트와 동일한 보상 패턴으로 업로드된 파일을 스토리지에서 제거한 뒤 원래 에러를 반환한다.
-- 응답: `{ status, recognizedText, expectedValue, matched, canVerify }` (+ `source: "supabase" | "mock"`).
-- mock 모드(`NEXT_PUBLIC_USE_MOCK_DATA !== "false"` 또는 Supabase 미설정)에서는 DB를 건드리지 않고 `appRepository`의 mock 검수/부자재 데이터로 그럴듯한 성공 응답(`source: "mock"`)만 반환한다.
+  4. `canVerify`가 `false`(OCR 환경변수 미설정 등)이면 **DB를 전혀 변경하지 않고** 현재 `status`를 그대로 반환한다(`{ status: 기존값, recognizedText: "", expectedValue, matched: false, canVerify: false, saved: false }`).
+  5. `canVerify`가 `true`이면 인식 텍스트와 `expectedValue`를 각각 trim 후 대소문자 무시 비교(`normalize(a) === normalize(b)`)하여 일치 여부(`matched`)를 판정한다.
+  6. **불합격(`matched: false`)이면 여기서 끝난다** — 스토리지 업로드도, `work_inspections`/`inspection_images` 갱신도 전혀 하지 않고(`attempt_count`도 증가하지 않음) 현재 `status`를 그대로 담아 판정 결과만 응답한다(`{ status: 기존값, recognizedText, expectedValue, matched: false, canVerify: true, saved: false }`). 불합격은 재검수(재촬영)가 전제이므로 서버에 판정 이력이나 사진을 남기지 않는다.
+  7. **합격(`matched: true`)일 때만** 스토리지 버킷 `inspection-images`(없으면 `material-images`와 동일한 패턴으로 자동 생성, `public: false`, 8MB 제한, jpeg/png/webp만 허용)에 `{workId}/{inspectionId}/{timestamp}-ocr.jpg` 경로로 크롭본을 업로드하고, `work_inspections`를 `status: "passed"`/`ocr_result_text`(인식 텍스트)/`result_summary`(`"OCR 일치 (기대값: xxx)"`)/`attempt_count`(+1)/`updated_at`으로 update한 뒤 `inspection_images`에 `image_type: "ocr_capture"` 행을 insert한다(`metadata`에 `roi`/`expectedValue`/`recognizedText`/`matched` 저장). 응답은 `saved: true`를 포함한다.
+  8. 업로드 후 `work_inspections`/`inspection_images` 저장이 실패하면 `material-master/registration` 라우트와 동일한 보상 패턴으로 업로드된 파일을 스토리지에서 제거한 뒤 원래 에러를 반환한다.
+- 응답: `{ status, recognizedText, expectedValue, matched, canVerify, saved }` (+ `source: "supabase" | "mock"`). `saved`는 합격해서 실제로 서버에 저장됐는지 여부다(불합격/`canVerify: false`는 항상 `false`).
+- mock 모드(`NEXT_PUBLIC_USE_MOCK_DATA !== "false"` 또는 Supabase 미설정)에서는 DB를 건드리지 않고 `appRepository`의 mock 검수/부자재 데이터로 그럴듯한 성공 응답(`source: "mock"`, `saved: canVerify`)만 반환한다.
 - 필수값(`inspectionId`/`workId`/`image`/`roi`) 누락 시 `400`을 반환한다.
+- **정책**: 불합격 판정 결과(사진 포함)는 서버에 저장되지 않는다(재검수 전제). 합격한 검수 데이터·사진만 서버에 보존된다.
 
 ### 제품검수 제출 API (`app/api/work-inspection/product/route.ts`, 작업검수 8단계 스펙 ②)
 - `POST`, multipart FormData: `inspectionId`, `workId`, `checks`(JSON 문자열, `{ productCode, productName, lot }` 3개 모두 `true`여야 함), `image`(촬영 사진). 호출 주체는 모바일 홈(`/mobile`)의 `method`가 `OCR`이 아닌(비전 등) 제품검수 카드다.
@@ -110,18 +120,21 @@ OCR 실제 호출 로직은 `lib/server/ocr.ts`의 `runOcr()`에 있다(Google C
   - `AdjustmentStatusDto`: requested/approved/rejected/retry_requested
   - `InspectionWithVerificationDto`: `WorkInspection & { materialVerificationValue?: string }` — `material_masters.verification_value`를 검수 항목에 참고용으로 붙인 확장 타입
   - `InspectionTableRowDto`: work + registeredAt/workType/finishedProductCode·Name/quantity/inspectionStep/request?/inspections(`InspectionWithVerificationDto[]`)/images/adjustmentStatus?/inspectionCompleted
-  - `WorkInspectionDataResponse`: GET 응답
-  - `WorkInspectionAction`: complete | adjustment | request_review(모바일 검수 취소 = 관리자 확인 요청, `inspectionId`/`reason?`)
+  - `PendingReviewRequestDto`: 확인요청 섹션 1행 — `requestId`/`workId`/`documentNo`/`materialName`/`method`/`inspectionId`/`reason`/`requestedAt?`
+  - `WorkInspectionDataResponse`: GET 응답. `rows`에 더해 `pendingReviewRequests: PendingReviewRequestDto[]`를 포함한다.
+  - `WorkInspectionAction`: complete | adjustment(`requestId`/`status`/`inspectionId?` — `inspectionId`가 있으면 검수 항목 1건만 처리) | request_review(모바일 검수 진행 중 확인요청. 실패 후 검수 취소도 포함. `inspectionId`/`reason?`/`label?`)
   - `WorkInspectionActionResponse`: PATCH 응답
 - `lib/types/domain.ts`
   - `Work`
   - `WorkInspection`: method/status/ocr_result_text/vision_similarity/result_summary/attempt_count
   - `InspectionImage`: `image_type`은 `ocr_capture` | `vision_capture` | `admin_review` | `product`(제품검수 제출 API가 저장)
-  - `AdminReviewRequest`
+  - `AdminReviewRequest`: `created_at?: string` 필드 추가(DB 컬럼은 원래 있었으나 타입에는 없었다. 확인요청 섹션의 요청시각 표시용)
 
 ## 주의사항
 - OCR/비전 검수 패널 4종(`OcrInspectionPanel`/`VisionInspectionPanel`/`AdminReviewPanel`, 그리고 `WorkProgressTimeline`)은 저장소에 존재하지만 `app/` 어디서도 렌더링되지 않는 미사용 코드다. `AdminReviewPanel`은 내부적으로 "TODO: admin_approved 업데이트" 등 미구현 버튼(toast만 호출)을 포함하고 있어, 실제 조정 처리 로직은 이 컴포넌트가 아니라 `app/api/work-inspection/route.ts`의 PATCH 핸들러에 구현되어 있다.
 - `AdjustmentReviewModal`의 "검수 이미지" 영역은 플레이스홀더 박스와 `storage_path` 텍스트만 표시하며 실제 이미지(Supabase Storage) 렌더링 코드는 없다.
-- PATCH `adjustment`에서 `requestId`가 `"virtual-"`로 시작하는 경우는 GET 핸들러가 `work.status === "admin_review_requested"`인데 `admin_review_requests` 테이블에 실제 행이 없을 때 만들어내는 가상 요청이며, 이 경우 `admin_review_requests` update는 스킵되고 `works`/`work_inspections`만 갱신된다.
-- PATCH `request_review`로 모바일에서 생성한 요청은 `admin_review_requests`에 실제 행이 insert되므로(`requester_id`는 uuid 컬럼이라 항상 `NULL`로 저장) 위 "virtual-" 가상 요청과 달리 정식 `requestId`를 가지며, 관리자 웹은 이를 일반 조정확인 요청과 동일하게 승인/재검수/거부 처리한다(관리자 화면 코드 변경 없음).
+- PATCH `adjustment`에서 `requestId`가 `"virtual-"`로 시작하는 경우는 GET 핸들러가 `work.status === "admin_review_requested"`인데 `admin_review_requests` 테이블에 실제 행이 없을 때 만들어내는 가상 요청이며, 이 경우 `admin_review_requests` update는 스킵되고 `works`/`work_inspections`만 갱신된다. 확인요청 섹션은 실제 요청 행만 다루므로 이 가상 요청을 만나지 않는다.
+- PATCH `request_review`로 모바일에서 생성한 요청은 `admin_review_requests`에 실제 행이 insert되므로(`requester_id`는 uuid 컬럼이라 항상 `NULL`로 저장) 위 "virtual-" 가상 요청과 달리 정식 `requestId`를 가지며, 확인요청 섹션(검수 항목 단위) 또는 기존 `AdjustmentReviewModal`(work 단위)로 처리된다.
+- PATCH `adjustment`에 `inspectionId`를 넘겨 항목 1건만 처리한 경우, 같은 work에 다른 확인요청이 아직 남아있으면 `works.status` update를 건너뛴다(work 상태는 `admin_review_requested` 유지). `inspectionId` 없이 호출하는 기존 `AdjustmentReviewModal`은 한 번에 work의 `admin_requested` 검수 항목 전체를 처리하므로 이 조건에 걸리지 않는다(처리 직후 남은 항목이 0건).
+- "검수승인"으로 `admin_approved`가 된 검수 항목은 `lib/server/inspection-status.ts`의 `getInspectionAggregateStatus()`(수정하지 않음, 참고만)에서 `passed`와 동일하게 합격으로 집계된다. work의 나머지 검수 항목이 모두 `passed`/`admin_approved`가 되어야 그 work의 검수 집계 상태가 `completed`가 된다(work-status/모바일 작업현황이 사용).
 - `/api/ocr`가 Google Vision을 쓰려면 `OCR_PROVIDER=google-vision`, `GOOGLE_CLOUD_PROJECT_ID`, `GOOGLE_CLOUD_CLIENT_EMAIL`, `GOOGLE_CLOUD_PRIVATE_KEY` 환경변수가 모두 필요하며, 하나라도 없으면 항상 mock 응답으로 폴백된다.

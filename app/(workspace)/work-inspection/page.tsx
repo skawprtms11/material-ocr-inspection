@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, ClipboardCheck, Eye, RotateCcw, X, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ClipboardCheck, Eye, RotateCcw, X, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { CloudButton } from "@/components/common/CloudButton";
 import { CuteCard } from "@/components/common/CuteCard";
@@ -9,7 +9,7 @@ import { EmptyCloudState } from "@/components/common/EmptyCloudState";
 import { PageHeader } from "@/components/common/PageHeader";
 import { useFilterStore } from "@/lib/state/filter-store";
 import type { WorkInspectionActionResponse, WorkInspectionDataResponse } from "@/lib/types/work-inspection-api";
-import type { InspectionTableRowDto } from "@/lib/types/work-inspection-api";
+import type { InspectionTableRowDto, PendingReviewRequestDto } from "@/lib/types/work-inspection-api";
 import { formatDate } from "@/lib/utils/format";
 
 type AdjustmentStatus = "requested" | "approved" | "rejected" | "retry_requested";
@@ -36,6 +36,8 @@ export default function WorkInspectionPage() {
   const { departmentId, shipperId } = useFilterStore();
   const [selectedRow, setSelectedRow] = useState<InspectionTableRow | null>(null);
   const [tableRows, setTableRows] = useState<InspectionTableRow[]>([]);
+  const [pendingReviewRequests, setPendingReviewRequests] = useState<PendingReviewRequestDto[]>([]);
+  const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [dataSource, setDataSource] = useState<"supabase" | "mock" | null>(null);
   const [loadError, setLoadError] = useState(false);
@@ -51,6 +53,7 @@ export default function WorkInspectionPage() {
       const data = (await response.json()) as WorkInspectionDataResponse & { error?: string };
       if (!response.ok) throw new Error(data.error ?? "작업검수 데이터를 불러오지 못했습니다.");
       setTableRows(data.rows);
+      setPendingReviewRequests(data.pendingReviewRequests ?? []);
       setDataSource(data.source);
       setSelectedRow(null);
       setLoadError(false);
@@ -84,6 +87,31 @@ export default function WorkInspectionPage() {
       await loadRows();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "검수완료 저장에 실패했습니다.");
+    }
+  };
+
+  const handlePendingReviewProcess = async (item: PendingReviewRequestDto, status: "approved" | "retry_requested") => {
+    setProcessingRequestId(item.requestId);
+
+    try {
+      const response = await fetch("/api/work-inspection", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workId: item.workId,
+          action: { type: "adjustment", requestId: item.requestId, status, inspectionId: item.inspectionId }
+        })
+      });
+      const result = (await response.json()) as WorkInspectionActionResponse & { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "확인요청 처리에 실패했습니다.");
+
+      if (status === "approved") toast.success("검수승인 처리되었습니다.");
+      if (status === "retry_requested") toast.warning("재검수 대상으로 되돌렸습니다.");
+      await loadRows();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "확인요청 처리에 실패했습니다.");
+    } finally {
+      setProcessingRequestId(null);
     }
   };
 
@@ -132,6 +160,65 @@ export default function WorkInspectionPage() {
           )}
         </div>
       </div>
+
+      {pendingReviewRequests.length > 0 && (
+        <CuteCard className="mb-4 p-0">
+          <div className="flex items-center gap-2 border-b border-amber-100 bg-amber-50/60 px-5 py-4">
+            <AlertTriangle className="size-5 text-amber-600" />
+            <h2 className="text-lg font-black text-amber-800">확인요청 {pendingReviewRequests.length}건</h2>
+            <p className="text-sm font-semibold text-amber-700">현장에서 검수 중 특이사항을 확인 요청한 건입니다.</p>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[960px] text-left text-sm">
+              <thead className="bg-amber-50/40 text-xs font-black text-amber-700">
+                <tr>
+                  {["문서번호", "부자재/제품명", "검수방식", "요청사유", "요청시각", "처리"].map((header) => (
+                    <th key={header} className="px-4 py-3">
+                      {header}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-amber-50 bg-white/70">
+                {pendingReviewRequests.map((item) => (
+                  <tr key={item.requestId} className="text-slate-600">
+                    <td className="px-4 py-3 font-black text-sky-700">{item.documentNo}</td>
+                    <td className="px-4 py-3 font-bold text-slate-700">{item.materialName}</td>
+                    <td className="px-4 py-3 font-bold">{item.method}</td>
+                    <td className="px-4 py-3 font-semibold text-slate-600">{item.reason}</td>
+                    <td className="px-4 py-3 font-semibold text-slate-500">
+                      {item.requestedAt ? formatDate(item.requestedAt, "yyyy.MM.dd HH:mm") : "-"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-2">
+                        <CloudButton
+                          type="button"
+                          tone="success"
+                          disabled={processingRequestId === item.requestId}
+                          onClick={() => void handlePendingReviewProcess(item, "approved")}
+                        >
+                          <CheckCircle2 className="size-4" />
+                          검수승인
+                        </CloudButton>
+                        <CloudButton
+                          type="button"
+                          tone="warning"
+                          disabled={processingRequestId === item.requestId}
+                          onClick={() => void handlePendingReviewProcess(item, "retry_requested")}
+                        >
+                          <RotateCcw className="size-4" />
+                          재검수
+                        </CloudButton>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CuteCard>
+      )}
 
       <CuteCard className="p-0">
         <div className="flex flex-col gap-2 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">

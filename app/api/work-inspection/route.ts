@@ -8,6 +8,7 @@ import type {
   AdjustmentStatusDto,
   InspectionTableRowDto,
   InspectionWithVerificationDto,
+  PendingReviewRequestDto,
   WorkInspectionAction,
   WorkInspectionActionResponse,
   WorkInspectionDataResponse
@@ -85,8 +86,35 @@ function toRequest(row: DbRow): AdminReviewRequest {
     status: text(row.status, "requested") as AdminReviewRequest["status"],
     admin_id: text(row.admin_id) || undefined,
     admin_comment: text(row.admin_comment) || undefined,
-    processed_at: text(row.processed_at) || undefined
+    processed_at: text(row.processed_at) || undefined,
+    created_at: text(row.created_at) || undefined
   };
+}
+
+// 확인요청 섹션(웹 작업검수 상단)에 쓰는 미처리 요청 목록을 만든다. 실제 admin_review_requests 행(status: requested) 기준.
+function buildPendingReviewRequests(
+  requestRows: AdminReviewRequest[],
+  workById: Map<string, { document_no: string }>,
+  inspectionById: Map<string, WorkInspection>,
+  materialById: Map<string, MaterialMaster>
+): PendingReviewRequestDto[] {
+  return requestRows
+    .filter((request) => request.status === "requested")
+    .map((request) => {
+      const inspection = inspectionById.get(request.inspection_id);
+      const material = inspection ? materialById.get(inspection.material_id) : undefined;
+
+      return {
+        requestId: request.id,
+        workId: request.work_id,
+        documentNo: workById.get(request.work_id)?.document_no ?? "-",
+        materialName: material?.name ?? inspection?.material_id ?? "-",
+        method: inspection?.method ?? "-",
+        inspectionId: request.inspection_id,
+        reason: request.reason,
+        requestedAt: request.created_at
+      };
+    });
 }
 
 function withVerificationValue(
@@ -137,8 +165,11 @@ function mockRows(departmentId: string, shipperId: string) {
   const workMasters = appRepository.listWorkMasters(scope);
   const requests = appRepository.listAdminReviewRequests();
   const materialById = new Map(appRepository.listMaterials({}).map((material) => [material.id, material]));
+  const inspectionById = new Map(appRepository.listInspections().map((inspection) => [inspection.id, inspection]));
+  const workById = new Map(works.map((work) => [work.id, work]));
+  const pendingReviewRequests = buildPendingReviewRequests(requests, workById, inspectionById, materialById);
 
-  return works.map((work, index): InspectionTableRowDto => {
+  return { pendingReviewRequests, rows: works.map((work, index): InspectionTableRowDto => {
     const workMaster = workMasters.find((item) => item.id === work.work_master_id);
     const request = requests.find((item) => item.work_id === work.id);
     const inspections = withVerificationValue(appRepository.listInspections(work.id), materialById);
@@ -159,14 +190,16 @@ function mockRows(departmentId: string, shipperId: string) {
       adjustmentStatus,
       inspectionCompleted: work.status === "passed" || work.status === "completed"
     };
-  });
+  }) };
 }
 
 function mockData(departmentId: string, shipperId: string, warning?: string): WorkInspectionDataResponse {
+  const { rows, pendingReviewRequests } = mockRows(departmentId, shipperId);
   return {
     source: "mock",
     warning,
-    rows: mockRows(departmentId, shipperId)
+    rows,
+    pendingReviewRequests
   };
 }
 
@@ -221,6 +254,9 @@ export async function GET(request: NextRequest) {
     const requestByWork = new Map(requestRows.map((reviewRequest) => [reviewRequest.work_id, reviewRequest]));
     const workMasterById = new Map(masterData.workMasters.map((workMaster) => [workMaster.id, workMaster]));
     const materialById = new Map(masterData.materials.map((material) => [material.id, material]));
+    const inspectionById = new Map(inspectionRows.map((inspection) => [inspection.id, inspection]));
+    const workById = new Map(works.map((work) => [work.id, work]));
+    const pendingReviewRequests = buildPendingReviewRequests(requestRows, workById, inspectionById, materialById);
 
     const rows = works.map((work, index): InspectionTableRowDto => {
       const workMaster = workMasterById.get(work.work_master_id);
@@ -256,7 +292,7 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    return NextResponse.json({ source: "supabase", rows } satisfies WorkInspectionDataResponse);
+    return NextResponse.json({ source: "supabase", rows, pendingReviewRequests } satisfies WorkInspectionDataResponse);
   } catch (error) {
     return NextResponse.json({ error: errorMessage(error, "Supabase 작업검수 조회에 실패했습니다.") }, { status: 502 });
   }
@@ -295,9 +331,8 @@ export async function PATCH(request: NextRequest) {
         return NextResponse.json({ error: "inspectionId가 필요합니다." }, { status: 400 });
       }
 
-      const reason = body.action.reason?.trim()
-        ? `현장 검수 취소 요청 - ${body.action.reason.trim()}`
-        : "현장 검수 취소 요청";
+      const label = body.action.label?.trim() || "현장 검수 취소 요청";
+      const reason = body.action.reason?.trim() ? `${label} - ${body.action.reason.trim()}` : label;
       const requestedAt = new Date().toISOString();
 
       // 멱등: 같은 검수 건에 처리 대기 중인 요청이 이미 있으면 다시 만들지 않는다.
@@ -367,14 +402,28 @@ export async function PATCH(request: NextRequest) {
     }
 
     const nextInspectionStatus = status === "approved" ? "admin_approved" : status === "retry_requested" ? "retrying" : "failed";
-    await supabase
+    let inspectionUpdateQuery = supabase
       .from("work_inspections")
       .update({ status: nextInspectionStatus })
       .eq("work_id", body.workId)
       .eq("status", "admin_requested");
+    if (body.action.inspectionId) {
+      inspectionUpdateQuery = inspectionUpdateQuery.eq("id", body.action.inspectionId);
+    }
+    await inspectionUpdateQuery;
 
-    const nextWorkStatus = status === "approved" ? "in_progress" : status === "retry_requested" ? "inspection_failed" : "inspection_failed";
-    await supabase.from("works").update({ status: nextWorkStatus, latest_inspected_at: processedAt }).eq("id", body.workId);
+    // 확인요청 섹션처럼 검수 항목 1건만 처리한 경우, 같은 작업에 아직 처리되지 않은 확인요청 항목이 남아있으면
+    // 작업 상태는 관리자 확인 대기(admin_review_requested)로 유지한다(다른 요청 처리 결과와 충돌 방지).
+    const { count: remainingCount } = await supabase
+      .from("work_inspections")
+      .select("id", { count: "exact", head: true })
+      .eq("work_id", body.workId)
+      .eq("status", "admin_requested");
+
+    if (!remainingCount) {
+      const nextWorkStatus = status === "approved" ? "in_progress" : status === "retry_requested" ? "inspection_failed" : "inspection_failed";
+      await supabase.from("works").update({ status: nextWorkStatus, latest_inspected_at: processedAt }).eq("id", body.workId);
+    }
 
     return NextResponse.json({
       source: "supabase",

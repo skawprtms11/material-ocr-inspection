@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
-import { Ban, CheckCircle2, ChevronDown, CirclePause, Clock3, Filter, ListChecks, PlayCircle, Search, X } from "lucide-react";
+import { Ban, CheckCircle2, ChevronDown, CirclePause, Clock3, Filter, ListChecks, Loader2, PlayCircle, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { CloudButton } from "@/components/common/CloudButton";
 import { CuteCard } from "@/components/common/CuteCard";
@@ -11,11 +11,15 @@ import { useFilterStore } from "@/lib/state/filter-store";
 import { dashboardWorkStatusOptions } from "@/lib/state/work-flow-store";
 import { getDisplayStatus } from "@/lib/constants/status";
 import { getCurrentYearMonth, isYearMonthMatch } from "@/lib/utils/date";
-import type { Work, WorkStatus } from "@/lib/types/domain";
+import type { InspectionStatus, Work, WorkStatus } from "@/lib/types/domain";
 import type {
   DisplayWorkStatusDto,
   InspectionAggregateStatusDto,
   UpdateWorkStatusResponse,
+  WorkDetailMaterialDto,
+  WorkDetailProductDto,
+  WorkDetailProductsSourceDto,
+  WorkDetailResponse,
   WorkStatusDataResponse
 } from "@/lib/types/work-status-api";
 
@@ -136,6 +140,7 @@ export default function WorkStatusPage() {
   });
   const [detailOpen, setDetailOpen] = useState(false);
   const [statusMenuWorkId, setStatusMenuWorkId] = useState<string | null>(null);
+  const [detailWorkId, setDetailWorkId] = useState<string | null>(null);
 
   const loadRows = useCallback(async () => {
     if (!departmentId || !shipperId) return;
@@ -407,7 +412,18 @@ export default function WorkStatusPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3 font-black text-slate-800">{row.workType}</td>
-                    <td className="px-4 py-3 font-black text-sky-700">{row.work.document_no}</td>
+                    <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setDetailWorkId(row.work.id);
+                        }}
+                        className="font-black text-sky-700 underline decoration-sky-300 decoration-2 underline-offset-2 transition hover:text-sky-500"
+                      >
+                        {row.work.document_no}
+                      </button>
+                    </td>
                     <td className="px-4 py-3 font-bold">{row.productCode}</td>
                     <td className="px-4 py-3 font-bold text-slate-700">{row.productName}</td>
                     <td className="max-w-[240px] px-4 py-3 font-bold text-violet-700">{row.lot || "-"}</td>
@@ -451,7 +467,261 @@ export default function WorkStatusPage() {
           yearOptions={yearOptions}
         />
       )}
+
+      {detailWorkId && <WorkDetailModal workId={detailWorkId} onClose={() => setDetailWorkId(null)} />}
     </>
+  );
+}
+
+const materialStatusMeta: Record<
+  "pass" | "wait" | "fail" | "adminRequest",
+  { label: string; badge: string }
+> = {
+  pass: { label: "합격", badge: "bg-emerald-100 text-emerald-700 ring-emerald-200" },
+  wait: { label: "대기", badge: "bg-slate-100 text-slate-600 ring-slate-200" },
+  fail: { label: "불합격", badge: "bg-rose-100 text-rose-700 ring-rose-200" },
+  adminRequest: { label: "관리자요청", badge: "bg-orange-100 text-orange-700 ring-orange-200" }
+};
+
+function summarizeMaterialStatus(statuses: InspectionStatus[]): keyof typeof materialStatusMeta {
+  if (statuses.length === 0) return "wait";
+  if (statuses.some((status) => status === "admin_requested")) return "adminRequest";
+  if (statuses.some((status) => status === "failed" || status === "retrying")) return "fail";
+  if (statuses.every((status) => status === "passed" || status === "admin_approved")) return "pass";
+  return "wait";
+}
+
+function WorkDetailModal({ workId, onClose }: { workId: string; onClose: () => void }) {
+  const [detail, setDetail] = useState<WorkDetailResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [retryCount, setRetryCount] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const run = async () => {
+      setIsLoading(true);
+      setError("");
+
+      try {
+        const response = await fetch(`/api/work-status/detail?work_id=${workId}`);
+        const data = (await response.json()) as WorkDetailResponse & { error?: string };
+        if (!response.ok) throw new Error(data.error ?? "작업 상세내역을 불러오지 못했습니다.");
+        if (!cancelled) setDetail(data);
+      } catch (fetchError) {
+        if (!cancelled) {
+          setError(fetchError instanceof Error ? fetchError.message : "작업 상세내역을 불러오지 못했습니다.");
+          setDetail(null);
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    };
+
+    void run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workId, retryCount]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/35 px-4 py-8 backdrop-blur-sm">
+      <div className="w-full max-w-4xl rounded-[1.4rem] border border-white/80 bg-[#f8fbff] p-5 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
+        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-black text-sky-600">작업 상세내역</p>
+            <h2 className="mt-1 text-2xl font-black tracking-normal text-slate-800">
+              {detail?.work.documentNo ?? "작업 상세"}
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="상세내역 팝업 닫기"
+            className="inline-flex size-10 items-center justify-center rounded-full bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:bg-sky-50"
+          >
+            <X className="size-5" />
+          </button>
+        </div>
+
+        {isLoading ? (
+          <div className="flex min-h-40 flex-col items-center justify-center gap-2 rounded-[1.2rem] bg-white/70 text-sm font-bold text-slate-500">
+            <Loader2 className="size-6 animate-spin text-sky-400" />
+            작업 상세내역을 불러오는 중이에요.
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center gap-3 rounded-[1.2rem] bg-rose-50 p-6 text-center text-sm font-bold text-rose-600">
+            {error}
+            <button
+              type="button"
+              onClick={() => setRetryCount((current) => current + 1)}
+              className="rounded-full bg-rose-100 px-4 py-2 text-xs font-black text-rose-700 transition hover:bg-rose-200"
+            >
+              다시 시도
+            </button>
+          </div>
+        ) : detail ? (
+          <div className="grid gap-5">
+            <CuteCard>
+              <h3 className="mb-3 text-lg font-black text-slate-800">작업 기본정보</h3>
+              <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
+                <DetailField label="문서번호" value={detail.work.documentNo} />
+                <DetailField label="완성품코드" value={detail.work.productCode} />
+                <DetailField label="완성품명" value={detail.work.productName} />
+                <DetailField label="작업수량" value={detail.work.quantity.toLocaleString()} />
+                <DetailField label="LOT" value={detail.work.lot || "-"} />
+                <DetailField label="작업자" value={detail.work.workerName || "-"} />
+                <DetailField label="작업일자" value={detail.work.workDate || "-"} />
+              </div>
+            </CuteCard>
+
+            <CuteCard>
+              <h3 className="mb-3 flex items-center gap-2 text-lg font-black text-slate-800">
+                제품내역
+                {detail.productsSource === "work_master" && (
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-black text-amber-700 ring-1 ring-amber-200">
+                    마스터 기준
+                  </span>
+                )}
+              </h3>
+              <ProductTable products={detail.products} productsSource={detail.productsSource} />
+            </CuteCard>
+
+            <CuteCard>
+              <h3 className="mb-3 text-lg font-black text-slate-800">부자재 내역</h3>
+              <MaterialTable materials={detail.materials} />
+            </CuteCard>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function DetailField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl bg-white/75 p-3">
+      <p className="text-xs font-black text-slate-400">{label}</p>
+      <p className="mt-1 font-black text-slate-800">{value}</p>
+    </div>
+  );
+}
+
+function ProductTable({
+  products,
+  productsSource
+}: {
+  products: WorkDetailProductDto[];
+  productsSource: WorkDetailProductsSourceDto;
+}) {
+  // 작업등록 입력 그대로: 제품코드/제품명/LOT/단위수량/수량/비고 6컬럼. 마스터 폴백은 수량 자리에 구분(정상품 등)을 대신 표시한다.
+  const isWorkComponents = productsSource === "work_components";
+  const colSpan = 6;
+
+  return (
+    <div className="overflow-hidden rounded-[1.2rem] border border-white/80 bg-white/75">
+      <table className="w-full text-left text-xs">
+        <thead className="bg-sky-50/80 font-black text-sky-700">
+          <tr>
+            <th className="px-4 py-3">제품코드</th>
+            <th className="px-4 py-3">제품명</th>
+            <th className="px-4 py-3">LOT</th>
+            <th className="px-4 py-3">단위수량</th>
+            <th className="px-4 py-3">{isWorkComponents ? "수량" : "구분"}</th>
+            <th className="px-4 py-3">비고</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {products.map((product) => (
+            <tr key={product.id} className="text-slate-600">
+              <td className="px-4 py-3 font-black text-slate-800">{product.productCode}</td>
+              <td className="px-4 py-3 font-bold">{product.productName}</td>
+              <td className="px-4 py-3 font-bold text-violet-700">{product.lot || "-"}</td>
+              <td className="px-4 py-3">{product.unitQuantity?.toLocaleString() ?? "-"}</td>
+              <td className="px-4 py-3">
+                {isWorkComponents ? (product.requiredQuantity?.toLocaleString() ?? "-") : (product.productType ?? "-")}
+              </td>
+              <td className="px-4 py-3">{product.memo || "-"}</td>
+            </tr>
+          ))}
+          {products.length === 0 && (
+            <tr>
+              <td colSpan={colSpan} className="px-4 py-8 text-center font-bold text-slate-400">
+                등록된 제품내역이 없습니다.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function MaterialTable({ materials }: { materials: WorkDetailMaterialDto[] }) {
+  return (
+    <div className="overflow-hidden rounded-[1.2rem] border border-white/80 bg-white/75">
+      <table className="w-full text-left text-xs">
+        <thead className="bg-sky-50/80 font-black text-sky-700">
+          <tr>
+            <th className="px-4 py-3">부자재코드</th>
+            <th className="px-4 py-3">부자재명</th>
+            <th className="px-4 py-3">검수방식</th>
+            <th className="px-4 py-3">단위수량</th>
+            <th className="px-4 py-3">검증값</th>
+            <th className="px-4 py-3">검수상태</th>
+            <th className="px-4 py-3">검수 사진</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {materials.map((material) => {
+            const statusKey = summarizeMaterialStatus(material.inspections.map((inspection) => inspection.status));
+            const status = materialStatusMeta[statusKey];
+
+            return (
+              <tr key={material.id} className="text-slate-600">
+                <td className="px-4 py-3 font-black text-slate-800">{material.materialCode}</td>
+                <td className="px-4 py-3 font-bold">{material.materialName}</td>
+                <td className="px-4 py-3">{material.inspectionMethod}</td>
+                <td className="px-4 py-3">{material.unitQuantity.toLocaleString()}</td>
+                <td className="px-4 py-3 font-bold text-sky-700">{material.verificationValue || "-"}</td>
+                <td className="px-4 py-3">
+                  <span className={`inline-flex rounded-full px-3 py-1 text-[11px] font-black ring-1 ${status.badge}`}>
+                    {status.label}
+                  </span>
+                </td>
+                <td className="px-4 py-3">
+                  {material.imageUrls.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {material.imageUrls.map((url, index) => (
+                        <a key={url} href={url} target="_blank" rel="noreferrer">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={url}
+                            alt={`${material.materialName} 검수 사진 ${index + 1}`}
+                            className="h-12 w-12 rounded-lg object-cover ring-1 ring-slate-200 transition hover:opacity-80"
+                          />
+                        </a>
+                      ))}
+                    </div>
+                  ) : (
+                    "-"
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+          {materials.length === 0 && (
+            <tr>
+              <td colSpan={7} className="px-4 py-8 text-center font-bold text-slate-400">
+                등록된 부자재 내역이 없습니다.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

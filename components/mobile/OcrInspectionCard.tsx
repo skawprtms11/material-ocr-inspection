@@ -24,6 +24,7 @@ type OcrSubmitResponse = {
   expectedValue?: string;
   matched?: boolean;
   canVerify?: boolean;
+  saved?: boolean;
   error?: string;
 };
 
@@ -215,7 +216,10 @@ export function OcrInspectionCard({
       if (!response.ok) throw new Error(payload.error ?? "OCR 검수 저장에 실패했습니다.");
 
       setResult(payload);
-      await onSubmitted();
+      // 불합격(saved:false)은 서버 데이터가 바뀌지 않으므로 재조회 없이 로컬 결과만 보여준다.
+      if (payload.saved !== false) {
+        await onSubmitted();
+      }
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "OCR 검수 저장에 실패했습니다.");
     } finally {
@@ -223,11 +227,13 @@ export function OcrInspectionCard({
     }
   };
 
-  const requestCancel = async () => {
-    const confirmed = window.confirm("검수를 취소하고 관리자 확인을 요청하시겠습니까?");
+  // 검수 취소(실패 후)와 확인요청(진행 중 특이사항)은 모두 request_review 액션을 공유한다. label로 저장 사유의
+  // 접두어만 구분한다.
+  const submitReviewRequest = async (label: string, confirmText: string, promptLabel: string) => {
+    const confirmed = window.confirm(confirmText);
     if (!confirmed) return;
 
-    const memo = window.prompt("취소 사유를 입력하세요 (선택, 비워두면 기본 사유로 저장됩니다)", "");
+    const memo = window.prompt(promptLabel, "");
     const trimmedMemo = memo && memo.trim() ? memo.trim() : undefined;
 
     setCancelLoading(true);
@@ -239,22 +245,39 @@ export function OcrInspectionCard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           workId,
-          action: { type: "request_review", inspectionId: inspection.id, reason: trimmedMemo }
+          action: { type: "request_review", inspectionId: inspection.id, reason: trimmedMemo, label }
         })
       });
       const payload = (await response.json()) as ReviewActionResponse;
 
-      if (!response.ok) throw new Error(payload.error ?? "검수 취소 요청에 실패했습니다.");
+      if (!response.ok) throw new Error(payload.error ?? "확인요청 처리에 실패했습니다.");
 
       await onSubmitted();
     } catch (error) {
-      setCancelError(error instanceof Error ? error.message : "검수 취소 요청에 실패했습니다.");
+      setCancelError(error instanceof Error ? error.message : "확인요청 처리에 실패했습니다.");
     } finally {
       setCancelLoading(false);
     }
   };
 
-  const showFailureActions = inspection.status === "failed" || inspection.status === "retrying";
+  const requestCancel = () =>
+    submitReviewRequest(
+      "현장 검수 취소 요청",
+      "검수를 취소하고 관리자 확인을 요청하시겠습니까?",
+      "취소 사유를 입력하세요 (선택, 비워두면 기본 사유로 저장됩니다)"
+    );
+
+  const requestReview = () =>
+    submitReviewRequest(
+      "현장 확인요청",
+      "특이사항을 관리자에게 확인 요청하시겠습니까?",
+      "확인요청 사유를 입력하세요 (선택, 비워두면 기본 사유로 저장됩니다)"
+    );
+
+  // 불합격(saved:false)은 서버 상태가 바뀌지 않으므로 로컬 결과로도 재검수/취소 버튼을 노출한다.
+  const localUnsavedFailure = result != null && result.canVerify !== false && result.matched === false && result.saved === false;
+  const showFailureActions = localUnsavedFailure || inspection.status === "failed" || inspection.status === "retrying";
+  const canRequestReview = inspection.status !== "admin_requested" && !showFailureActions;
 
   return (
     <CuteCard className="p-4">
@@ -268,6 +291,13 @@ export function OcrInspectionCard({
           {statusLabel(inspection.status)}
         </span>
       </div>
+
+      {canRequestReview && (
+        <CloudButton tone="soft" className="mb-3 w-full" disabled={cancelLoading} onClick={() => void requestReview()}>
+          <AlertTriangle className="size-4" />
+          {cancelLoading ? "요청 중..." : "확인요청"}
+        </CloudButton>
+      )}
 
       {guideLoading && (
         <div className="rounded-2xl bg-slate-50 p-4 text-center text-xs font-bold text-slate-400">
@@ -381,17 +411,20 @@ export function OcrInspectionCard({
             ) : result.matched ? (
               <>
                 <CheckCircle2 className="size-4" />
-                합격
+                합격 · 저장 완료
               </>
             ) : (
               <>
                 <XCircle className="size-4" />
-                불합격
+                불합격 (서버 저장 안 됨)
               </>
             )}
           </p>
           <p className="mt-1 text-xs">인식값: {result.recognizedText || "-"}</p>
           <p className="mt-1 text-xs">기대값: {result.expectedValue || "-"}</p>
+          {result.canVerify !== false && result.matched === false && (
+            <p className="mt-1 text-xs">사진과 판정 결과는 저장되지 않았습니다. 재검수하거나 확인요청을 눌러주세요.</p>
+          )}
         </div>
       )}
 
