@@ -104,7 +104,7 @@
 ### 8. `app/mobile/status/page.tsx`
 - 경로: `/mobile/status`
 - 주요 컴포넌트: `StatusBadge`
-- 하는 일: `useMobileWorkStatusRows`로 작업 목록을 불러온 뒤, 상단 년도/월 `select` 2개(기본값은 `lib/utils/date.ts`의 `getCurrentYearMonth()` = 오늘 기준 연/월, select 스타일은 `/mobile/settings`의 select 패턴을 따름)로 선택한 연/월과 `work_date`가 일치하는 작업만 클라이언트에서 필터해 표시한다. 연도 선택지는 웹 `work-status/page.tsx`와 같은 방식(조회된 rows에 등장하는 연도 + 현재 연도 합집합, 내림차순)으로 구성되고, 월은 01~12 고정이며, 연/월 일치 판정은 `lib/utils/date.ts`의 `isYearMonthMatch`를 웹과 공유해서 쓴다. 카운트 카드는 각 행의 `displayStatus`(`GET /api/work-status`가 `lib/constants/status.ts`의 `getDisplayStatus`로 계산해 내려주는 값)를 기준으로 4종 집계한다: 진행(`waiting`+`progress`) / 확인필요(`hold`) / 완료(`complete`, `passed` 포함) / 취소(`cancel`). 네 카드 합계는 선택된 연/월로 필터된 전체 건수와 같다. 읽기 전용이며 목록 항목 클릭 동작은 없다.
+- 하는 일: `useMobileWorkStatusRows`로 작업 목록을 불러온 뒤, 상단 년도/월 `select` 2개(기본값은 `lib/utils/date.ts`의 `getCurrentYearMonth()` = 오늘 기준 연/월, select 스타일은 `/mobile/settings`의 select 패턴을 따름)로 선택한 연/월과 `work_date`가 일치하는 작업만 클라이언트에서 필터해 표시한다. 연도 선택지는 웹 `work-status/page.tsx`와 같은 방식(조회된 rows에 등장하는 연도 + 현재 연도 합집합, 내림차순)으로 구성되고, 월은 01~12 고정이며, 연/월 일치 판정은 `lib/utils/date.ts`의 `isYearMonthMatch`를 웹과 공유해서 쓴다. 카운트 카드는 각 행의 `displayStatus`(`GET /api/work-status`가 `lib/constants/status.ts`의 `getDisplayStatus`로 계산해 내려주는 값)를 기준으로 4종 집계한다: 진행(`waiting`+`progress`) / 확인필요(`hold`) / 완료(`complete`, `passed` 포함) / 취소(`cancel`). 네 카드 합계는 선택된 연/월로 필터된 전체 건수와 같다. 각 목록 카드 우측 상단에는 기존 작업상태 `StatusBadge` 아래에 검수 집계 상태 배지(검수완료/검수대기/검수취소, 웹 `work-status/page.tsx`와 동일한 라벨·`row.inspectionStatus` 값, `docs/menus/work-status.md`의 "검수 집계 상태" 참고)를 작게 표시한다(카운트 카드 로직과는 무관). 읽기 전용이며 목록 항목 클릭 동작은 없다.
 - 다음 화면 조건: 없음(다른 화면으로 이동하는 버튼/링크 없음).
 
 ### 9. `app/mobile/settings/page.tsx`

@@ -4,7 +4,8 @@ import { errorMessage, resolveScopeIds, toMockScopeIds } from "@/lib/repositorie
 import { fetchWorkMasterData } from "@/lib/repositories/work-master-supabase-repository";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDisplayStatus } from "@/lib/constants/status";
-import type { Work, WorkStatus } from "@/lib/types/domain";
+import { getInspectionAggregateStatus } from "@/lib/server/inspection-status";
+import type { InspectionStatus, Work, WorkStatus } from "@/lib/types/domain";
 import type { UpdateWorkStatusResponse, WorkStatusDataResponse, WorkStatusRowDto } from "@/lib/types/work-status-api";
 
 type DbRow = Record<string, unknown>;
@@ -44,10 +45,12 @@ function mockRows(departmentId: string, shipperId: string): WorkStatusRowDto[] {
 
   return works.map((work, index) => {
     const workMaster = workMasters.find((item) => item.id === work.work_master_id);
+    const inspectionStatuses = appRepository.listInspections(work.id).map((inspection) => inspection.status);
 
     return {
       work,
       displayStatus: getDisplayStatus(work.status),
+      inspectionStatus: getInspectionAggregateStatus(inspectionStatuses),
       workType: workTypeOptions[index % workTypeOptions.length],
       productCode: workMaster?.code ?? "-",
       productName: workMaster?.name ?? "-",
@@ -92,14 +95,35 @@ export async function GET(request: NextRequest) {
 
     if (error) throw error;
 
+    const works = ((data ?? []) as DbRow[]).map((row) => toWork(row));
+    const workIds = works.map((work) => work.id);
+    const inspectionStatusesByWorkId = new Map<string, InspectionStatus[]>();
+
+    if (workIds.length > 0) {
+      const { data: inspectionRows, error: inspectionError } = await supabase
+        .from("work_inspections")
+        .select("work_id, status")
+        .in("work_id", workIds);
+
+      if (inspectionError) throw inspectionError;
+
+      for (const inspectionRow of (inspectionRows ?? []) as DbRow[]) {
+        const workId = text(inspectionRow.work_id);
+        const status = text(inspectionRow.status) as InspectionStatus;
+        const list = inspectionStatusesByWorkId.get(workId) ?? [];
+        list.push(status);
+        inspectionStatusesByWorkId.set(workId, list);
+      }
+    }
+
     const workMasterById = new Map(masterData.workMasters.map((workMaster) => [workMaster.id, workMaster]));
-    const rows = ((data ?? []) as DbRow[]).map((row, index): WorkStatusRowDto => {
-      const work = toWork(row);
+    const rows = works.map((work, index): WorkStatusRowDto => {
       const workMaster = workMasterById.get(work.work_master_id);
 
       return {
         work,
         displayStatus: getDisplayStatus(work.status),
+        inspectionStatus: getInspectionAggregateStatus(inspectionStatusesByWorkId.get(work.id) ?? []),
         workType: work.work_type ?? workTypeOptions[index % workTypeOptions.length],
         productCode: workMaster?.code ?? "-",
         productName: workMaster?.name ?? "-",

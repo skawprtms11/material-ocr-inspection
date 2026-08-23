@@ -3,8 +3,9 @@ import { appRepository } from "@/lib/repositories/app-repository";
 import { errorMessage, isUuid, resolveScopeIds } from "@/lib/repositories/supabase-scope";
 import { fetchWorkMasterData } from "@/lib/repositories/work-master-supabase-repository";
 import { setupWorkInspections } from "@/lib/server/inspection-setup";
+import { getInspectionAggregateStatus } from "@/lib/server/inspection-status";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import type { AppUser, WorkMaster } from "@/lib/types/domain";
+import type { AppUser, InspectionStatus, WorkMaster } from "@/lib/types/domain";
 import type {
   CreateWorkRegistrationRequest,
   CreateWorkRegistrationResponse,
@@ -36,6 +37,11 @@ function mockPendingWorks(departmentId: string, shipperId: string) {
   return appRepository
     .listWorks({ departmentId, shipperId })
     .filter((work) => work.status === "registered")
+    // 검수완료 작업은 등록 목록에서 제외하고 작업현황에서만 조회한다(대표님 스펙)
+    .filter((work) => {
+      const statuses = appRepository.listInspections(work.id).map((inspection) => inspection.status);
+      return getInspectionAggregateStatus(statuses) !== "completed";
+    })
     .map((work, index): PendingAssignmentWorkDto => {
       const workMaster = workMasters.find((item) => item.id === work.work_master_id);
 
@@ -180,7 +186,31 @@ export async function GET(request: NextRequest) {
 
     if (error) throw error;
 
-    const rows = ((workRows ?? []) as DbRow[]).filter((row) => !row.assigned_to && !row.assigned_at);
+    const unassignedRows = ((workRows ?? []) as DbRow[]).filter((row) => !row.assigned_to && !row.assigned_at);
+    const inspectionStatusesByWorkId = new Map<string, InspectionStatus[]>();
+    const unassignedWorkIds = unassignedRows.map((row) => text(row.id));
+
+    if (unassignedWorkIds.length > 0) {
+      const { data: inspectionRows, error: inspectionError } = await supabase
+        .from("work_inspections")
+        .select("work_id, status")
+        .in("work_id", unassignedWorkIds);
+
+      if (inspectionError) throw inspectionError;
+
+      for (const inspectionRow of (inspectionRows ?? []) as DbRow[]) {
+        const workId = text(inspectionRow.work_id);
+        const status = text(inspectionRow.status) as InspectionStatus;
+        const list = inspectionStatusesByWorkId.get(workId) ?? [];
+        list.push(status);
+        inspectionStatusesByWorkId.set(workId, list);
+      }
+    }
+
+    // 검수완료 작업은 등록 목록에서 제외하고 작업현황에서만 조회한다(대표님 스펙)
+    const rows = unassignedRows.filter(
+      (row) => getInspectionAggregateStatus(inspectionStatusesByWorkId.get(text(row.id)) ?? []) !== "completed"
+    );
     const componentsByWork = await fetchComponentsByWorkIds(rows.map((row) => text(row.id)));
     const workMasterById = new Map(masterData.workMasters.map((workMaster) => [workMaster.id, workMaster]));
 
