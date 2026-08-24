@@ -116,12 +116,18 @@ export type Work = {
   latest_inspected_at?: string;
 };
 
+// start: 작업시작 전 검수(기존), complete: 작업완료 시 검수(신규). DB 컬럼 work_inspections.stage,
+// 마이그레이션 전 기존 행에는 값이 없어 옵셔널로 두고 미지정 시 "start"로 취급한다.
+export type WorkInspectionStage = "start" | "complete";
+
 export type WorkInspection = {
   id: string;
   work_id: string;
   material_id: string;
-  method: Exclude<InspectionMethod, "BOTH">;
+  // PRODUCT: 완료검수 전용 "완료제품사진" 항목(material_id 없음, 체크리스트 없이 사진 1장 무조건 저장).
+  method: Exclude<InspectionMethod, "BOTH"> | "PRODUCT";
   status: InspectionStatus;
+  stage?: WorkInspectionStage;
   ocr_result_text?: string;
   vision_similarity?: number;
   result_summary: string;
@@ -132,7 +138,8 @@ export type InspectionImage = {
   id: string;
   work_id: string;
   inspection_id: string;
-  image_type: "ocr_capture" | "vision_capture" | "admin_review" | "product";
+  // completion_photo: 완료검수 사진(완료제품사진 또는 부자재 비전 완료검수 사진) 저장 시 사용.
+  image_type: "ocr_capture" | "vision_capture" | "admin_review" | "product" | "completion_photo";
   storage_path: string;
   is_compressed: boolean;
   metadata: Record<string, unknown>;

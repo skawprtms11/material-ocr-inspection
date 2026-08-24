@@ -3,7 +3,8 @@ import { appRepository } from "@/lib/repositories/app-repository";
 import { errorMessage, resolveScopeIds, toMockScopeIds } from "@/lib/repositories/supabase-scope";
 import { fetchWorkMasterData } from "@/lib/repositories/work-master-supabase-repository";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import type { AdminReviewRequest, InspectionImage, MaterialMaster, Work, WorkInspection } from "@/lib/types/domain";
+import { maybeAdvanceWorkStatus } from "@/lib/server/work-auto-status";
+import type { AdminReviewRequest, InspectionImage, MaterialMaster, Work, WorkInspection, WorkInspectionStage } from "@/lib/types/domain";
 import type {
   AdjustmentStatusDto,
   InspectionTableRowDto,
@@ -57,6 +58,8 @@ function toInspection(row: DbRow): WorkInspection {
     material_id: text(row.material_id),
     method: text(row.method, "OCR") as WorkInspection["method"],
     status: text(row.status, "pending") as WorkInspection["status"],
+    // stage 컬럼(마이그레이션 이전 행/조회에는 없음)이 없으면 기존 시작검수로 취급한다.
+    stage: (text(row.stage, "start") as WorkInspectionStage),
     ocr_result_text: text(row.ocr_result_text) || undefined,
     vision_similarity: typeof row.vision_similarity === "number" ? row.vision_similarity : undefined,
     result_summary: text(row.result_summary),
@@ -103,12 +106,15 @@ function buildPendingReviewRequests(
     .map((request) => {
       const inspection = inspectionById.get(request.inspection_id);
       const material = inspection ? materialById.get(inspection.material_id) : undefined;
+      // 완료검수의 "완료제품사진" 항목은 material_id가 없어(PRODUCT) 부자재명 대신 고정 라벨을 보여준다.
+      const materialName =
+        material?.name ?? (inspection?.method === "PRODUCT" ? "완료제품사진" : inspection?.material_id) ?? "-";
 
       return {
         requestId: request.id,
         workId: request.work_id,
         documentNo: workById.get(request.work_id)?.document_no ?? "-",
-        materialName: material?.name ?? inspection?.material_id ?? "-",
+        materialName,
         method: inspection?.method ?? "-",
         inspectionId: request.inspection_id,
         reason: request.reason,
@@ -207,6 +213,9 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const departmentId = searchParams.get("department_id");
   const shipperId = searchParams.get("shipper_id");
+  // rows(표/모바일 검수 카드) 기준 stage. 기본값 "start"(기존 웹 작업검수 화면·useMobileInspectionRows()가
+  // 이 기본값으로 계속 시작검수만 본다). 완료검수 모바일 화면만 stage=complete로 명시 호출한다.
+  const stageParam: WorkInspectionStage = searchParams.get("stage") === "complete" ? "complete" : "start";
 
   if (!departmentId || !shipperId) {
     return NextResponse.json({ error: "department_id와 shipper_id가 필요합니다." }, { status: 400 });
@@ -246,10 +255,16 @@ export async function GET(request: NextRequest) {
       : { data: [], error: null };
     if (requests.error) throw requests.error;
 
+    // inspectionRows(전체, stage 무관)는 확인요청 섹션(pendingReviewRequests)에만 쓴다 - 관리자는 시작검수/완료검수
+    // 확인요청을 한 곳에서 함께 승인 처리할 수 있어야 한다(기존 설계 유지). 표/모바일 카드용 rows는 stageParam
+    // 기준으로 좁힌 selectedInspectionRows만 사용해 두 검수 단계가 섞이지 않게 한다.
     const inspectionRows = ((inspections.data ?? []) as DbRow[]).map(toInspection);
-    const imageRows = ((images.data ?? []) as DbRow[]).map(toImage);
+    const selectedInspectionRows = inspectionRows.filter((inspection) => (inspection.stage ?? "start") === stageParam);
+    const selectedInspectionIds = new Set(selectedInspectionRows.map((inspection) => inspection.id));
+
+    const imageRows = ((images.data ?? []) as DbRow[]).map(toImage).filter((image) => selectedInspectionIds.has(image.inspection_id));
     const requestRows = ((requests.data ?? []) as DbRow[]).map(toRequest);
-    const inspectionsByWork = groupBy(inspectionRows, (inspection) => inspection.work_id);
+    const inspectionsByWork = groupBy(selectedInspectionRows, (inspection) => inspection.work_id);
     const imagesByWork = groupBy(imageRows, (image) => image.work_id);
     const requestByWork = new Map(requestRows.map((reviewRequest) => [reviewRequest.work_id, reviewRequest]));
     const workMasterById = new Map(masterData.workMasters.map((workMaster) => [workMaster.id, workMaster]));
@@ -421,8 +436,12 @@ export async function PATCH(request: NextRequest) {
       .eq("status", "admin_requested");
 
     if (!remainingCount) {
-      const nextWorkStatus = status === "approved" ? "in_progress" : status === "retry_requested" ? "inspection_failed" : "inspection_failed";
-      await supabase.from("works").update({ status: nextWorkStatus, latest_inspected_at: processedAt }).eq("id", body.workId);
+      if (status === "approved") {
+        // 진행/완료로의 전이는 실제 검수 집계를 다시 확인해 판단한다(다른 항목이 아직 안 끝났으면 그대로 유지).
+        await maybeAdvanceWorkStatus(supabase, body.workId);
+      } else {
+        await supabase.from("works").update({ status: "inspection_failed", latest_inspected_at: processedAt }).eq("id", body.workId);
+      }
     }
 
     return NextResponse.json({

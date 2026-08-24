@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { appRepository } from "@/lib/repositories/app-repository";
 import { errorMessage } from "@/lib/repositories/supabase-scope";
+import { pruneStaleInspectionImages } from "@/lib/server/inspection-images";
 import { runOcr, type RoiRect } from "@/lib/server/ocr";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { maybeAdvanceWorkStatus } from "@/lib/server/work-auto-status";
 
 export const runtime = "nodejs";
 
@@ -194,23 +196,30 @@ export async function POST(request: NextRequest) {
         .eq("id", inspectionId);
       if (updateError) throw updateError;
 
-      const { error: imageInsertError } = await supabase.from("inspection_images").insert({
-        work_id: workId,
-        inspection_id: inspectionId,
-        image_type: "ocr_capture",
-        storage_path: `${inspectionImageBucket}/${storagePath}`,
-        original_file_name: image.name,
-        mime_type: image.type || "image/jpeg",
-        is_compressed: false,
-        metadata: {
-          roi,
-          expectedValue,
-          recognizedText,
-          matched,
-          savedAt: new Date().toISOString()
-        }
-      });
+      const { data: insertedImage, error: imageInsertError } = await supabase
+        .from("inspection_images")
+        .insert({
+          work_id: workId,
+          inspection_id: inspectionId,
+          image_type: "ocr_capture",
+          storage_path: `${inspectionImageBucket}/${storagePath}`,
+          original_file_name: image.name,
+          mime_type: image.type || "image/jpeg",
+          is_compressed: false,
+          metadata: {
+            roi,
+            expectedValue,
+            recognizedText,
+            matched,
+            savedAt: new Date().toISOString()
+          }
+        })
+        .select("id")
+        .single();
       if (imageInsertError) throw imageInsertError;
+
+      // 검증을 통과한 사진 1장만 유지한다(재검수로 이전에 저장된 사진이 있으면 정리).
+      await pruneStaleInspectionImages(supabase, inspectionImageBucket, inspectionId, (insertedImage as { id: string }).id);
     } catch (dbError) {
       // 업로드 성공 후 DB 저장이 실패하면 고아 파일이 남지 않도록 스토리지를 정리한다.
       try {
@@ -220,6 +229,9 @@ export async function POST(request: NextRequest) {
       }
       throw dbError;
     }
+
+    // 이 검수로 시작검수(또는 완료검수) 전 항목이 합격/승인되면 작업상태를 자동으로 다음 단계로 전이한다.
+    await maybeAdvanceWorkStatus(supabase, workId);
 
     return NextResponse.json({
       source: "supabase",

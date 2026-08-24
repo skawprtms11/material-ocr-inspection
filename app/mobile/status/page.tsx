@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Ban, CheckCircle2, Clock, ListChecks, TriangleAlert } from "lucide-react";
+import Link from "next/link";
+import { Ban, CheckCircle2, Clock, ListChecks, PackageCheck, TriangleAlert } from "lucide-react";
 import { CuteCard } from "@/components/common/CuteCard";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { useMobileWorkStatusRows } from "@/lib/mobile/mobile-api";
@@ -150,6 +151,14 @@ export default function MobileStatusPage() {
                   </span>
                 </div>
               </div>
+              {row.work.status === "in_progress" && (
+                <Link href={`/mobile/complete/${row.work.id}`} className="mt-3 block">
+                  <span className="flex items-center justify-center gap-2 rounded-full bg-violet-500 px-4 py-2 text-xs font-black text-white shadow-sm">
+                    <PackageCheck className="size-4" />
+                    완료검수
+                  </span>
+                </Link>
+              )}
             </CuteCard>
           );
         })}

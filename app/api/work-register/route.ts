@@ -191,9 +191,11 @@ export async function GET(request: NextRequest) {
     const unassignedWorkIds = unassignedRows.map((row) => text(row.id));
 
     if (unassignedWorkIds.length > 0) {
+      // 검수완료 제외 판정은 시작검수(stage="start") 기준이다(완료검수는 배정 이후 단계라 여기서는 무관).
       const { data: inspectionRows, error: inspectionError } = await supabase
         .from("work_inspections")
         .select("work_id, status")
+        .eq("stage", "start")
         .in("work_id", unassignedWorkIds);
 
       if (inspectionError) throw inspectionError;

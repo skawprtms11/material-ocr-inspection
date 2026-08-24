@@ -18,6 +18,10 @@ export type WorkStatusRowDto = {
   productName: string;
   lot: string;
   quantity: number;
+  // 작업시작: 검수완료 처리된 일자(work_inspections.updated_at 최댓값). 검수완료 전이면 undefined.
+  workStartedAt?: string;
+  // 완료일자: 작업상태를 완료 그룹(passed/completed)으로 처리한 일자(works.completed_at). 미완료면 undefined.
+  completedAt?: string;
 };
 
 export type WorkStatusDataResponse = {
@@ -42,6 +46,8 @@ export type WorkDetailProductDto = {
   lot?: string;
   requiredQuantity?: number;
   allocatedQuantity?: number;
+  // 사용수량: allocatedQuantity가 있으면 그 값, 없으면 unitQuantity × 작업수량(works.quantity) 계산값.
+  usedQuantity?: number;
   memo?: string;
 };
 
@@ -60,6 +66,8 @@ export type WorkDetailMaterialDto = {
   materialName: string;
   inspectionMethod: InspectionMethod;
   unitQuantity: number;
+  // 사용수량: unitQuantity × 작업수량(works.quantity) 계산값. 값 없으면 undefined("-" 표시).
+  usedQuantity?: number;
   verificationValue: string;
   inspections: WorkDetailMaterialInspectionDto[];
   imageUrls: string[];
@@ -76,10 +84,22 @@ export type WorkDetailInfoDto = {
   workDate: string;
 };
 
+// 완료검수(작업완료 시 검수) 항목 1건. "완료제품사진"(material 없음)과 부자재 완료검수 항목을 함께 담는다.
+export type WorkDetailCompletionPhotoDto = {
+  id: string;
+  // "완료제품사진" 또는 부자재명.
+  label: string;
+  method: "OCR" | "VISION" | "PRODUCT";
+  status: InspectionStatus;
+  imageUrls: string[];
+};
+
 export type WorkDetailResponse = {
   source: "supabase" | "mock";
   work: WorkDetailInfoDto;
   products: WorkDetailProductDto[];
   productsSource: WorkDetailProductsSourceDto;
   materials: WorkDetailMaterialDto[];
+  // 완료검수 사진 구역(부자재 내역 표 아래). 완료검수가 아직 없으면 빈 배열.
+  completionPhotos: WorkDetailCompletionPhotoDto[];
 };
