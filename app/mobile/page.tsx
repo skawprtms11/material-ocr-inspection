@@ -1,29 +1,20 @@
 "use client";
 
-import { ChangeEvent, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Barcode, Camera, CheckCircle2, ClipboardCheck, FileSearch, PackageCheck, RotateCcw } from "lucide-react";
+import { ChangeEvent, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Barcode, Camera, CheckCircle2, ClipboardCheck, FileSearch, PackageCheck, RotateCcw } from "lucide-react";
 import { CloudButton } from "@/components/common/CloudButton";
 import { CuteCard } from "@/components/common/CuteCard";
+import { CompletionPhotoCard } from "@/components/mobile/CompletionPhotoCard";
 import { OcrInspectionCard } from "@/components/mobile/OcrInspectionCard";
+import { ProductChecklist } from "@/components/mobile/ProductChecklist";
 import { useMobileInspectionRows, useMobileMaterials } from "@/lib/mobile/mobile-api";
+import { getInspectionAggregateStatus } from "@/lib/server/inspection-status";
 import type { MaterialMaster } from "@/lib/types/domain";
 import type { InspectionTableRowDto } from "@/lib/types/work-inspection-api";
 import { cn } from "@/lib/utils/cn";
 
 type InspectionTab = "scan" | "product" | "done";
-type ProductPhotoState = {
-  productCodeChecked: boolean;
-  productNameChecked: boolean;
-  lotChecked: boolean;
-  photoName: string;
-  storagePath: string;
-  compressed: boolean;
-  uploading: boolean;
-  uploadError: string;
-  saved: boolean;
-  reviewLoading: boolean;
-  reviewError: string;
-};
 
 type ProductTarget = {
   id: string;
@@ -32,20 +23,6 @@ type ProductTarget = {
   lot: string;
   materialCode: string;
   materialName: string;
-};
-
-const emptyPhotoState: ProductPhotoState = {
-  productCodeChecked: false,
-  productNameChecked: false,
-  lotChecked: false,
-  photoName: "",
-  storagePath: "",
-  compressed: false,
-  uploading: false,
-  uploadError: "",
-  saved: false,
-  reviewLoading: false,
-  reviewError: ""
 };
 
 function getProductTargets(row: InspectionTableRowDto | undefined, materials: MaterialMaster[]): ProductTarget[] {
@@ -78,51 +55,8 @@ function getProductTargets(row: InspectionTableRowDto | undefined, materials: Ma
   });
 }
 
-function getInitialPhotoMap(targets: ProductTarget[]) {
-  return targets.reduce<Record<string, ProductPhotoState>>((acc, target) => {
-    acc[target.id] = { ...emptyPhotoState };
-    return acc;
-  }, {});
-}
-
-function isProductReady(state?: ProductPhotoState) {
-  return Boolean(state?.productCodeChecked && state.productNameChecked && state.lotChecked);
-}
-
-function isProductSaved(state?: ProductPhotoState) {
-  return Boolean(isProductReady(state) && state?.saved);
-}
-
-function ChecklistRow({
-  label,
-  value,
-  checked,
-  onChange
-}: {
-  label: string;
-  value: string;
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-}) {
-  return (
-    <label
-      className={cn(
-        "flex min-h-13 items-center justify-between gap-3 rounded-2xl px-4 py-3 text-sm font-bold ring-1 transition",
-        checked ? "bg-emerald-50 text-emerald-800 ring-emerald-100" : "bg-white text-slate-700 ring-sky-100"
-      )}
-    >
-      <span className="min-w-0">
-        <span className="block text-[11px] font-black text-slate-400">{label}</span>
-        <span className="block truncate">{value}</span>
-      </span>
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-        className="size-5 shrink-0 accent-emerald-500"
-      />
-    </label>
-  );
+function isTerminalPass(status?: string) {
+  return status === "passed" || status === "admin_approved";
 }
 
 function ScanDocumentInfo({ row, targets }: { row: InspectionTableRowDto; targets: ProductTarget[] }) {
@@ -157,6 +91,64 @@ function ScanDocumentInfo({ row, targets }: { row: InspectionTableRowDto; target
   );
 }
 
+// 검수 행이 아예 없는 예외(작업마스터에 부자재 구성이 없는 등) 전용 로컬 전용 카드. 저장할 서버 대상이 없어
+// 사진을 로컬 상태로만 표시하고 서버 호출은 하지 않는다.
+function LocalOnlyProductCard({ target, index }: { target: ProductTarget; index: number }) {
+  const [checked, setChecked] = useState({ code: false, name: false, lot: false });
+  const [photoName, setPhotoName] = useState("");
+  const ready = checked.code && checked.name && checked.lot;
+
+  const capture = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setPhotoName(file.name);
+  };
+
+  return (
+    <CuteCard className="p-4">
+      <div className="mb-4">
+        <p className="text-xs font-black text-sky-600">제품 {index + 1}</p>
+        <h3 className="mt-1 text-lg font-black text-slate-800">{target.productName}</h3>
+        <p className="mt-1 text-xs font-bold text-slate-400">부자재코드 {target.materialCode}</p>
+      </div>
+      <div className="space-y-2 text-sm font-bold text-slate-600">
+        <label className="flex items-center justify-between gap-3 rounded-2xl bg-white px-4 py-3 ring-1 ring-sky-100">
+          제품코드 {target.productCode}
+          <input type="checkbox" checked={checked.code} onChange={(event) => setChecked((current) => ({ ...current, code: event.target.checked }))} className="size-5 accent-emerald-500" />
+        </label>
+        <label className="flex items-center justify-between gap-3 rounded-2xl bg-white px-4 py-3 ring-1 ring-sky-100">
+          제품명 {target.productName}
+          <input type="checkbox" checked={checked.name} onChange={(event) => setChecked((current) => ({ ...current, name: event.target.checked }))} className="size-5 accent-emerald-500" />
+        </label>
+        <label className="flex items-center justify-between gap-3 rounded-2xl bg-white px-4 py-3 ring-1 ring-sky-100">
+          LOT {target.lot}
+          <input type="checkbox" checked={checked.lot} onChange={(event) => setChecked((current) => ({ ...current, lot: event.target.checked }))} className="size-5 accent-emerald-500" />
+        </label>
+      </div>
+      <label
+        className={cn(
+          "mt-4 flex aspect-[4/3] flex-col items-center justify-center rounded-[1.4rem] border-2 border-dashed text-center transition",
+          ready ? "cursor-pointer border-sky-200 bg-sky-50/70" : "cursor-not-allowed border-slate-200 bg-slate-100/80"
+        )}
+      >
+        <Camera className="mb-3 size-12 text-sky-400" />
+        <p className="font-black text-slate-800">대상 제품 사진 촬영</p>
+        <p className="mt-2 px-4 text-xs font-semibold leading-5 text-slate-500">
+          {photoName || (ready ? "촬영하면 로컬에만 표시됩니다(검수 대상 없음)." : "제품정보 3개 항목을 먼저 체크해주세요.")}
+        </p>
+        <input type="file" accept="image/*" capture="environment" disabled={!ready} className="sr-only" onChange={capture} aria-label={`${target.productName} 제품 사진 촬영`} />
+      </label>
+      {photoName && (
+        <CloudButton className="mt-3 w-full" tone="soft" onClick={() => setPhotoName("")}>
+          <RotateCcw className="size-4" />
+          다시 촬영
+        </CloudButton>
+      )}
+    </CuteCard>
+  );
+}
+
 export default function MobileInspectionWorkflowPage() {
   const { data: rows, source, warning, isLoading, error, refetch } = useMobileInspectionRows();
   const { data: materials } = useMobileMaterials();
@@ -164,41 +156,43 @@ export default function MobileInspectionWorkflowPage() {
   const [documentNo, setDocumentNo] = useState("");
   const [scannedWorkId, setScannedWorkId] = useState("");
   const [scanError, setScanError] = useState("");
-  const [photoStates, setPhotoStates] = useState<Record<string, ProductPhotoState>>({});
   const [preparingInspections, setPreparingInspections] = useState(false);
-
-  useEffect(() => {
-    if (!documentNo && rows[0]) setDocumentNo(rows[0].work.document_no);
-  }, [documentNo, rows]);
+  const router = useRouter();
 
   const scannedRow = rows.find((row) => row.work.id === scannedWorkId);
   const targets = useMemo(() => getProductTargets(scannedRow, materials), [materials, scannedRow]);
+  // 같은 부자재가 OCR+비전 둘 다 필요하면 검수 행이 2개라 target도 2개가 되는데, 번호를 따로 매기면 서로
+  // 다른 항목처럼 보인다("반복 표시"). 부자재 단위로 번호를 공유해 "부자재 N · OCR"/"부자재 N · 비전"으로
+  // 묶어 보이게 한다.
+  const materialIndexByTargetId = useMemo(() => {
+    const order = new Map<string, number>();
+    const indexByTarget = new Map<string, number>();
+    let next = 0;
+    targets.forEach((target) => {
+      const inspection = scannedRow?.inspections.find((item) => item.id === target.id);
+      const key = inspection?.material_id || target.id;
+      if (!order.has(key)) order.set(key, next++);
+      indexByTarget.set(target.id, order.get(key)!);
+    });
+    return indexByTarget;
+  }, [targets, scannedRow]);
+  // 작업현황 상태값이 "진행"이면(=시작검수 완료 후 시스템이 자동 전이한 상태) "검수시작" 대신 완료검수로
+  // 안내한다. 집계도 함께 확인해 관리자 웹의 수동 "검수완료" 버튼으로 진행 상태가 된 예외 상황을 방어한다.
+  const startInspectionDone =
+    scannedRow != null &&
+    scannedRow.work.status === "in_progress" &&
+    getInspectionAggregateStatus(scannedRow.inspections.map((inspection) => inspection.status)) === "completed";
+  // 문서 로드 시 상단 라벨: 아직 스캔 전이면 "작업검수", 시작검수 대상이면 "작업전 검수", 완료검수 대상이면 "완료검수".
+  const scanLabel = !scannedRow ? "작업검수" : startInspectionDone ? "완료검수" : "작업전 검수";
 
-  // 스캔 단계에서만 검수 대상 체크리스트를 재초기화한다(제품검수 진행 중 refetch로 인한 사진 상태 유실 방지).
-  useEffect(() => {
-    if (tab !== "scan" || !scannedWorkId) return;
-    setPhotoStates(getInitialPhotoMap(targets));
-  }, [scannedWorkId, targets, tab]);
   const completedCount = useMemo(() => {
     return targets.filter((target) => {
       const inspection = scannedRow?.inspections.find((item) => item.id === target.id);
-      // 확인요청 중인 항목은 이전에 로컬에서 저장 완료 처리했더라도 완료 집계에서 제외한다.
-      if (inspection?.status === "admin_requested") return false;
-      if (inspection?.method === "OCR") return inspection.status === "passed" || inspection.status === "admin_approved";
-      return isProductSaved(photoStates[target.id]);
+      if (!inspection) return false; // 검수 대상 없는 로컬 전용 카드는 완료 집계에 포함하지 않는다(서버 판정 없음).
+      return isTerminalPass(inspection.status);
     }).length;
-  }, [targets, scannedRow, photoStates]);
+  }, [targets, scannedRow]);
   const allProductsSaved = targets.length > 0 && completedCount === targets.length;
-
-  const updateProductState = (targetId: string, next: Partial<ProductPhotoState>) => {
-    setPhotoStates((current) => ({
-      ...current,
-      [targetId]: {
-        ...(current[targetId] ?? emptyPhotoState),
-        ...next
-      }
-    }));
-  };
 
   const handleScan = async () => {
     const matched = rows.find((row) => row.work.document_no.toLowerCase() === documentNo.trim().toLowerCase());
@@ -206,7 +200,6 @@ export default function MobileInspectionWorkflowPage() {
     if (!matched) {
       setScannedWorkId("");
       setScanError("이 문서번호를 찾지 못했어요.");
-      setPhotoStates({});
       return;
     }
 
@@ -236,121 +229,14 @@ export default function MobileInspectionWorkflowPage() {
   };
 
   const startInspection = () => {
-    if (!scannedRow || targets.length === 0) return;
-    setTab("product");
-  };
-
-  const captureProductPhoto = async (target: ProductTarget, state: ProductPhotoState, event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file || !scannedRow) return;
-
-    const inspection = scannedRow.inspections.find((item) => item.id === target.id);
-
-    updateProductState(target.id, { photoName: file.name, uploading: true, uploadError: "" });
-
-    if (!inspection) {
-      // 배정된 검수 행이 없는 예외 상황(작업마스터에 부자재 구성이 없는 등)은 저장할 대상이 없어
-      // 로컬 표시만 완료 처리한다(서버 저장 없음).
-      const safeName = file.name.replace(/\s+/g, "-");
-      updateProductState(target.id, {
-        storagePath: `inspection-images/${scannedRow.work.id}/products/${target.materialCode}-${safeName}`,
-        compressed: false,
-        saved: true,
-        uploading: false
-      });
+    if (!scannedRow) return;
+    // 시작검수가 이미 끝난 문서는 여기서 완료검수 화면으로 보낸다("검수시작" 자리에 "완료검수"로 안내).
+    if (startInspectionDone) {
+      router.push(`/mobile/complete/${scannedRow.work.id}`);
       return;
     }
-
-    try {
-      const { default: imageCompression } = await import("browser-image-compression");
-      const compressed = await imageCompression(file, {
-        maxSizeMB: 0.8,
-        maxWidthOrHeight: 1600,
-        useWebWorker: false,
-        fileType: "image/jpeg",
-        initialQuality: 0.82
-      });
-      const compressedFile = new File([compressed], `product-${file.name.replace(/\.[^.]+$/, "")}.jpg`, {
-        type: "image/jpeg",
-        lastModified: Date.now()
-      });
-
-      const formData = new FormData();
-      formData.append("inspectionId", inspection.id);
-      formData.append("workId", scannedRow.work.id);
-      formData.append(
-        "checks",
-        JSON.stringify({
-          productCode: state.productCodeChecked,
-          productName: state.productNameChecked,
-          lot: state.lotChecked
-        })
-      );
-      formData.append("image", compressedFile);
-
-      const response = await fetch("/api/work-inspection/product", { method: "POST", body: formData });
-      const payload = (await response.json()) as { error?: string; resultSummary?: string };
-
-      if (!response.ok) throw new Error(payload.error ?? "제품검수 저장에 실패했습니다.");
-
-      updateProductState(target.id, {
-        storagePath: payload.resultSummary || "서버 저장 완료",
-        compressed: true,
-        saved: true,
-        uploading: false
-      });
-      await refetch();
-    } catch (error) {
-      updateProductState(target.id, {
-        uploading: false,
-        uploadError: error instanceof Error ? error.message : "제품검수 저장에 실패했습니다."
-      });
-    }
-  };
-
-  const requestProductReview = async (target: ProductTarget, inspectionId: string) => {
-    if (!scannedRow) return;
-
-    const confirmed = window.confirm("특이사항을 관리자에게 확인 요청하시겠습니까?");
-    if (!confirmed) return;
-
-    const memo = window.prompt("확인요청 사유를 입력하세요 (선택, 비워두면 기본 사유로 저장됩니다)", "");
-    const trimmedMemo = memo && memo.trim() ? memo.trim() : undefined;
-
-    updateProductState(target.id, { reviewLoading: true, reviewError: "" });
-
-    try {
-      const response = await fetch("/api/work-inspection", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          workId: scannedRow.work.id,
-          action: { type: "request_review", inspectionId, reason: trimmedMemo, label: "현장 확인요청" }
-        })
-      });
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) throw new Error(payload.error ?? "확인요청 처리에 실패했습니다.");
-
-      updateProductState(target.id, { reviewLoading: false });
-      await refetch();
-    } catch (error) {
-      updateProductState(target.id, {
-        reviewLoading: false,
-        reviewError: error instanceof Error ? error.message : "확인요청 처리에 실패했습니다."
-      });
-    }
-  };
-
-  const resetProductPhoto = (targetId: string) => {
-    updateProductState(targetId, {
-      photoName: "",
-      storagePath: "",
-      compressed: false,
-      uploading: false,
-      uploadError: "",
-      saved: false
-    });
+    if (targets.length === 0) return;
+    setTab("product");
   };
 
   return (
@@ -358,7 +244,7 @@ export default function MobileInspectionWorkflowPage() {
       <CuteCard className="p-4">
         <div className="flex items-center gap-2">
           <ClipboardCheck className="size-5 text-sky-500" />
-          <p className="text-xs font-black text-sky-600">작업검수</p>
+          <p className="text-xs font-black text-sky-600">{scanLabel}</p>
         </div>
         <h1 className="mt-2 text-2xl font-black text-slate-800">
           {tab === "scan" ? "작업문서스캔" : tab === "product" ? "제품검수" : "검수 완료"}
@@ -438,164 +324,68 @@ export default function MobileInspectionWorkflowPage() {
 
           {scannedRow && <ScanDocumentInfo row={scannedRow} targets={targets} />}
 
-          <CloudButton className="w-full" disabled={!scannedRow || targets.length === 0} onClick={startInspection}>
+          <CloudButton
+            className="w-full"
+            disabled={!scannedRow || (!startInspectionDone && targets.length === 0)}
+            onClick={startInspection}
+          >
             <PackageCheck className="size-4" />
-            검수시작
+            {startInspectionDone ? "완료검수" : "검수시작"}
           </CloudButton>
+          {scannedRow && startInspectionDone && (
+            <p className="text-center text-xs font-bold text-slate-500">
+              이 문서는 작업전 검수가 완료됐어요. "완료검수"를 누르면 완료검수 화면으로 이동합니다.
+            </p>
+          )}
         </>
       )}
 
       {tab === "product" && scannedRow && (
         <>
           <CuteCard className="p-4">
-            <p className="text-xs font-black text-violet-600">제품검수</p>
+            <p className="text-xs font-black text-violet-600">작업전 검수</p>
             <h2 className="mt-1 text-xl font-black text-slate-800">{scannedRow.work.document_no}</h2>
             <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
-              제품정보가 맞는지 체크하고, 대상 제품 사진을 촬영하면 압축 후 서버 저장 경로가 생성됩니다.
+              제품목록을 확인하고, 부자재는 OCR 영역설정 또는 비전 참고 사진을 보며 촬영해 저장합니다.
             </p>
             <div className="mt-3 rounded-2xl bg-white/80 p-3 text-sm font-black text-slate-600 ring-1 ring-sky-100">
-              완료 {completedCount}/{targets.length}
+              부자재 검수 완료 {completedCount}/{targets.length}
             </div>
           </CuteCard>
 
+          <ProductChecklist workId={scannedRow.work.id} />
+
           {targets.map((target, index) => {
             const inspection = scannedRow.inspections.find((item) => item.id === target.id);
+            const materialIndex = materialIndexByTargetId.get(target.id) ?? index;
 
-            if (inspection?.method === "OCR") {
+            if (!inspection) {
+              return <LocalOnlyProductCard key={target.id} target={target} index={materialIndex} />;
+            }
+
+            if (inspection.method === "OCR") {
               return (
                 <OcrInspectionCard
                   key={target.id}
                   workId={scannedRow.work.id}
                   inspection={inspection}
                   material={materials.find((item) => item.id === inspection.material_id)}
-                  index={index}
+                  index={materialIndex}
                   onSubmitted={refetch}
                 />
               );
             }
 
-            const state = photoStates[target.id] ?? emptyPhotoState;
-            const ready = isProductReady(state);
-            const saved = isProductSaved(state);
-            const isAdminRequested = inspection?.status === "admin_requested";
-
             return (
-              <CuteCard key={target.id} className="p-4">
-                <div className="mb-4 flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-black text-sky-600">제품 {index + 1}</p>
-                    <h3 className="mt-1 text-lg font-black text-slate-800">{target.productName}</h3>
-                    <p className="mt-1 text-xs font-bold text-slate-400">부자재코드 {target.materialCode}</p>
-                  </div>
-                  <span
-                    className={cn(
-                      "rounded-full px-3 py-1 text-xs font-black",
-                      isAdminRequested
-                        ? "bg-amber-100 text-amber-700"
-                        : saved
-                          ? "bg-emerald-100 text-emerald-700"
-                          : ready
-                            ? "bg-sky-100 text-sky-700"
-                            : "bg-slate-100 text-slate-500"
-                    )}
-                  >
-                    {isAdminRequested ? "확인요청" : saved ? "저장완료" : ready ? "촬영대기" : "확인필요"}
-                  </span>
-                </div>
-
-                {inspection && !isAdminRequested && (
-                  <CloudButton
-                    tone="soft"
-                    className="mb-3 w-full"
-                    disabled={state.reviewLoading}
-                    onClick={() => void requestProductReview(target, inspection.id)}
-                  >
-                    <AlertTriangle className="size-4" />
-                    {state.reviewLoading ? "요청 중..." : "확인요청"}
-                  </CloudButton>
-                )}
-
-                {isAdminRequested && (
-                  <div className="mb-3 flex items-center gap-2 rounded-2xl bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-700">
-                    <AlertTriangle className="size-4 shrink-0" />
-                    관리자 확인 대기 중입니다. 관리자 처리 결과를 기다려주세요.
-                  </div>
-                )}
-
-                {state.reviewError && (
-                  <div className="mb-3 rounded-2xl bg-rose-50 p-3 text-xs font-bold leading-5 text-rose-700">{state.reviewError}</div>
-                )}
-
-                <div className="space-y-2">
-                  <ChecklistRow
-                    label="제품코드"
-                    value={target.productCode}
-                    checked={state.productCodeChecked}
-                    onChange={(checked) => updateProductState(target.id, { productCodeChecked: checked })}
-                  />
-                  <ChecklistRow
-                    label="제품명"
-                    value={target.productName}
-                    checked={state.productNameChecked}
-                    onChange={(checked) => updateProductState(target.id, { productNameChecked: checked })}
-                  />
-                  <ChecklistRow
-                    label="LOT"
-                    value={target.lot}
-                    checked={state.lotChecked}
-                    onChange={(checked) => updateProductState(target.id, { lotChecked: checked })}
-                  />
-                </div>
-
-                <label
-                  className={cn(
-                    "mt-4 flex aspect-[4/3] flex-col items-center justify-center rounded-[1.4rem] border-2 border-dashed text-center transition",
-                    ready && !state.uploading && !isAdminRequested
-                      ? "cursor-pointer border-sky-200 bg-sky-50/70"
-                      : "cursor-not-allowed border-slate-200 bg-slate-100/80"
-                  )}
-                >
-                  <Camera className="mb-3 size-12 text-sky-400" />
-                  <p className="font-black text-slate-800">대상 제품 사진 촬영</p>
-                  <p className="mt-2 px-4 text-xs font-semibold leading-5 text-slate-500">
-                    {isAdminRequested
-                      ? "관리자 확인 처리 후 다시 촬영할 수 있습니다."
-                      : state.uploading
-                        ? "압축 후 서버에 저장하는 중입니다..."
-                        : state.photoName || (ready ? "촬영하면 압축 후 서버에 저장됩니다." : "제품정보 3개 항목을 먼저 체크해주세요.")}
-                  </p>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    disabled={!ready || state.uploading || isAdminRequested}
-                    className="sr-only"
-                    onChange={(event) => void captureProductPhoto(target, state, event)}
-                    aria-label={`${target.productName} 제품 사진 촬영`}
-                  />
-                </label>
-
-                {state.uploadError && (
-                  <div className="mt-3 rounded-2xl bg-rose-50 p-3 text-xs font-bold leading-5 text-rose-700">{state.uploadError}</div>
-                )}
-
-                {state.saved && state.storagePath && (
-                  <div className="mt-3 rounded-2xl bg-emerald-50 p-3 text-xs font-bold leading-5 text-emerald-700">
-                    서버 저장 완료
-                    <br />
-                    {state.storagePath}
-                    <br />
-                    압축 여부: {state.compressed ? "압축됨" : "미압축"}
-                  </div>
-                )}
-
-                {state.photoName && !state.uploading && (
-                  <CloudButton className="mt-3 w-full" tone="soft" onClick={() => resetProductPhoto(target.id)}>
-                    <RotateCcw className="size-4" />
-                    다시 촬영
-                  </CloudButton>
-                )}
-              </CuteCard>
+              <CompletionPhotoCard
+                key={target.id}
+                workId={scannedRow.work.id}
+                inspection={inspection}
+                materialId={inspection.material_id}
+                title={`부자재 ${materialIndex + 1} · ${target.materialName}`}
+                subtitle="등록된 비전 참고 사진을 보며 촬영해 저장하세요"
+                onSubmitted={refetch}
+              />
             );
           })}
 
@@ -617,7 +407,6 @@ export default function MobileInspectionWorkflowPage() {
             onClick={() => {
               setTab("scan");
               setScannedWorkId("");
-              setPhotoStates({});
             }}
           >
             다음 작업문서 스캔

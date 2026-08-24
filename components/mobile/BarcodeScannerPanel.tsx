@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Barcode, Keyboard } from "lucide-react";
 import { CloudButton } from "@/components/common/CloudButton";
@@ -10,12 +10,9 @@ import { findWorkByDocumentNo, useMobileWorkStatusRows } from "@/lib/mobile/mobi
 export function BarcodeScannerPanel() {
   const router = useRouter();
   const { data: rows, source, warning, isLoading, error: loadError } = useMobileWorkStatusRows();
+  // 입력칸은 항상 빈 값으로 시작한다(과거 rows[0] 자동 채움이 "123456"처럼 임의 문서번호가 채워지는 오류였다).
   const [documentNo, setDocumentNo] = useState("");
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    if (!documentNo && rows[0]) setDocumentNo(rows[0].work.document_no);
-  }, [documentNo, rows]);
 
   function matchWork() {
     const row = findWorkByDocumentNo(rows, documentNo);

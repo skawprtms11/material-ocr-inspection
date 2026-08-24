@@ -4,6 +4,7 @@ import { errorMessage } from "@/lib/repositories/supabase-scope";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { InspectionMethod, InspectionStatus } from "@/lib/types/domain";
 import type {
+  WorkDetailCompletionPhotoDto,
   WorkDetailInfoDto,
   WorkDetailMaterialDto,
   WorkDetailMaterialInspectionDto,
@@ -61,9 +62,10 @@ function mockDetail(workId: string): WorkDetailResponse | null {
     .sort((a, b) => a.inspection_order - b.inspection_order)
     .map((mapping) => {
       const material = materialById.get(mapping.material_id);
+      // mock 데이터에는 완료검수 전용 PRODUCT 항목이 없다(부자재 단위 시작검수만 존재).
       const materialInspections: WorkDetailMaterialInspectionDto[] = inspections
-        .filter((inspection) => inspection.material_id === mapping.material_id)
-        .map((inspection) => ({ method: inspection.method, status: inspection.status }));
+        .filter((inspection) => inspection.material_id === mapping.material_id && inspection.method !== "PRODUCT")
+        .map((inspection) => ({ method: inspection.method as Exclude<InspectionMethod, "BOTH">, status: inspection.status }));
 
       return {
         id: mapping.id,
@@ -93,7 +95,9 @@ function mockDetail(workId: string): WorkDetailResponse | null {
     },
     products,
     productsSource: "work_master",
-    materials
+    materials,
+    // mock 데이터에는 완료검수(stage="complete") 개념이 없어 항상 빈 배열이다.
+    completionPhotos: []
   };
 }
 
@@ -120,6 +124,7 @@ export async function GET(request: NextRequest) {
 
     const work = workRow as DbRow;
     const workMasterId = text(work.work_master_id);
+    const workQuantity = numberValue(work.quantity, 0);
 
     const { data: workMasterRow, error: workMasterError } = await supabase
       .from("work_masters")
@@ -143,16 +148,22 @@ export async function GET(request: NextRequest) {
 
     if (productComponentRows.length > 0) {
       productsSource = "work_components";
-      products = productComponentRows.map((row) => ({
-        id: text(row.id),
-        productCode: text(row.component_code),
-        productName: text(row.component_name),
-        unitQuantity: numberValue(row.unit_quantity, 1),
-        lot: text(row.lot) || undefined,
-        requiredQuantity: typeof row.required_quantity === "number" ? row.required_quantity : undefined,
-        allocatedQuantity: typeof row.allocated_quantity === "number" ? row.allocated_quantity : undefined,
-        memo: text(row.memo) || undefined
-      }));
+      products = productComponentRows.map((row) => {
+        const unitQuantity = numberValue(row.unit_quantity, 1);
+        const allocatedQuantity = typeof row.allocated_quantity === "number" ? row.allocated_quantity : undefined;
+
+        return {
+          id: text(row.id),
+          productCode: text(row.component_code),
+          productName: text(row.component_name),
+          unitQuantity,
+          lot: text(row.lot) || undefined,
+          requiredQuantity: typeof row.required_quantity === "number" ? row.required_quantity : undefined,
+          allocatedQuantity,
+          usedQuantity: allocatedQuantity ?? unitQuantity * workQuantity,
+          memo: text(row.memo) || undefined
+        };
+      });
     } else {
       productsSource = "work_master";
       const { data: productRows, error: productError } = await supabase
@@ -164,11 +175,13 @@ export async function GET(request: NextRequest) {
 
       products = ((productRows ?? []) as DbRow[]).map((row, index) => {
         const productType = text(row.product_type, "정상품");
+        const unitQuantity = numberValue(row.unit_quantity, 1);
         return {
           id: `${workMasterId}-product-${index}`,
           productCode: text(row.product_code),
           productName: text(row.product_name),
-          unitQuantity: numberValue(row.unit_quantity, 1),
+          unitQuantity,
+          usedQuantity: unitQuantity * workQuantity,
           productType: productType === "샘플" || productType === "세트제품" ? productType : "정상품"
         };
       });
@@ -193,10 +206,13 @@ export async function GET(request: NextRequest) {
 
     const materialById = new Map(((materialRows ?? []) as DbRow[]).map((row) => [text(row.id), row]));
 
+    // 정책: 부자재 내역 표의 검수상태/검수사진은 시작검수(stage="start")만 표시한다(기존 동작 보존).
+    // 완료검수(stage="complete") 결과는 아래 "작업완료사진" 구역에서 별도로 보여준다.
     const { data: inspectionRows, error: inspectionError } = await supabase
       .from("work_inspections")
       .select("id, material_id, method, status")
-      .eq("work_id", workId);
+      .eq("work_id", workId)
+      .eq("stage", "start");
     if (inspectionError) throw inspectionError;
 
     const inspectionRowList = (inspectionRows ?? []) as DbRow[];
@@ -214,7 +230,20 @@ export async function GET(request: NextRequest) {
       inspectionsByMaterial.set(materialId, list);
     }
 
-    // 3) 부자재별 OCR/제품검수 사진: inspection_images를 work_id로 조회 후 inspection_id -> material_id로 매핑한다.
+    // 2-1) 완료검수(stage="complete") 항목: "완료제품사진"(material_id 없음) + 부자재 완료검수.
+    const { data: completionInspectionRows, error: completionInspectionError } = await supabase
+      .from("work_inspections")
+      .select("id, material_id, method, status, created_at")
+      .eq("work_id", workId)
+      .eq("stage", "complete")
+      .order("created_at", { ascending: true });
+    if (completionInspectionError) throw completionInspectionError;
+
+    const completionInspectionRowList = (completionInspectionRows ?? []) as DbRow[];
+    const completionInspectionIds = new Set(completionInspectionRowList.map((row) => text(row.id)));
+
+    // 3) 검수 사진: inspection_images를 work_id로 한 번만 조회하고, 시작검수(부자재별)/완료검수(항목별) 두
+    // 그룹에 필요한 서명 URL을 함께 발급한다.
     const { data: imageRows, error: imageError } = await supabase
       .from("inspection_images")
       .select("inspection_id, image_type, storage_path, created_at")
@@ -223,7 +252,7 @@ export async function GET(request: NextRequest) {
     if (imageError) throw imageError;
 
     const sortedImageRows = ((imageRows ?? []) as DbRow[])
-      .filter((row) => materialIdByInspectionId.has(text(row.inspection_id)))
+      .filter((row) => materialIdByInspectionId.has(text(row.inspection_id)) || completionInspectionIds.has(text(row.inspection_id)))
       .slice()
       .sort((a, b) => (imageTypePriority[text(a.image_type)] ?? 9) - (imageTypePriority[text(b.image_type)] ?? 9));
 
@@ -245,20 +274,30 @@ export async function GET(request: NextRequest) {
     }
 
     const imageUrlsByMaterial = new Map<string, string[]>();
+    const imageUrlsByCompletionInspection = new Map<string, string[]>();
     sortedImageRows.forEach((row, index) => {
-      const materialId = materialIdByInspectionId.get(text(row.inspection_id));
-      if (!materialId) return;
       const signedUrl = signedUrlByPath.get(relativePaths[index]);
       if (!signedUrl) return;
-      const list = imageUrlsByMaterial.get(materialId) ?? [];
-      list.push(signedUrl);
-      imageUrlsByMaterial.set(materialId, list);
+
+      const inspectionId = text(row.inspection_id);
+      const materialId = materialIdByInspectionId.get(inspectionId);
+      if (materialId) {
+        const list = imageUrlsByMaterial.get(materialId) ?? [];
+        list.push(signedUrl);
+        imageUrlsByMaterial.set(materialId, list);
+      }
+      if (completionInspectionIds.has(inspectionId)) {
+        const list = imageUrlsByCompletionInspection.get(inspectionId) ?? [];
+        list.push(signedUrl);
+        imageUrlsByCompletionInspection.set(inspectionId, list);
+      }
     });
 
     const materials: WorkDetailMaterialDto[] = materialMappings.map((mapping) => {
       const materialId = text(mapping.material_id);
       const material = materialById.get(materialId);
       const inspectionMethod = text(material?.inspection_method, "BOTH");
+      const mappingUnitQuantity = typeof mapping.unit_quantity === "number" ? mapping.unit_quantity : undefined;
 
       return {
         id: text(mapping.id),
@@ -267,18 +306,37 @@ export async function GET(request: NextRequest) {
         materialName: text(material?.name, "-"),
         inspectionMethod: inspectionMethod === "OCR" || inspectionMethod === "VISION" ? inspectionMethod : "BOTH",
         unitQuantity: numberValue(mapping.unit_quantity, 1),
+        usedQuantity: mappingUnitQuantity !== undefined ? mappingUnitQuantity * workQuantity : undefined,
         verificationValue: text(material?.verification_value),
         inspections: inspectionsByMaterial.get(materialId) ?? [],
         imageUrls: imageUrlsByMaterial.get(materialId) ?? []
       };
     });
 
+    // PRODUCT(완료제품사진) 항목을 먼저 보여주고, 그 다음 부자재 완료검수 항목 순으로 정렬한다.
+    const completionPhotos: WorkDetailCompletionPhotoDto[] = completionInspectionRowList
+      .slice()
+      .sort((a, b) => (text(a.method) === "PRODUCT" ? -1 : text(b.method) === "PRODUCT" ? 1 : 0))
+      .map((row) => {
+        const method = text(row.method, "OCR");
+        const materialId = text(row.material_id);
+        const material = materialId ? materialById.get(materialId) : undefined;
+
+        return {
+          id: text(row.id),
+          label: method === "PRODUCT" ? "완료제품사진" : text(material?.name, "-"),
+          method: (method === "OCR" || method === "VISION" || method === "PRODUCT" ? method : "OCR") as WorkDetailCompletionPhotoDto["method"],
+          status: text(row.status, "pending") as InspectionStatus,
+          imageUrls: imageUrlsByCompletionInspection.get(text(row.id)) ?? []
+        };
+      });
+
     const workInfo: WorkDetailInfoDto = {
       workId: text(work.id),
       documentNo: text(work.document_no),
       productCode: text(workMaster?.code, "-"),
       productName: text(workMaster?.name, "-"),
-      quantity: numberValue(work.quantity, 0),
+      quantity: workQuantity,
       lot: text(work.finished_product_lot) || getFallbackFinishedProductLot(text(work.work_date)),
       workerName: text(work.worker_name),
       workDate: text(work.work_date)
@@ -289,7 +347,8 @@ export async function GET(request: NextRequest) {
       work: workInfo,
       products,
       productsSource,
-      materials
+      materials,
+      completionPhotos
     } satisfies WorkDetailResponse);
   } catch (error) {
     return NextResponse.json({ error: errorMessage(error, "작업 상세내역 조회에 실패했습니다.") }, { status: 502 });

@@ -16,6 +16,7 @@ import type {
   DisplayWorkStatusDto,
   InspectionAggregateStatusDto,
   UpdateWorkStatusResponse,
+  WorkDetailCompletionPhotoDto,
   WorkDetailMaterialDto,
   WorkDetailProductDto,
   WorkDetailProductsSourceDto,
@@ -44,6 +45,8 @@ type WorkStatusRow = {
   productName: string;
   lot: string;
   quantity: number;
+  workStartedAt?: string;
+  completedAt?: string;
 };
 
 const workTypeOptions = ["리드레싱", "세트작업", "해체작업", "기타작업"];
@@ -100,8 +103,25 @@ function getSelectableWorkStatus(status: WorkStatus): WorkStatus {
   return status;
 }
 
+// 상태 모델: 진행/완료는 검수 결과에 따라 시스템이 자동으로만 전이한다(서버도 동일하게 막음, app/api/work-status/route.ts).
+// 사용자가 수동으로 고를 수 있는 값은 시작검수 완료 여부에 따라 달라진다.
+// - 시작검수 미완료: 대기/보류/취소
+// - 시작검수 완료: 보류/취소(대기로 되돌릴 수 없음)
+function getSelectableStatusOptions(inspectionStatus: InspectionAggregateStatusDto) {
+  const manualStatuses: WorkStatus[] = inspectionStatus === "completed" ? ["on_hold", "canceled"] : ["registered", "on_hold", "canceled"];
+  return dashboardWorkStatusOptions.filter((option) => manualStatuses.includes(option.value));
+}
+
 function getFallbackFinishedProductLot(work: Work, index: number) {
   return `LOT-${work.work_date.replaceAll("-", "").slice(2)}-${String(index + 1).padStart(2, "0")}`;
+}
+
+// 표 폭이 좁아 MM/DD로 짧게 표기한다. 값이 없으면 "-".
+function formatShortDate(value?: string) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return `${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function summarizeRows(rows: WorkStatusRow[]) {
@@ -213,7 +233,9 @@ export default function WorkStatusPage() {
             ? {
                 ...row,
                 work: { ...row.work, status },
-                displayStatus: getDisplayStatus(status)
+                displayStatus: getDisplayStatus(status),
+                // PATCH와 동일 규칙: 완료 그룹 전환이면 완료일자를 기록하고, 아니면 초기화한다.
+                completedAt: getDisplayStatus(status) === "complete" ? new Date().toISOString() : undefined
               }
             : row
         )
@@ -346,11 +368,17 @@ export default function WorkStatusPage() {
           <table className="w-full min-w-[1320px] text-left text-sm">
             <thead className="bg-sky-50/80 text-xs font-black text-sky-700">
               <tr>
-                {["검수", "작업상태", "작업구분", "문서번호", "완성품코드", "완성품명", "LOT", "작업수량", "비고"].map((header) => (
+                <th className="whitespace-nowrap px-3 py-3">작업시작</th>
+                <th className="w-16 whitespace-nowrap px-2 py-3">검수</th>
+                <th className="w-20 whitespace-nowrap px-2 py-3">작업상태</th>
+                {["작업구분", "문서번호", "완성품코드", "완성품명", "LOT"].map((header) => (
                   <th key={header} className="px-4 py-3">
                     {header}
                   </th>
                 ))}
+                <th className="px-4 py-3">작업수량</th>
+                <th className="whitespace-nowrap px-3 py-3">완료일자</th>
+                <th className="px-4 py-3">비고</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white/70">
@@ -362,31 +390,32 @@ export default function WorkStatusPage() {
 
                 return (
                   <tr key={row.work.id} className="text-slate-600 transition hover:bg-sky-50/70">
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex rounded-full px-3 py-1.5 text-xs font-black ring-1 ${inspection.badge}`}>
+                    <td className="whitespace-nowrap px-3 py-3 font-bold">{formatShortDate(row.workStartedAt)}</td>
+                    <td className="px-2 py-3">
+                      <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-1 text-[11px] font-black ring-1 ${inspection.badge}`}>
                         {inspection.label}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-2 py-3">
                       <div className="relative inline-block">
                         <button
                           type="button"
                           onClick={() => setStatusMenuWorkId((current) => (current === row.work.id ? null : row.work.id))}
-                          className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-black ring-1 transition hover:scale-[1.02] ${status.badge}`}
+                          className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-1 text-[11px] font-black ring-1 transition hover:scale-[1.02] ${status.badge}`}
                           aria-haspopup="menu"
                           aria-expanded={statusMenuWorkId === row.work.id}
                           aria-label={`${row.work.document_no} 작업상태 변경`}
                         >
-                          <span className={`inline-flex size-6 items-center justify-center rounded-full ${status.iconBox}`}>
-                            <Icon className="size-3.5" />
+                          <span className={`inline-flex size-5 items-center justify-center rounded-full ${status.iconBox}`}>
+                            <Icon className="size-3" />
                           </span>
                           {status.label}
-                          <ChevronDown className="size-3.5" />
+                          <ChevronDown className="size-3" />
                         </button>
 
                         {statusMenuWorkId === row.work.id && (
                           <div className="absolute left-0 top-full z-30 mt-2 w-36 overflow-hidden rounded-2xl border border-white/80 bg-white shadow-[0_16px_40px_rgba(15,23,42,0.16)]">
-                            {dashboardWorkStatusOptions.map((option) => {
+                            {getSelectableStatusOptions(row.inspectionStatus).map((option) => {
                               const optionStatus = displayStatusMeta[getDisplayStatus(option.value)];
                               const OptionIcon = optionStatus.icon;
                               const selected = getSelectableWorkStatus(row.work.status) === option.value;
@@ -428,13 +457,14 @@ export default function WorkStatusPage() {
                     <td className="px-4 py-3 font-bold text-slate-700">{row.productName}</td>
                     <td className="max-w-[240px] px-4 py-3 font-bold text-violet-700">{row.lot || "-"}</td>
                     <td className="px-4 py-3 font-bold">{row.quantity.toLocaleString()}</td>
+                    <td className="whitespace-nowrap px-3 py-3 font-bold">{formatShortDate(row.completedAt)}</td>
                     <td className="max-w-[280px] truncate px-4 py-3 text-slate-500">{row.work.memo || "-"}</td>
                   </tr>
                 );
               })}
               {filteredRows.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-12 text-center text-sm font-bold text-slate-400">
+                  <td colSpan={11} className="px-4 py-12 text-center text-sm font-bold text-slate-400">
                     조회 조건에 맞는 작업현황이 없습니다.
                   </td>
                 </tr>
@@ -593,6 +623,11 @@ function WorkDetailModal({ workId, onClose }: { workId: string; onClose: () => v
               <h3 className="mb-3 text-lg font-black text-slate-800">부자재 내역</h3>
               <MaterialTable materials={detail.materials} />
             </CuteCard>
+
+            <CuteCard>
+              <h3 className="mb-3 text-lg font-black text-slate-800">작업완료사진</h3>
+              <CompletionPhotoSection photos={detail.completionPhotos} />
+            </CuteCard>
           </div>
         ) : null}
       </div>
@@ -616,9 +651,9 @@ function ProductTable({
   products: WorkDetailProductDto[];
   productsSource: WorkDetailProductsSourceDto;
 }) {
-  // 작업등록 입력 그대로: 제품코드/제품명/LOT/단위수량/수량/비고 6컬럼. 마스터 폴백은 수량 자리에 구분(정상품 등)을 대신 표시한다.
+  // 작업등록 입력 그대로: 제품코드/제품명/LOT/단위수량/수량/사용수량/비고 7컬럼. 마스터 폴백은 수량 자리에 구분(정상품 등)을 대신 표시한다.
   const isWorkComponents = productsSource === "work_components";
-  const colSpan = 6;
+  const colSpan = 7;
 
   return (
     <div className="overflow-hidden rounded-[1.2rem] border border-white/80 bg-white/75">
@@ -630,6 +665,7 @@ function ProductTable({
             <th className="px-4 py-3">LOT</th>
             <th className="px-4 py-3">단위수량</th>
             <th className="px-4 py-3">{isWorkComponents ? "수량" : "구분"}</th>
+            <th className="px-4 py-3">사용수량</th>
             <th className="px-4 py-3">비고</th>
           </tr>
         </thead>
@@ -643,6 +679,7 @@ function ProductTable({
               <td className="px-4 py-3">
                 {isWorkComponents ? (product.requiredQuantity?.toLocaleString() ?? "-") : (product.productType ?? "-")}
               </td>
+              <td className="px-4 py-3 font-bold text-sky-700">{product.usedQuantity?.toLocaleString() ?? "-"}</td>
               <td className="px-4 py-3">{product.memo || "-"}</td>
             </tr>
           ))}
@@ -669,6 +706,7 @@ function MaterialTable({ materials }: { materials: WorkDetailMaterialDto[] }) {
             <th className="px-4 py-3">부자재명</th>
             <th className="px-4 py-3">검수방식</th>
             <th className="px-4 py-3">단위수량</th>
+            <th className="px-4 py-3">사용수량</th>
             <th className="px-4 py-3">검증값</th>
             <th className="px-4 py-3">검수상태</th>
             <th className="px-4 py-3">검수 사진</th>
@@ -685,6 +723,7 @@ function MaterialTable({ materials }: { materials: WorkDetailMaterialDto[] }) {
                 <td className="px-4 py-3 font-bold">{material.materialName}</td>
                 <td className="px-4 py-3">{material.inspectionMethod}</td>
                 <td className="px-4 py-3">{material.unitQuantity.toLocaleString()}</td>
+                <td className="px-4 py-3 font-bold text-sky-700">{material.usedQuantity?.toLocaleString() ?? "-"}</td>
                 <td className="px-4 py-3 font-bold text-sky-700">{material.verificationValue || "-"}</td>
                 <td className="px-4 py-3">
                   <span className={`inline-flex rounded-full px-3 py-1 text-[11px] font-black ring-1 ${status.badge}`}>
@@ -714,8 +753,76 @@ function MaterialTable({ materials }: { materials: WorkDetailMaterialDto[] }) {
           })}
           {materials.length === 0 && (
             <tr>
-              <td colSpan={7} className="px-4 py-8 text-center font-bold text-slate-400">
+              <td colSpan={8} className="px-4 py-8 text-center font-bold text-slate-400">
                 등록된 부자재 내역이 없습니다.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+const completionMethodLabels: Record<WorkDetailCompletionPhotoDto["method"], string> = {
+  OCR: "OCR",
+  VISION: "비전",
+  PRODUCT: "완료제품"
+};
+
+// 부자재 내역 표 아래 "작업완료사진" 구역. 완료검수(작업완료 시 검수)를 통과한 완료제품사진/부자재 완료검수
+// 사진을 보여준다. 완료검수가 아직 없는 작업은 빈 상태 문구만 표시한다.
+function CompletionPhotoSection({ photos }: { photos: WorkDetailCompletionPhotoDto[] }) {
+  return (
+    <div className="overflow-hidden rounded-[1.2rem] border border-white/80 bg-white/75">
+      <table className="w-full text-left text-xs">
+        <thead className="bg-sky-50/80 font-black text-sky-700">
+          <tr>
+            <th className="px-4 py-3">항목</th>
+            <th className="px-4 py-3">검수방식</th>
+            <th className="px-4 py-3">검수상태</th>
+            <th className="px-4 py-3">사진</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {photos.map((photo) => {
+            const statusKey = summarizeMaterialStatus([photo.status]);
+            const status = materialStatusMeta[statusKey];
+
+            return (
+              <tr key={photo.id} className="text-slate-600">
+                <td className="px-4 py-3 font-black text-slate-800">{photo.label}</td>
+                <td className="px-4 py-3">{completionMethodLabels[photo.method]}</td>
+                <td className="px-4 py-3">
+                  <span className={`inline-flex rounded-full px-3 py-1 text-[11px] font-black ring-1 ${status.badge}`}>
+                    {status.label}
+                  </span>
+                </td>
+                <td className="px-4 py-3">
+                  {photo.imageUrls.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {photo.imageUrls.map((url, index) => (
+                        <a key={url} href={url} target="_blank" rel="noreferrer">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={url}
+                            alt={`${photo.label} 완료검수 사진 ${index + 1}`}
+                            className="h-12 w-12 rounded-lg object-cover ring-1 ring-slate-200 transition hover:opacity-80"
+                          />
+                        </a>
+                      ))}
+                    </div>
+                  ) : (
+                    "-"
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+          {photos.length === 0 && (
+            <tr>
+              <td colSpan={4} className="px-4 py-8 text-center font-bold text-slate-400">
+                완료검수 사진이 아직 없습니다.
               </td>
             </tr>
           )}

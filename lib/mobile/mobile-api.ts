@@ -116,6 +116,20 @@ export function useMobileInspectionRows() {
   );
 }
 
+// 완료검수(작업완료 시 검수, 신규) 전용. stage=complete로 조회하면 work_inspections.stage="complete" 행만 내려온다.
+// mock 모드는 stage를 구분하지 않아(appRepository에 stage 개념 없음) 시작검수와 동일한 목록을 그대로 반환한다.
+export function useMobileCompletionInspectionRows() {
+  return useScopedMobileData<InspectionTableRowDto[]>(
+    [],
+    (scope) => `/api/work-inspection?${scopeQuery(scope)}&stage=complete`,
+    (value) => {
+      const payload = value as WorkInspectionDataResponse;
+      return { data: payload.rows ?? [], source: payload.source, warning: payload.warning };
+    },
+    "완료검수 데이터를 불러오지 못했습니다."
+  );
+}
+
 export function useMobileMaterials() {
   return useScopedMobileData<MaterialMaster[]>(
     [],

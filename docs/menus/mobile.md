@@ -2,7 +2,7 @@
 
 ## 개요
 `app/mobile` 하위는 현장 작업자가 스마트폰 브라우저에서 사용하는 8개 화면으로 구성된다. `app/mobile/layout.tsx`가 모든 화면을 `MobileShell`로 감싸고, `MobileShell` 내부의 `MobileScopeInitializer`가 부서/화주 스코프(`useFilterStore`)를 자동으로 세팅한 뒤 children을 렌더링한다. 헤더 우측에는 `MobileScopeBadge`가 현재 부서·화주명을 작게 표시하며(모든 모바일 화면 공통), 탭하면 설정 탭으로 이동한다. 코드상 실제로는 두 갈래의 검수 플로우가 공존한다.
-- 홈(`/mobile`, `MobileInspectionWorkflowPage`): 문서 스캔 → 제품검수(체크리스트+사진, method가 `OCR`인 검수 대상은 실동작 OCR 검수 카드) 탭을 자체 내장한 단일 페이지 플로우. `method`가 `OCR`이 아닌 대상(비전 등)의 사진은 실제 검수 행이 있으면 압축 후 `POST /api/work-inspection/product`로 실제 저장되며, 검수 행이 없는 예외 케이스만 storagePath 문자열을 만드는 로컬 전용 처리로 남아있다.
+- 홈(`/mobile`, `MobileInspectionWorkflowPage`): 문서 스캔 → 제품검수(제품목록 체크리스트 + 부자재 사진, method가 `OCR`인 검수 대상은 실동작 OCR 검수 카드) 탭을 자체 내장한 단일 페이지 플로우. `method`가 `OCR`이 아닌 대상(비전 등)의 사진은 실제 검수 행이 있으면 비전 참고 사진과 함께 압축 후 `POST /api/work-inspection/completion-photo`로 실제 저장되며, 검수 행이 없는 예외 케이스만 storagePath 문자열을 만드는 로컬 전용 처리로 남아있다.
 - `/mobile/scan` → `/mobile/inspection/[workId]` → `/mobile/sign/[workId]` → `/mobile/result/[workId]`: 바코드/문서번호로 작업을 찾은 뒤 STEP별 검수 상세, 서명, 결과 화면으로 이어지는 별도 플로우. 이 플로우의 재검수·관리자 요청·촬영 검수 버튼은 `toast`만 띄우는 mock이며 실제 저장 로직은 없다(`app/mobile/inspection/[workId]/page.tsx`).
 
 두 플로우 모두 하단 탭바(`MobileShell`)의 "작업검수"(`/mobile`) 메뉴로는 홈 플로우만 연결되어 있고, `/mobile/scan` 이하 라우트는 `BarcodeScannerPanel` 내부 라우팅으로만 진입 가능하다(하단 탭바에는 링크가 없음).
@@ -10,7 +10,9 @@
 ## 화면 플로우
 ```
 [하단 탭: 작업검수] /mobile (홈, 탭 UI: 작업문서스캔 → 제품검수 → 완료)
-[하단 탭: 작업현황] /mobile/status  (읽기 전용 현황 리스트, 연/월 select로 조회)
+[하단 탭: 작업현황] /mobile/status  (읽기 전용 현황 리스트, 연/월 select로 조회 + 검수완료·미완료 작업 "완료검수" 버튼)
+   └─ 검수완료(inspectionStatus="completed") + 작업상태 미완료(displayStatus!=="complete")인 작업의 "완료검수" 버튼
+      → /mobile/complete/[workId] (완료검수, 신규. 아래 "완료검수 화면" 참고)
 [하단 탭: 부자재등록] /mobile/material-photo (OCR/비전 등록)
 [하단 탭: 설정] /mobile/settings (현재 사용자 정보 + 부서/화주 설정)
 
@@ -42,15 +44,18 @@
 
 ### 2. `app/mobile/page.tsx` (홈, `MobileInspectionWorkflowPage`)
 - 경로: `/mobile`
-- 주요 컴포넌트: `CloudButton`, `CuteCard`, `OcrInspectionCard`(`components/mobile/OcrInspectionCard.tsx`), `useMobileInspectionRows`, `useMobileMaterials`
+- 주요 컴포넌트: `CloudButton`, `CuteCard`, `OcrInspectionCard`(`components/mobile/OcrInspectionCard.tsx`), `CompletionPhotoCard`(`components/mobile/CompletionPhotoCard.tsx`, 완료검수 화면과 공유), `ProductChecklist`(`components/mobile/ProductChecklist.tsx`, 신규, 완료검수 화면과 공유), `useMobileInspectionRows`, `useMobileMaterials`
 - 하는 일: `tab` 상태(`scan`/`product`/`done`)로 3단계 진행. scan 탭에서 문서번호를 입력하고 "스캔"을 누르면 `handleScan`이 `rows`(작업검수 데이터) 중 `document_no`가 일치하는 행을 찾는다. 매칭된 작업의 `inspections`가 0건이면(검수 행이 아직 한 번도 만들어지지 않은 기존 작업) 화면에 "검수 대상 준비 중..." 문구를 보여주며 `POST /api/work-inspection/setup`(body `{ workId }`)을 호출해 검수 행을 lazy 생성하고, 성공하면 `refetch()`로 목록을 갱신한 뒤 스캔을 완료 처리한다(실패 시 에러 메시지만 표시하고 스캔 미완료 상태로 남는다). `inspections`가 이미 있으면 이 단계를 건너뛰고 바로 `scannedRow`로 저장한다. product 탭에서는 대상(`target`)별로 `scannedRow.inspections`에서 같은 id의 검수 항목을 찾아 `method`를 확인한다.
+  - **제품목록**: 부자재 카드들 위에 `ProductChecklist`(코드/제품명/LOT/사용수량 + 확인 체크박스, `GET /api/work-status/detail`에서 조회)를 항상 먼저 보여준다. 화면 로컬 상태일 뿐이며 저장/판정에는 관여하지 않는다.
   - **`method === "OCR"`인 대상**: `OcrInspectionCard`를 렌더링해 실동작 OCR 검수를 수행한다(아래 "OCR 검수 카드" 참고). 체크리스트 3개 체크는 요구하지 않는다.
-  - **그 외(비전 등)**: 제품코드/제품명/LOT 체크 3개를 모두 체크해야(`isProductReady`) 사진 촬영 input이 활성화된다. 촬영하면 `browser-image-compression`으로 압축(0.8MB/1600px, 품질 0.82) 후 `checks`(3개 체크값)와 함께 `POST /api/work-inspection/product`로 실제 업로드·저장한다(작업검수 8단계 스펙 ②). 성공하면 서버 응답의 `resultSummary`를 카드에 "서버 저장 완료"로 표시하고 `refetch()`를 호출한다. **예외**: `scannedRow.inspections`가 비어 있어 실제 `work_inspections` 행이 없는 대상(작업마스터에 부자재 구성이 없는 등)은 저장할 검수 행 자체가 없으므로 여전히 `storagePath`(예: `inspection-images/{workId}/products/{materialCode}-{fileName}`) 문자열만 로컬 상태에 채우는 로컬 전용 완료 처리를 한다(서버 호출 없음).
-    - **확인요청**: 실제 `work_inspections` 행이 있는 대상(`inspection`이 존재)에는 체크리스트 위에 "확인요청" 버튼이 항상 보인다(`inspection.status === "admin_requested"`일 때만 숨김). `window.confirm` → `window.prompt`(선택, 사유) → `PATCH /api/work-inspection`(body: `{ workId, action: { type: "request_review", inspectionId, reason?, label: "현장 확인요청" } }`)를 호출하고, 성공 시 `refetch()`로 상태를 갱신한다. `admin_requested` 상태가 되면 상단 배지가 "확인요청"으로 바뀌고 사진 촬영 input이 비활성화되며(관리자 처리 전 덮어쓰기 방지) "관리자 확인 대기 중입니다" 안내가 표시된다. 검수 행이 없는 예외 대상(로컬 전용 처리)에는 이 버튼이 없다(요청할 서버 대상이 없으므로).
-- 완료 판정(`completedCount`): OCR 대상은 최신 `inspection.status`가 `passed` 또는 `admin_approved`일 때 완료로 집계하고, 그 외 대상은 기존 `isProductSaved`(체크 3개 + storagePath 존재) 기준을 그대로 사용한다. 단 `inspection.status === "admin_requested"`인 대상은 방식과 무관하게 완료 집계에서 제외한다(이전에 로컬에서 저장 완료 처리했더라도 확인요청 중이면 미완료로 취급).
-- 다음 화면 조건: 별도 라우트 이동은 없다(같은 페이지 내 탭 전환). "검수시작" 버튼은 `scannedRow`와 `targets.length > 0`일 때 활성화되어 product 탭으로 전환. "제품검수 완료" 버튼은 `targets` 전원이 완료 상태일 때 활성화되어 done 탭으로 전환. done 탭의 "다음 작업문서 스캔"은 상태를 초기화하고 scan 탭으로 복귀.
+  - **그 외(비전 등)**: `CompletionPhotoCard`를 `materialId` prop과 함께 렌더링한다. 마운트 시 `GET /api/material-master/registration?material_id=`로 등록된 비전 참고 사진(method="VISION")을 먼저 보여주고(참고용, 자동 판정 아님), 체크리스트 없이 촬영하면 `browser-image-compression`으로 압축(0.8MB/1600px, 품질 0.82) 후 `POST /api/work-inspection/completion-photo`로 업로드·저장한다(즉시 합격 처리). 저장 여부는 서버 진실값인 `inspection.status`(`passed`/`admin_approved`)를 그대로 따른다. **예외**: `scannedRow.inspections`가 비어 있어 실제 `work_inspections` 행이 없는 대상(작업마스터에 부자재 구성이 없는 등)은 `LocalOnlyProductCard`(페이지 내부 컴포넌트)로 체크리스트+사진을 로컬 상태로만 표시한다(서버 호출 없음).
+    - **확인요청**: `CompletionPhotoCard`는 `inspection.status !== "admin_requested"`이면 항상 "확인요청" 버튼을 보여준다. `window.confirm` → `window.prompt`(선택, 사유) → `PATCH /api/work-inspection`(body: `{ workId, action: { type: "request_review", inspectionId, reason?, label: "현장 확인요청" } }`)를 호출하고, 성공 시 `refetch()`로 상태를 갱신한다. `admin_requested` 상태가 되면 상단 배지가 "확인요청"으로 바뀌고 촬영 input이 비활성화되며(관리자 처리 전 덮어쓰기 방지) "관리자 확인 대기 중입니다" 안내가 표시된다. `LocalOnlyProductCard`(로컬 전용 처리)에는 이 버튼이 없다(요청할 서버 대상이 없으므로).
+  - **부자재 번호 공유(반복 표시 방지, 신규)**: 같은 부자재가 OCR+비전을 모두 요구하면 카드가 2장(검수 방식별)이 되는데, `materialIndexByTargetId`(부자재 단위로 미리 계산한 순번)를 두 카드 모두에 전달해 "부자재 N · OCR"/"부자재 N · 비전"처럼 **같은 번호**로 보이게 한다(서로 다른 항목처럼 오해하지 않도록).
+- 완료 판정(`completedCount`): 모든 대상(OCR·비전 공통)을 `inspection.status`가 `passed` 또는 `admin_approved`인지로 집계한다(서버 진실값 하나로 통일). 검수 행이 없는 로컬 전용 대상은 완료 집계에서 항상 제외한다.
+- 상단 배지 라벨(`scanLabel`)은 스캔 여부/상태에 따라 바뀐다: 스캔 전 "작업검수" → 스캔했고 시작검수 대상이면 "작업전 검수" → 완료검수 대상(아래 조건)이면 "완료검수".
+- 다음 화면 조건: 문서번호 입력칸은 기본값이 빈 문자열이다(과거 `rows[0]`으로 자동 채우던 버그를 제거함, 아래 "주의사항" 참고). **스캔된 작업의 `work.status === "in_progress"`이고(=새 상태 모델에서 시작검수 완료 시 시스템이 자동 전이한 상태) 시작검수 집계(`scannedRow.inspections`, stage="start")도 `getInspectionAggregateStatus`로 `completed`이면**(관리자 웹의 수동 "검수완료" 버튼으로 상태만 앞서 나간 예외를 방어하기 위해 집계도 함께 확인) 버튼 라벨이 "검수시작" 대신 **"완료검수"**로 바뀌고, 클릭 시 같은 페이지 내 탭 전환이 아니라 `/mobile/complete/{workId}`(완료검수 화면, `docs/menus/work-inspection.md`의 "완료검수" 절 참고)로 라우팅한다(활성화 조건도 `targets.length > 0` 요구 없이 `scannedRow`만 있으면 된다). 조건을 만족하지 않는 일반적인 경우(대기/보류/취소 상태 등)는 기존과 동일하게 "검수시작" 버튼이 `scannedRow`와 `targets.length > 0`일 때 활성화되어 product 탭으로 전환된다. "제품검수 완료" 버튼은 `targets` 전원이 완료 상태일 때 활성화되어 done 탭으로 전환. done 탭의 "다음 작업문서 스캔"은 상태를 초기화하고 scan 탭으로 복귀.
 
-**검수 카드가 뜨는 조건**: product 탭의 검수 대상(`target`)은 `scannedRow.inspections`(작업검수와 동일한 `work_inspections`)에서 온다. 이 행은 작업등록(등록/배정 시점) 또는 위에서 설명한 모바일 스캔 시점 lazy 생성으로 만들어진다(`docs/menus/work-inspection.md`의 "검수 행 생성 출처" 참고). **작업마스터에 부자재 구성이 없는 작업만 `inspections`가 계속 비어 있어 product 탭에 아무 카드도 뜨지 않는다**("검수시작" 버튼도 `targets.length > 0`이 아니면 비활성화) — 배정 전이라도 스캔 시점에 검수 행이 채워지므로 더 이상 "배정되지 않아서" 카드가 안 뜨는 경우는 없다. `method === "OCR"`인 항목만 `OcrInspectionCard`(실동작)로 렌더링되고, 그 외(`VISION` 등)는 기존 체크리스트+사진 mock UI로 렌더링된다.
+**검수 카드가 뜨는 조건**: product 탭의 검수 대상(`target`)은 `scannedRow.inspections`(작업검수와 동일한 `work_inspections`)에서 온다. 이 행은 작업등록(등록/배정 시점) 또는 위에서 설명한 모바일 스캔 시점 lazy 생성으로 만들어진다(`docs/menus/work-inspection.md`의 "검수 행 생성 출처" 참고). **작업마스터에 부자재 구성이 없는 작업만 `inspections`가 계속 비어 있어 product 탭에 아무 카드도 뜨지 않는다**("검수시작" 버튼도 `targets.length > 0`이 아니면 비활성화) — 배정 전이라도 스캔 시점에 검수 행이 채워지므로 더 이상 "배정되지 않아서" 카드가 안 뜨는 경우는 없다. `method === "OCR"`인 항목만 `OcrInspectionCard`(실동작)로 렌더링되고, 그 외(`VISION` 등)는 `CompletionPhotoCard`(비전 참고 사진 표시 + 촬영·압축·저장, 실동작)로 렌더링된다.
 
 #### OCR 검수 카드 (`components/mobile/OcrInspectionCard.tsx`)
 - 부자재마스터에 등록된 **기준 사진**을 먼저 보여준 뒤 촬영하는 실동작 카드. 마운트 시 `GET /api/material-master/registration?material_id={inspection.material_id}`를 호출해 `method === "OCR"`이고 `imageUrls.length > 0`인 region을 찾는다.
@@ -108,8 +113,21 @@
 ### 8. `app/mobile/status/page.tsx`
 - 경로: `/mobile/status`
 - 주요 컴포넌트: `StatusBadge`
-- 하는 일: `useMobileWorkStatusRows`로 작업 목록을 불러온 뒤, 상단 년도/월 `select` 2개(기본값은 `lib/utils/date.ts`의 `getCurrentYearMonth()` = 오늘 기준 연/월, select 스타일은 `/mobile/settings`의 select 패턴을 따름)로 선택한 연/월과 `work_date`가 일치하는 작업만 클라이언트에서 필터해 표시한다. 연도 선택지는 웹 `work-status/page.tsx`와 같은 방식(조회된 rows에 등장하는 연도 + 현재 연도 합집합, 내림차순)으로 구성되고, 월은 01~12 고정이며, 연/월 일치 판정은 `lib/utils/date.ts`의 `isYearMonthMatch`를 웹과 공유해서 쓴다. 카운트 카드는 각 행의 `displayStatus`(`GET /api/work-status`가 `lib/constants/status.ts`의 `getDisplayStatus`로 계산해 내려주는 값)를 기준으로 4종 집계한다: 진행(`waiting`+`progress`) / 확인필요(`hold`) / 완료(`complete`, `passed` 포함) / 취소(`cancel`). 네 카드 합계는 선택된 연/월로 필터된 전체 건수와 같다. 각 목록 카드 우측 상단에는 기존 작업상태 `StatusBadge` 아래에 검수 집계 상태 배지(검수완료/검수대기/검수취소, 웹 `work-status/page.tsx`와 동일한 라벨·`row.inspectionStatus` 값, `docs/menus/work-status.md`의 "검수 집계 상태" 참고)를 작게 표시한다(카운트 카드 로직과는 무관). 읽기 전용이며 목록 항목 클릭 동작은 없다.
+- 하는 일: `useMobileWorkStatusRows`로 작업 목록을 불러온 뒤, 상단 년도/월 `select` 2개(기본값은 `lib/utils/date.ts`의 `getCurrentYearMonth()` = 오늘 기준 연/월, select 스타일은 `/mobile/settings`의 select 패턴을 따름)로 선택한 연/월과 `work_date`가 일치하는 작업만 클라이언트에서 필터해 표시한다. 연도 선택지는 웹 `work-status/page.tsx`와 같은 방식(조회된 rows에 등장하는 연도 + 현재 연도 합집합, 내림차순)으로 구성되고, 월은 01~12 고정이며, 연/월 일치 판정은 `lib/utils/date.ts`의 `isYearMonthMatch`를 웹과 공유해서 쓴다. 카운트 카드는 각 행의 `displayStatus`(`GET /api/work-status`가 `lib/constants/status.ts`의 `getDisplayStatus`로 계산해 내려주는 값)를 기준으로 4종 집계한다: 진행(`waiting`+`progress`) / 확인필요(`hold`) / 완료(`complete`, `passed` 포함) / 취소(`cancel`). 네 카드 합계는 선택된 연/월로 필터된 전체 건수와 같다. 각 목록 카드 우측 상단에는 기존 작업상태 `StatusBadge` 아래에 검수 집계 상태 배지(검수완료/검수대기/검수취소, 웹 `work-status/page.tsx`와 동일한 라벨·`row.inspectionStatus` 값, `docs/menus/work-status.md`의 "검수 집계 상태" 참고)를 작게 표시한다(카운트 카드 로직과는 무관). **`row.work.status === "in_progress"`(작업현황 상태값이 "진행")이면** 카드 하단에 "완료검수" 버튼(`/mobile/complete/{workId}`로 이동)이 나타난다 — 홈 화면(`/mobile`)의 "완료검수" 버튼 전환 조건과 동일하다(`docs/menus/work-inspection.md`의 "완료검수 진입 조건" 참고). 새 상태 모델에서 "진행"은 시작검수 완료 시 시스템이 자동으로만 설정하므로 이 조건은 사실상 "시작검수 완료"와 같다(보류/취소 상태의 작업은 시작검수가 끝났어도 완료검수 버튼이 보이지 않는다). 목록 자체는 읽기 전용이며 카드 클릭 동작은 없다.
 - 다음 화면 조건: 없음(다른 화면으로 이동하는 버튼/링크 없음).
+
+### 8-1. `app/mobile/complete/[workId]/page.tsx` (완료검수, 신규)
+- 경로: `/mobile/complete/[workId]`
+- 주요 컴포넌트: `CompletionPhotoCard`(`components/mobile/CompletionPhotoCard.tsx`, 완료제품사진 + 부자재 비전 항목 공용), `OcrInspectionCard`/`ProductChecklist`(시작검수와 완전히 동일한 컴포넌트를 그대로 재사용)
+- 하는 일: `/mobile/status`에서 상태값이 "진행"인 작업의 "완료검수" 버튼으로 진입한다(아래 "완료검수 진입 조건" 참고). `useMobileCompletionInspectionRows()`(`GET /api/work-inspection?...&stage=complete`)로 해당 작업의 완료검수 행을 조회하고, 0건이면 `POST /api/work-inspection/setup`(`{ workId, stage: "complete" }`)을 호출해 lazy 생성한 뒤 재조회한다. 작업상태가 "진행"이 아니면 안내 문구만 보여주고 검수 UI를 렌더링하지 않는다.
+  - **완료제품사진**(`method: "PRODUCT"`, `material_id` 없음, 항상 1건, 필수, 시작검수에는 없는 유일한 추가 항목): `CompletionPhotoCard`로 체크리스트 없이 사진 1장을 압축 후 촬영하면 `POST /api/work-inspection/completion-photo`로 즉시 저장·합격 처리한다.
+  - **부자재 OCR 항목**: `OcrInspectionCard`를 시작검수(홈 화면)와 동일하게 그대로 재사용한다(위치조정·크롭·`POST /api/work-inspection/ocr` 실동작 검수).
+  - **부자재 비전 항목**: `CompletionPhotoCard`를 `materialId` prop과 함께 시작검수(홈 화면)와 동일하게 그대로 재사용한다(비전 참고 사진 표시 + 체크리스트 없이 사진 압축 후 `POST /api/work-inspection/completion-photo` 저장) — **완료검수 프로세스는 이 항목이 시작검수와 완전히 동일하다는 점이 핵심**이며, 완료제품사진 1개만 추가된 구조다.
+  - **제품목록**: `ProductChecklist`를 완료제품사진 카드 바로 아래에 동일하게 보여준다(시작검수와 같은 컴포넌트, 화면 로컬 확인용).
+  - 각 항목에 "확인요청" 버튼이 있으며 기존 `PATCH /api/work-inspection`(`request_review`)를 그대로 재사용한다(시작검수와 동일한 확인요청/관리자승인 로직).
+- 다음 화면 조건: 모든 항목(완료제품사진 포함)이 `passed`/`admin_approved`가 되면 서버가 작업상태를 자동으로 "완료"로 전이한다(`maybeAdvanceWorkStatus`, `docs/menus/work-status.md`의 "자동 상태 전이" 참고). "완료 확인하고 나가기" 버튼은 이 시점에 활성화되며, 클릭 시 상태를 직접 바꾸지 않고 `refetch()`로 최신 상태를 다시 불러온 뒤 `/mobile/status`로 이동한다(수동 `completed` PATCH는 서버가 거부하므로 더 이상 호출하지 않는다).
+- **완료검수 진입 조건**(`workInProgress && startInspectionDone`): `work.status === "in_progress"`이고, 방어적으로 시작검수 집계도 다시 확인한다(`useMobileInspectionRows()`를 별도로 조회). 관리자 웹의 "검수완료" 버튼은 실제 검수 완료 여부와 무관하게 `work.status`를 `in_progress`로 바꿀 수 있는 오버라이드가 남아있어 `work.status`만으로는 완전히 신뢰할 수 없기 때문이다. 홈 화면(`/mobile`)의 "완료검수" 버튼 전환 조건, `/mobile/status`의 "완료검수" 버튼 노출 조건과 모두 동일하게 "상태값이 진행"을 기준으로 한다.
+- **의존성**: 이 화면 전체가 `work_inspections.stage` 컬럼(적용 완료, 상세는 `docs/menus/work-inspection.md`의 "완료검수" 절 참고)에 의존한다. 유니크 제약도 `(work_id, material_id, method, stage)`로 재생성돼 있어 같은 부자재의 시작검수 행과 완료검수 행이 동시에 존재할 수 있다.
 
 ### 9. `app/mobile/settings/page.tsx`
 - 경로: `/mobile/settings`
@@ -123,7 +141,14 @@
 |---|---|---|
 | `useMobileWorkStatusRows()` | `GET /api/work-status?department_id&shipper_id` | `works` (+ `work-master-supabase-repository`가 조회하는 워크마스터 테이블) |
 | `useMobileInspectionRows()` | `GET /api/work-inspection?department_id&shipper_id` | `works`, `work_inspections`, `inspection_images`, `admin_review_requests` |
+| `useMobileCompletionInspectionRows()`(신규) | `GET /api/work-inspection?department_id&shipper_id&stage=complete` | 위와 동일 테이블, `work_inspections.stage="complete"`만 |
 | `useMobileMaterials()` | `GET /api/material-master?department_id&shipper_id[&material_id]` | `material_masters` |
+
+완료검수 화면(`/mobile/complete/[workId]`, 신규)이 추가로 호출하는 API:
+- `POST /api/work-inspection/setup` — `{ workId, stage: "complete" }`. 상세는 `docs/menus/work-inspection.md`의 "검수 대상 lazy 생성 API" 참고.
+- `POST /api/work-inspection/completion-photo` — `inspectionId`, `workId`, `image`(압축된 촬영 사진)를 FormData로 전송. 상세는 `docs/menus/work-inspection.md`의 "완료검수" 절 참고.
+- `POST /api/work-inspection/ocr`, `PATCH /api/work-inspection`(`request_review`) — 부자재 OCR 항목에 시작검수(`OcrInspectionCard`)와 동일하게 사용.
+- (완료 처리 자체는 API 호출이 아니다 — 마지막 완료검수 항목 저장/승인 시 서버가 자동으로 상태를 전이한다. "완료 확인하고 나가기" 버튼은 `refetch()`만 호출한다.)
 
 홈(`/mobile`)의 문서 스캔(`handleScan`)이 검수 행이 없는 작업에 대해서만 추가로 호출하는 API:
 - `POST /api/work-inspection/setup` — `{ workId }`를 JSON으로 전송. 상세 동작은 `docs/menus/work-inspection.md`의 "검수 대상 lazy 생성 API" 참고.
@@ -134,7 +159,9 @@
 - `PATCH /api/work-inspection`(`action.type: "request_review"`) — "확인요청" 버튼(진행 중 언제든) 또는 "검수 취소" 버튼(실패 상태) 클릭 시 호출한다. 전자는 `label: "현장 확인요청"`, 후자는 `label` 생략(서버 기본값)으로만 다르다. 상세 동작은 `docs/menus/work-inspection.md`의 "PATCH `request_review`" 참고.
 
 홈(`/mobile`)의 `method`가 `OCR`이 아닌 제품검수 카드가 추가로 호출하는 API:
-- `POST /api/work-inspection/product` — `inspectionId`, `workId`, `checks`(JSON), `image`(압축된 촬영 사진)를 FormData로 전송. 상세 동작은 `docs/menus/work-inspection.md`의 "제품검수 제출 API" 참고. `scannedRow.inspections`가 비어 실제 검수 행이 없는 예외 케이스는 이 API를 호출하지 않고 로컬 완료 처리만 한다.
+- `GET /api/material-master/registration?material_id=` — 부자재 비전 참고 사진 미리보기 조회(`CompletionPhotoCard`의 `materialId` prop, OCR 검수 카드와 동일 라우트 재사용).
+- `POST /api/work-inspection/completion-photo` — `inspectionId`, `workId`, `image`(압축된 촬영 사진)를 FormData로 전송(체크리스트 없음). 상세 동작은 `docs/menus/work-inspection.md`의 "완료검수" 절 참고. `scannedRow.inspections`가 비어 실제 검수 행이 없는 예외 케이스는 이 API를 호출하지 않고 로컬 완료 처리만 한다.
+- `GET /api/work-status/detail?work_id=` — `ProductChecklist`의 제품목록(코드/제품명/LOT/사용수량) 조회.
 - `PATCH /api/work-inspection`(`action.type: "request_review"`) — 실제 검수 행이 있는 대상의 "확인요청" 버튼 클릭 시 호출한다(`label: "현장 확인요청"`). OCR 검수 카드와 동일한 액션을 재사용한다.
 
 부자재등록 화면(`material-photo`)이 추가로 호출하는 API:
@@ -160,10 +187,10 @@
 
 ## 주의사항
 - 두 개의 검수 플로우(홈 탭 UI 방식 vs `/mobile/scan` → `/mobile/inspection` 방식)가 코드상 동시에 존재하며 하단 탭바는 홈 플로우만 연결한다. `/mobile/scan` 계열은 `BarcodeScannerPanel`을 통해서만 진입 가능하고 다른 화면에서 이 경로로 가는 링크가 없다.
-- `app/mobile/scan/page.tsx`와 `BarcodeScannerPanel`, 홈 화면 스캔 UI 모두 실제 카메라 바코드 인식은 미구현이며 문서번호 텍스트 입력으로만 동작한다(코드 주석: `TODO: BarcodeDetector 또는 @zxing/browser 카메라 스캐너 연결`).
+- `app/mobile/scan/page.tsx`와 `BarcodeScannerPanel`, 홈 화면 스캔 UI 모두 실제 카메라 바코드 인식은 미구현이며 문서번호 텍스트 입력으로만 동작한다(코드 주석: `TODO: BarcodeDetector 또는 @zxing/browser 카메라 스캐너 연결`). 문서번호 입력칸은 `BarcodeScannerPanel`(`components/mobile/BarcodeScannerPanel.tsx`)도 홈 화면과 동일하게 항상 빈 값으로 시작한다(과거 `rows[0]`로 자동 채우던 동일한 버그를 함께 제거함).
 - `app/mobile/inspection/[workId]/page.tsx`의 재검수/관리자 요청/촬영 검수 버튼과 `ImageUploadCard`는 `toast` 알림만 발생시키는 정적 UI이며, 클릭해도 검수 상태나 Supabase 데이터가 바뀌지 않는다(홈 화면의 OCR 검수 카드와는 별개의 미구현 플로우다).
 - `SignaturePad.onSave`는 서명 이미지를 어디에도 저장하지 않고 즉시 다음 페이지로 이동한다. 안내 문구의 "signatures 버킷 저장"은 아직 코드로 연결되어 있지 않다.
-- 홈 화면(`/mobile`)의 `method`가 `OCR`이 아닌 제품 사진 촬영은 실제 `work_inspections` 행이 있으면 `browser-image-compression` 압축 후 `POST /api/work-inspection/product`로 실제 저장되고("서버 저장 완료" 표시), `scannedRow.inspections`가 비어 저장할 검수 행이 없는 예외 케이스만 `storagePath` 문자열을 만드는 로컬 전용 완료 처리로 남아있다. `method === "OCR"`인 대상은 `OcrInspectionCard`가 실제로 위치조정·크롭·업로드·판정·저장까지 수행한다(위 "OCR 검수 카드" 참고).
+- 홈 화면(`/mobile`)의 `method`가 `OCR`이 아닌 부자재 사진 촬영은 실제 `work_inspections` 행이 있으면 `browser-image-compression` 압축 후 `POST /api/work-inspection/completion-photo`로 실제 저장되고(저장 성공 안내 표시), `scannedRow.inspections`가 비어 저장할 검수 행이 없는 예외 케이스만 `storagePath` 문자열을 만드는 로컬 전용 완료 처리로 남아있다. `method === "OCR"`인 대상은 `OcrInspectionCard`가 실제로 위치조정·크롭·업로드·판정·저장까지 수행한다(위 "OCR 검수 카드" 참고).
 - 비전 등록의 일치율(`getVisionSignature`/`compareVisionSignatures`)은 클라이언트에서 24x32 그레이스케일 픽셀 차이로 계산하는 근사값이며, 서버로 전송되거나 저장 가능 여부를 막는 검증으로 쓰이지 않는다(참고용 표시일 뿐 저장 버튼 활성화 조건이 아님).
 - OCR 등록은 `OCR_PROVIDER=google-vision` 환경변수와 `GOOGLE_CLOUD_PROJECT_ID`/`GOOGLE_CLOUD_CLIENT_EMAIL`/`GOOGLE_CLOUD_PRIVATE_KEY`가 모두 설정되어야 실제 Google Vision을 호출한다. 하나라도 없으면 `/api/ocr`는 `canVerify: false`, `extractedText: ""`인 mock 응답을 반환한다. 이 경우 프론트(`OcrRegistration`)는 검토 완료(`ocrReviewed`) 상태에서 저장을 허용하며, 화면에 "⚠️ OCR 서버 검증 불가 — 텍스트 검증 없이 저장됩니다" 경고 배지를 표시한다(이때 검증값은 빈 문자열로 저장됨). **부자재코드와 인식 텍스트의 일치(`matched`) 여부는 저장 조건이 아니다** — `canVerify`가 true인 정상 환경에서는 `ocrReviewed && 인식 텍스트가 비어있지 않음`이면 저장 버튼이 활성화되고, `matched`는 "코드와 일치"/"코드와 다름" 참고용 뱃지로만 노출된다. 저장되는 검증값은 항상 실제 인식된 텍스트(`recognizedText`)이며 부자재코드로 강제 치환되지 않는다.
 - `lib/state/work-flow-store.ts`, `lib/providers/inspection-provider.ts`는 모바일 화면 어디서도 사용되지 않는다(코드 검색 기준). 향후 모바일 검수 플로우에 실제 저장 로직을 연결할 때 이 두 파일을 재사용할지, 새로 만들지 판단이 필요하다.
