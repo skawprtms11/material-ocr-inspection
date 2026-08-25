@@ -33,12 +33,14 @@ function statusTone(status?: string) {
 }
 
 // 체크리스트 없이 사진 1장을 촬영하면 압축 후 즉시 서버에 저장·합격 처리한다.
-// "완료제품사진"(work 단위, material 없음)과 부자재 비전검수 항목(시작검수·완료검수 공통)이 이 컴포넌트를
-// 공유한다. materialId가 있으면 부자재등록에서 저장된 비전 참고 이미지를 먼저 보여준다(마스터에 등록된
-// 기준 사진과 비교해 촬영할 수 있도록 안내 목적, 자동 판정에는 쓰지 않는다).
+// 부자재 비전검수 항목(작업전검수·완료검수 공통)이 이 컴포넌트를 사용한다. materialId가 있으면
+// 부자재등록에서 저장된 비전 참고 이미지를 먼저 보여준다(마스터에 등록된 기준 사진과 비교해 촬영할 수 있도록
+// 안내 목적, 자동 판정에는 쓰지 않는다). eyebrow는 카드 상단 소제목으로, 작업전검수 화면에서 "완료검수"가
+// 잘못 표시되지 않도록 호출부가 단계 라벨을 직접 지정한다.
 export function CompletionPhotoCard({
   workId,
   inspection,
+  eyebrow = "검수",
   title,
   subtitle,
   materialId,
@@ -46,6 +48,7 @@ export function CompletionPhotoCard({
 }: {
   workId: string;
   inspection: InspectionWithVerificationDto;
+  eyebrow?: string;
   title: string;
   subtitle?: string;
   materialId?: string;
@@ -117,12 +120,12 @@ export function CompletionPhotoCard({
       const response = await fetch("/api/work-inspection/completion-photo", { method: "POST", body: formData });
       const payload = (await response.json()) as CompletionPhotoResponse;
 
-      if (!response.ok) throw new Error(payload.error ?? "완료검수 사진 저장에 실패했습니다.");
+      if (!response.ok) throw new Error(payload.error ?? "검수 사진 저장에 실패했습니다.");
 
       setResultSummary(payload.resultSummary ?? "저장 완료");
       await onSubmitted();
     } catch (error) {
-      setUploadError(error instanceof Error ? error.message : "완료검수 사진 저장에 실패했습니다.");
+      setUploadError(error instanceof Error ? error.message : "검수 사진 저장에 실패했습니다.");
     } finally {
       setUploading(false);
     }
@@ -162,7 +165,7 @@ export function CompletionPhotoCard({
     <CuteCard className="p-4">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-black text-violet-600">완료검수</p>
+          <p className="text-xs font-black text-violet-600">{eyebrow}</p>
           <h3 className="mt-1 text-lg font-black text-slate-800">{title}</h3>
           {subtitle && <p className="mt-1 text-xs font-bold text-slate-400">{subtitle}</p>}
         </div>

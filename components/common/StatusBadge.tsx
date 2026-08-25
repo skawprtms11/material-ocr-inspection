@@ -1,10 +1,12 @@
-import { adminReviewStatusLabels, inspectionStatusLabels, workStatusLabels } from "@/lib/constants/status";
-import type { AdminReviewStatus, InspectionStatus, WorkStatus } from "@/lib/types/domain";
+import { adminReviewStatusLabels, getWorkStatusLabel, inspectionStatusLabels } from "@/lib/constants/status";
+import type { AdminReviewStatus, InspectionStatus, WorkInspectionStage, WorkStatus } from "@/lib/types/domain";
 import { cn } from "@/lib/utils/cn";
 
 type StatusBadgeProps = {
   status: WorkStatus | InspectionStatus | AdminReviewStatus;
   type?: "work" | "inspection" | "admin";
+  // type="work"이고 확인요청 중일 때만 의미가 있다. 라벨을 "검수확인중"/"완료확인중"으로 바꾼다.
+  reviewStage?: WorkInspectionStage;
   className?: string;
 };
 
@@ -28,13 +30,13 @@ const toneMap: Record<string, string> = {
   rejected: "bg-rose-100 text-rose-700 ring-rose-200"
 };
 
-export function StatusBadge({ status, type = "work", className }: StatusBadgeProps) {
+export function StatusBadge({ status, type = "work", reviewStage, className }: StatusBadgeProps) {
   const label =
     type === "admin"
       ? adminReviewStatusLabels[status as AdminReviewStatus]
       : type === "inspection"
         ? inspectionStatusLabels[status as InspectionStatus]
-        : workStatusLabels[status as WorkStatus];
+        : getWorkStatusLabel(status as WorkStatus, reviewStage);
 
   return (
     <span className={cn("inline-flex rounded-full px-3 py-1 text-xs font-bold ring-1", toneMap[status], className)}>

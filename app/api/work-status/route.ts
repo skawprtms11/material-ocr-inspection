@@ -5,7 +5,7 @@ import { fetchWorkMasterData } from "@/lib/repositories/work-master-supabase-rep
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDisplayStatus } from "@/lib/constants/status";
 import { getInspectionAggregateStatus, getInspectionCompletedAt } from "@/lib/server/inspection-status";
-import type { InspectionStatus, Work, WorkStatus } from "@/lib/types/domain";
+import type { InspectionStatus, Work, WorkInspectionStage, WorkStatus } from "@/lib/types/domain";
 import type { UpdateWorkStatusResponse, WorkStatusDataResponse, WorkStatusRowDto } from "@/lib/types/work-status-api";
 
 type DbRow = Record<string, unknown>;
@@ -49,11 +49,14 @@ function mockRows(departmentId: string, shipperId: string): WorkStatusRowDto[] {
   return works.map((work, index) => {
     const workMaster = workMasters.find((item) => item.id === work.work_master_id);
     const inspectionStatuses = appRepository.listInspections(work.id).map((inspection) => inspection.status);
+    // mock 데이터에는 stage 개념이 없어 확인요청은 항상 시작검수("검수확인중")로 본다.
+    const mockReviewStage = inspectionStatuses.includes("admin_requested") ? ("start" as WorkInspectionStage) : undefined;
 
     return {
       work,
       displayStatus: getDisplayStatus(work.status),
       inspectionStatus: getInspectionAggregateStatus(inspectionStatuses),
+      reviewStage: mockReviewStage,
       workType: workTypeOptions[index % workTypeOptions.length],
       productCode: workMaster?.code ?? "-",
       productName: workMaster?.name ?? "-",
@@ -104,6 +107,7 @@ export async function GET(request: NextRequest) {
     const works = ((data ?? []) as DbRow[]).map((row) => toWork(row));
     const workIds = works.map((work) => work.id);
     const inspectionRowsByWorkId = new Map<string, { status: InspectionStatus; updated_at?: string }[]>();
+    const reviewStageByWorkId = new Map<string, WorkInspectionStage>();
 
     if (workIds.length > 0) {
       // "검수" 배지/작업시작 컬럼은 시작검수 전용 개념이라 완료검수(stage="complete") 행은 제외한다.
@@ -123,6 +127,25 @@ export async function GET(request: NextRequest) {
         list.push({ status, updated_at: updatedAt });
         inspectionRowsByWorkId.set(workId, list);
       }
+
+      // 확인요청 표시 단계: 위 조회는 시작검수 전용이라(검수 배지 정책) 완료검수까지 보려면 별도로 조회한다.
+      // 처리 대기 중인 확인요청(work_inspections.status="admin_requested")이 걸린 stage를 작업별로 모은다.
+      const { data: reviewRows, error: reviewError } = await supabase
+        .from("work_inspections")
+        .select("work_id, stage")
+        .eq("status", "admin_requested")
+        .in("work_id", workIds);
+
+      if (reviewError) throw reviewError;
+
+      for (const reviewRow of (reviewRows ?? []) as DbRow[]) {
+        const workId = text(reviewRow.work_id);
+        const stage: WorkInspectionStage = text(reviewRow.stage, "start") === "complete" ? "complete" : "start";
+        // 두 단계에 모두 확인요청이 있으면 더 진행된 완료검수 기준("완료확인중")으로 표시한다.
+        if (stage === "complete" || !reviewStageByWorkId.has(workId)) {
+          reviewStageByWorkId.set(workId, stage);
+        }
+      }
     }
 
     const workMasterById = new Map(masterData.workMasters.map((workMaster) => [workMaster.id, workMaster]));
@@ -134,6 +157,7 @@ export async function GET(request: NextRequest) {
         work,
         displayStatus: getDisplayStatus(work.status),
         inspectionStatus: getInspectionAggregateStatus(inspectionRows.map((row) => row.status)),
+        reviewStage: reviewStageByWorkId.get(work.id),
         workType: work.work_type ?? workTypeOptions[index % workTypeOptions.length],
         productCode: workMaster?.code ?? "-",
         productName: workMaster?.name ?? "-",

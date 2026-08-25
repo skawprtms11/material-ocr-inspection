@@ -9,9 +9,9 @@ import { EmptyCloudState } from "@/components/common/EmptyCloudState";
 import { PageHeader } from "@/components/common/PageHeader";
 import { useFilterStore } from "@/lib/state/filter-store";
 import { dashboardWorkStatusOptions } from "@/lib/state/work-flow-store";
-import { getDisplayStatus } from "@/lib/constants/status";
+import { getDisplayStatus, reviewStageLabels } from "@/lib/constants/status";
 import { getCurrentYearMonth, isYearMonthMatch } from "@/lib/utils/date";
-import type { InspectionStatus, Work, WorkStatus } from "@/lib/types/domain";
+import type { InspectionStatus, Work, WorkInspectionStage, WorkStatus } from "@/lib/types/domain";
 import type {
   DisplayWorkStatusDto,
   InspectionAggregateStatusDto,
@@ -39,6 +39,8 @@ type DisplayStatus = DisplayWorkStatusDto;
 type WorkStatusRow = {
   work: Work;
   displayStatus: DisplayStatus;
+  // 화면에 배지로 표시하지는 않는다(2026-08 제거). 작업상태 드롭다운에서 "대기"를 되돌릴 수 있는지
+  // 판정하는 가드(getSelectableStatusOptions)에만 쓴다.
   inspectionStatus: InspectionAggregateStatusDto;
   workType: string;
   productCode: string;
@@ -47,6 +49,8 @@ type WorkStatusRow = {
   quantity: number;
   workStartedAt?: string;
   completedAt?: string;
+  // 확인요청이 걸린 검수 단계(있으면 상태 라벨을 "검수확인중"/"완료확인중"으로 표시).
+  reviewStage?: WorkInspectionStage;
 };
 
 const workTypeOptions = ["리드레싱", "세트작업", "해체작업", "기타작업"];
@@ -85,12 +89,6 @@ const displayStatusMeta: Record<
     badge: "bg-emerald-100 text-emerald-700 ring-emerald-200",
     iconBox: "bg-emerald-500 text-white"
   }
-};
-
-const inspectionStatusMeta: Record<InspectionAggregateStatusDto, { label: string; badge: string }> = {
-  completed: { label: "검수완료", badge: "bg-emerald-100 text-emerald-700 ring-emerald-200" },
-  waiting: { label: "검수대기", badge: "bg-slate-100 text-slate-600 ring-slate-200" },
-  canceled: { label: "검수취소", badge: "bg-orange-100 text-orange-700 ring-orange-200" }
 };
 
 function includesText(value: string, keyword: string) {
@@ -234,6 +232,8 @@ export default function WorkStatusPage() {
                 ...row,
                 work: { ...row.work, status },
                 displayStatus: getDisplayStatus(status),
+                // 수동으로 상태를 바꾸면 더 이상 확인요청 대기 상태가 아니므로 단계 표시를 지운다.
+                reviewStage: undefined,
                 // PATCH와 동일 규칙: 완료 그룹 전환이면 완료일자를 기록하고, 아니면 초기화한다.
                 completedAt: getDisplayStatus(status) === "complete" ? new Date().toISOString() : undefined
               }
@@ -365,11 +365,10 @@ export default function WorkStatusPage() {
           <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-black text-sky-700">{filteredRows.length}건</span>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1320px] text-left text-sm">
+          <table className="w-full min-w-[1256px] text-left text-sm">
             <thead className="bg-sky-50/80 text-xs font-black text-sky-700">
               <tr>
                 <th className="whitespace-nowrap px-3 py-3">작업시작</th>
-                <th className="w-16 whitespace-nowrap px-2 py-3">검수</th>
                 <th className="w-20 whitespace-nowrap px-2 py-3">작업상태</th>
                 {["작업구분", "문서번호", "완성품코드", "완성품명", "LOT"].map((header) => (
                   <th key={header} className="px-4 py-3">
@@ -385,17 +384,15 @@ export default function WorkStatusPage() {
               {filteredRows.map((row) => {
                 const status = displayStatusMeta[row.displayStatus];
                 const Icon = status.icon;
-
-                const inspection = inspectionStatusMeta[row.inspectionStatus];
+                // 확인요청 중이면 "보류" 대신 단계별 라벨("검수확인중"/"완료확인중")을 보여준다(색/아이콘은 유지).
+                const statusLabel =
+                  row.work.status === "admin_review_requested" && row.reviewStage
+                    ? reviewStageLabels[row.reviewStage]
+                    : status.label;
 
                 return (
                   <tr key={row.work.id} className="text-slate-600 transition hover:bg-sky-50/70">
                     <td className="whitespace-nowrap px-3 py-3 font-bold">{formatShortDate(row.workStartedAt)}</td>
-                    <td className="px-2 py-3">
-                      <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-1 text-[11px] font-black ring-1 ${inspection.badge}`}>
-                        {inspection.label}
-                      </span>
-                    </td>
                     <td className="px-2 py-3">
                       <div className="relative inline-block">
                         <button
@@ -409,7 +406,7 @@ export default function WorkStatusPage() {
                           <span className={`inline-flex size-5 items-center justify-center rounded-full ${status.iconBox}`}>
                             <Icon className="size-3" />
                           </span>
-                          {status.label}
+                          {statusLabel}
                           <ChevronDown className="size-3" />
                         </button>
 

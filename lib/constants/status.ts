@@ -1,4 +1,11 @@
-import type { AdminReviewStatus, InspectionMethod, InspectionStatus, Role, WorkStatus } from "@/lib/types/domain";
+import type {
+  AdminReviewStatus,
+  InspectionMethod,
+  InspectionStatus,
+  Role,
+  WorkInspectionStage,
+  WorkStatus
+} from "@/lib/types/domain";
 import type { DisplayWorkStatusDto } from "@/lib/types/work-status-api";
 
 export const roleLabels: Record<Role, string> = {
@@ -18,6 +25,22 @@ export const workStatusLabels: Record<WorkStatus, string> = {
   passed: "합격",
   completed: "완료"
 };
+
+// 확인요청(admin_review_requested) 중인 작업의 작업현황 표시 라벨. 어느 단계에서 확인요청이 걸렸는지에 따라
+// 나뉜다: 작업전 검수 중이면 "검수확인중", 완료검수 중이면 "완료확인중". 관리자가 승인하면 검수 집계에 따라
+// 진행/완료 등 원래 상태로 돌아간다(app/api/work-inspection/route.ts의 adjustment 처리).
+export const reviewStageLabels: Record<WorkInspectionStage, string> = {
+  start: "검수확인중",
+  complete: "완료확인중"
+};
+
+// 작업현황에 표시할 작업상태 라벨. 확인요청 중이면 단계별 라벨("검수확인중"/"완료확인중")로 대체한다.
+export function getWorkStatusLabel(status: WorkStatus, reviewStage?: WorkInspectionStage) {
+  if (status === "admin_review_requested") {
+    return reviewStageLabels[reviewStage ?? "start"];
+  }
+  return workStatusLabels[status] ?? status;
+}
 
 export const inspectionStatusLabels: Record<InspectionStatus, string> = {
   pending: "대기",

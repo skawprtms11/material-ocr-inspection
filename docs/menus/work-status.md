@@ -23,7 +23,7 @@
     - **사용수량**(`usedQuantity`, 단위수량 컬럼 오른쪽): `work_master_materials.unit_quantity × 작업수량` 계산값. `unit_quantity`가 없으면 `-`.
     - 검수상태 배지는 해당 부자재의 `work_inspections`(method별)를 집계해 4단계로 표시한다(`summarizeMaterialStatus`): 관리자요청 우선(주황) > 불합격(`failed`/`retrying`, 로즈) > 합격(모든 검수가 `passed`/`admin_approved`, 초록) > 대기(그 외/검수 없음, 회색). 위 "검수 집계 상태"(작업 단위, 완료/대기/취소 3단계)와는 별개의 부자재 단위 판정이다.
     - 검수 사진 컬럼은 `material.imageUrls`(서명 URL, 1시간 유효)를 최대 높이 제한된 썸네일로 표시하며, 클릭 시 `target="_blank"`로 원본을 새 탭에 연다. 사진이 없으면 `-`.
-  - **"작업완료사진" 구역**(신규, 부자재 내역 표 바로 아래): 완료검수(작업완료 시 검수, `docs/menus/work-inspection.md`의 "완료검수" 절 참고) 결과를 표시한다. `CompletionPhotoSection` 컴포넌트가 `detail.completionPhotos`(항목/검수방식/검수상태/사진 4컬럼)를 렌더링한다. "완료제품사진"(부자재 아님, `material_id` 없음, 항목명 고정 "완료제품사진")을 항상 먼저, 그다음 부자재 완료검수 항목 순으로 보여준다. 완료검수를 아직 시작하지 않은 작업은 "완료검수 사진이 아직 없습니다" 빈 상태만 표시한다(섹션 자체는 항상 렌더링).
+  - **"작업완료사진" 구역**(신규, 부자재 내역 표 바로 아래): 완료검수(작업완료 시 검수, `docs/menus/work-inspection.md`의 "완료검수" 절 참고) 결과를 표시한다. `CompletionPhotoSection` 컴포넌트가 `detail.completionPhotos`(항목/검수방식/검수상태/사진 4컬럼)를 렌더링한다. "완료제품사진"(부자재 아님, `material_id` 없음, 항목명 고정 "완료제품사진")을 항상 먼저, 그다음 부자재 완료검수 항목 순으로 보여준다. 완료제품사진은 모바일에서 최대 3장까지 등록할 수 있어 사진 컬럼에 여러 장이 나란히 표시될 수 있다(부자재 항목은 검수 통과 사진 1장만 유지). 완료검수를 아직 시작하지 않은 작업은 "완료검수 사진이 아직 없습니다" 빈 상태만 표시한다(섹션 자체는 항상 렌더링).
 - `DetailFilterModal` — 년도/월/작업구분/문서번호/완성품코드/완성품명/LOT 검색 폼(초기화/취소/검색 버튼)
 - `departmentId`/`shipperId`가 없으면 `EmptyCloudState`
 
@@ -72,6 +72,7 @@
     - 시작검수 완료(`row.inspectionStatus === "completed"`): 보류/취소만 선택 가능(대기로 되돌릴 수 없음)
   - `dashboardWorkStatusOptions`(`lib/state/work-flow-store.ts`)는 5종 전체를 정의하지만 화면은 위 규칙으로 필터링한 부분집합만 드롭다운에 보여준다.
   - 서버(`PATCH /api/work-status`)도 동일하게 방어한다: `registered`/`on_hold`/`canceled` 외의 값(`in_progress`/`completed`/`passed` 등)으로 수동 PATCH하면 `400`을 반환한다(한국어 에러 메시지). 자동 전이는 이 API를 거치지 않고 `works` 테이블을 서버에서 직접 update하므로 이 방어에 영향받지 않는다.
+- **확인요청 승인 후 상태 복귀**: 관리자가 확인요청을 **승인**하고 해당 작업에 남은 `admin_requested` 항목이 없으면 `maybeAdvanceWorkStatus`가 검수 집계를 다시 보고 "진행"/"완료"로 전이시킨다. 전이 조건을 못 채운 경우(예: 작업전 검수 중 확인요청 → 승인, 아직 다른 부자재가 남음)에는 상태가 `admin_review_requested`로 남아 현장에서 검수를 이어갈 수 없으므로, `PATCH /api/work-inspection`(`adjustment`)이 승인 직후 상태를 다시 확인해 **"대기"(`registered`)로 되돌린다**. 재검수 요청/불합격 처리는 기존대로 `inspection_failed`로 간다.
 - **자동 상태 전이(신규, `lib/server/work-auto-status.ts`의 `maybeAdvanceWorkStatus`)**: OCR/제품검수/완료검수 사진 저장 API(성공 시) 3곳과 관리자 확인요청 승인 API(`PATCH /api/work-inspection` `adjustment`, 승인 시) 1곳, 총 4개 지점에서 각 저장/승인 직후 호출한다. 판정 순서: ①시작검수(stage="start") 집계가 `completed`가 아니면 아무것도 하지 않는다 ②시작검수가 끝났는데 완료검수(stage="complete") 집계까지 이미 `completed`면 바로 "완료"로 전이한다(완료검수 화면에서 마지막 항목을 저장/승인한 경우) ③그 외 시작검수만 끝났으면 "진행"으로 전이한다. 보류/취소/완료 상태는 이미 확정된 상태이므로 건드리지 않는다. 멱등이라 여러 지점에서 여러 번 호출돼도 안전하다.
 - 관리자 웹 작업검수 화면의 "검수완료" 버튼(`PATCH /api/work-inspection` `complete` 액션)은 이 자동 전이와 별개로 기존처럼 관리자가 수동으로 작업을 "진행"으로 강제 전환할 수 있는 오버라이드로 남아있다(변경하지 않음).
 - 화면 표시 상태(`DisplayStatus`, `getDisplayStatus`)
@@ -81,10 +82,20 @@
   - `on_hold`/`inspection_failed`/`admin_review_requested` → `hold`
   - `canceled → cancel`
   - 그 외(`passed`/`completed`) → `complete`
+- **확인요청 단계 표시(`reviewStage`)**: `admin_review_requested`는 `getDisplayStatus`상 `hold`(보류)로 묶이지만, **작업현황의 상태 라벨은 어느 단계에서 확인요청이 걸렸는지에 따라 "검수확인중"(작업전 검수) / "완료확인중"(완료검수)으로 표시한다**(색상·아이콘·카운트 카드 분류는 보류 그대로 유지).
+  - `GET /api/work-status`가 `work_inspections`에서 `status = "admin_requested"`인 행을 별도 조회해(검수 집계용 조회는 `stage="start"` 전용이라 완료검수를 못 보므로 쿼리를 하나 더 쓴다) 작업별 `reviewStage`(`"start" | "complete"`)를 계산해 `WorkStatusRowDto.reviewStage`로 내려준다. 두 단계에 모두 걸려 있으면 더 진행된 `"complete"`를 쓴다. mock 모드는 stage 개념이 없어 항상 `"start"`("검수확인중")로 본다.
+  - 라벨 문자열은 `lib/constants/status.ts`의 `reviewStageLabels` / `getWorkStatusLabel(status, reviewStage)` 한 곳에서만 정의하고, 웹 작업현황 표·모바일 `/mobile/status`의 `StatusBadge`(`reviewStage` prop)·모바일 검수 화면 헤더가 공유한다.
+  - 라벨 대체는 **실제 `work.status`가 `admin_review_requested`일 때만** 적용한다(관리자가 수동으로 보류/취소 등으로 바꾼 뒤 잔여 `reviewStage` 때문에 오표시되지 않도록, 수동 변경 시 낙관적 업데이트에서도 `reviewStage`를 비운다).
 
 ## 검수 집계 상태(`inspectionStatus`)
+> **화면 표시 없음(2026-08 변경)**: 작업현황 표(웹)와 `/mobile/status` 카드에 있던 "검수완료/검수대기/검수취소" 배지는 제거했다. 상태 컬럼이 이미 대기·진행·검수확인중·완료확인중·완료·보류·취소를 모두 표현해 중복이었고, 확인요청 중일 때 "검수취소"로 표시되는 용어 불일치가 있었기 때문이다. **`inspectionStatus` 값 자체는 계속 계산·전달되며 아래 두 기능 로직에서만 쓴다.**
+> - 작업상태 드롭다운 옵션 제한(`getSelectableStatusOptions`, 바로 아래 참고) — 시작검수가 끝난 작업을 "대기"로 되돌리지 못하게 막는 가드
+> - `GET /api/work-register`의 할당대기 목록에서 검수완료 작업 제외
+>
+> 필요해지면 배지 표시만 다시 붙이면 된다(API·DTO는 그대로 유지돼 있음).
+
 작업(work)에 연결된 `work_inspections` 행들을 아래 규칙으로 집계한다(`lib/server/inspection-status.ts`의 `getInspectionAggregateStatus`, `app/api/work-status/route.ts`와 `app/api/work-register/route.ts` GET이 공유 import). 우선순위는 취소 > 완료 > 대기.
-- **검수취소(`canceled`)**: 검수 행 중 하나라도 `status = "admin_requested"`(현장 검수취소 = 관리자 확인요청 체계)가 있으면
+- **검수취소(`canceled`)**: 검수 행 중 하나라도 `status = "admin_requested"`(현장 검수취소 = 관리자 확인요청 체계)가 있으면. 이름과 달리 실제로는 "확인요청 대기 중"을 뜻하며, 집계 대상도 시작검수(`stage="start"`)뿐이다 — 화면 배지를 제거한 이유다.
 - **검수완료(`completed`)**: 검수 행이 1개 이상이고 전부 `passed` 또는 `admin_approved`이면
 - **검수대기(`waiting`)**: 그 외 전부(검수 행 없음, `pending`/`failed`/`retrying` 포함)
 
