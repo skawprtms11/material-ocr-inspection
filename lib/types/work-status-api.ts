@@ -1,4 +1,4 @@
-import type { InspectionMethod, InspectionStatus, Work, WorkStatus } from "@/lib/types/domain";
+import type { InspectionMethod, InspectionStatus, Work, WorkInspectionStage, WorkStatus } from "@/lib/types/domain";
 
 export type DisplayWorkStatusDto = "waiting" | "progress" | "hold" | "cancel" | "complete";
 
@@ -13,6 +13,9 @@ export type WorkStatusRowDto = {
   };
   displayStatus: DisplayWorkStatusDto;
   inspectionStatus: InspectionAggregateStatusDto;
+  // 처리 대기 중인 확인요청이 걸린 검수 단계. 있으면 작업현황 상태 라벨을 "검수확인중"(start) /
+  // "완료확인중"(complete)으로 표시한다. 두 단계에 모두 걸려 있으면 더 진행된 "complete"를 쓴다.
+  reviewStage?: WorkInspectionStage;
   workType: string;
   productCode: string;
   productName: string;

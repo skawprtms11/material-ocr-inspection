@@ -439,6 +439,24 @@ export async function PATCH(request: NextRequest) {
       if (status === "approved") {
         // 진행/완료로의 전이는 실제 검수 집계를 다시 확인해 판단한다(다른 항목이 아직 안 끝났으면 그대로 유지).
         await maybeAdvanceWorkStatus(supabase, body.workId);
+
+        // 승인 후에도 상태가 "관리자 확인 대기"로 남아있다는 것은 검수가 아직 다 끝나지 않아 진행/완료 전이
+        // 조건을 못 채웠다는 뜻이다(예: 작업전 검수 중 확인요청 → 승인). 이 경우 작업현황에 계속 "검수확인중"으로
+        // 남으면 현장에서 검수를 이어갈 수 없으므로 원래의 "대기" 상태로 되돌린다.
+        const { data: advancedRow, error: advancedError } = await supabase
+          .from("works")
+          .select("status")
+          .eq("id", body.workId)
+          .maybeSingle();
+        if (advancedError) throw advancedError;
+
+        if (text((advancedRow as DbRow | null)?.status) === "admin_review_requested") {
+          const { error: restoreError } = await supabase
+            .from("works")
+            .update({ status: "registered", latest_inspected_at: processedAt })
+            .eq("id", body.workId);
+          if (restoreError) throw restoreError;
+        }
       } else {
         await supabase.from("works").update({ status: "inspection_failed", latest_inspected_at: processedAt }).eq("id", body.workId);
       }
