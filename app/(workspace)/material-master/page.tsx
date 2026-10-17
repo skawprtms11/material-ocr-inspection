@@ -9,6 +9,12 @@ import { CuteCard } from "@/components/common/CuteCard";
 import { EmptyCloudState } from "@/components/common/EmptyCloudState";
 import { PageHeader } from "@/components/common/PageHeader";
 import { InspectionRegionEditor } from "@/components/inspection/InspectionRegionEditor";
+import { inspectionMethodLabels } from "@/lib/constants/status";
+import {
+  getMissingReferences,
+  missingReferenceBadgeText,
+  missingReferenceHint
+} from "@/lib/inspection/material-reference";
 import { useFilterStore } from "@/lib/state/filter-store";
 import type { InspectionMethod, MaterialInspectionRegion, MaterialMaster } from "@/lib/types/domain";
 import { cn } from "@/lib/utils/cn";
@@ -24,24 +30,18 @@ type MaterialFormValue = Pick<
   visionFile?: File;
 };
 
-const tableHeaders = ["부자재코드", "부자재명", "LOT", "검증값", "OCR등록", "비전스캔등록", "비고"];
+const tableHeaders = ["부자재코드", "부자재명", "LOT", "검증값", "검수방식", "OCR등록", "비전스캔등록", "비고"];
 
 function hasInspectionMethod(method: InspectionMethod | undefined, target: "OCR" | "VISION") {
   return method === target || method === "BOTH";
 }
 
+// 둘 다 해제하면 NONE(사진검수 대상)으로 저장한다.
 function buildInspectionMethod(ocrChecked: boolean, visionChecked: boolean): InspectionMethod {
   if (ocrChecked && visionChecked) return "BOTH";
   if (visionChecked) return "VISION";
   if (ocrChecked) return "OCR";
-  return "BOTH";
-}
-
-function buildMockStoragePath(code: string, type: "ocr" | "vision", file: FormDataEntryValue | null, fallback?: string) {
-  if (!(file instanceof File) || !file.name) return fallback ?? "";
-  const safeCode = code.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-");
-  const safeName = file.name.replace(/\s+/g, "-");
-  return `material-images/mock/${safeCode}/${type}-${safeName}`;
+  return "NONE";
 }
 
 function ReadOnlyCheck({ checked, label }: { checked: boolean; label: string }) {
@@ -116,7 +116,9 @@ export default function MaterialMasterPage() {
         method: isEdit ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...(isEdit ? { id: selectedMaterial.id } : { departmentId, shipperId }),
+          departmentId,
+          shipperId,
+          ...(isEdit ? { id: selectedMaterial.id } : {}),
           reference_image_path: materialPayload.ocr_image_path || materialPayload.vision_image_path || selectedMaterial?.reference_image_path || "",
           ...materialPayload
         })
@@ -128,6 +130,8 @@ export default function MaterialMasterPage() {
       const uploadRegistrationImage = async (method: "OCR" | "VISION", file: File) => {
         const formData = new FormData();
 
+        formData.append("departmentId", departmentId);
+        formData.append("shipperId", shipperId);
         formData.append("materialId", savedMaterial.id);
         formData.append("method", method);
         formData.append("expectedText", savedMaterial.code);
@@ -172,7 +176,7 @@ export default function MaterialMasterPage() {
       const response = await fetch("/api/material-master", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: selectedMaterial.id })
+        body: JSON.stringify({ departmentId, shipperId, id: selectedMaterial.id })
       });
       const result = (await response.json()) as { source?: "supabase" | "mock"; error?: string };
       if (!response.ok) throw new Error(result.error ?? "부자재 삭제에 실패했습니다.");
@@ -277,6 +281,26 @@ export default function MaterialMasterPage() {
                     </td>
                     <td className="px-5 py-4">{material.lot || "-"}</td>
                     <td className="px-5 py-4">{material.verification_value || "-"}</td>
+                    <td className="px-5 py-4">
+                      <div className="flex flex-col items-start gap-1">
+                        <span
+                          className={cn(
+                            "rounded-full px-2.5 py-1 text-xs font-black",
+                            material.inspection_method === "NONE" ? "bg-slate-100 text-slate-600" : "bg-sky-100 text-sky-700"
+                          )}
+                        >
+                          {inspectionMethodLabels[material.inspection_method]}
+                        </span>
+                        {getMissingReferences(material).length > 0 && (
+                          <span
+                            title={`${getMissingReferences(material).join("·")} ${missingReferenceHint}`}
+                            className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-black text-amber-800"
+                          >
+                            {missingReferenceBadgeText}({getMissingReferences(material).join("·")}) — {missingReferenceHint}
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-5 py-4 text-center">
                       <div className="inline-flex items-center gap-2">
                         {/* 등록 판정 기준: 모바일과 동일하게 이미지 실등록 여부(경로 존재)로 통일. 사용 설정(inspection_method)은 수정 모달에서 관리 */}
@@ -326,6 +350,7 @@ function MaterialEditorModal({
   onSave: (value: MaterialFormValue) => void;
   onClose: () => void;
 }) {
+  const { departmentId, shipperId } = useFilterStore();
   const isEditMode = mode === "edit";
   const [regions, setRegions] = useState<MaterialInspectionRegion[]>([]);
 
@@ -339,7 +364,7 @@ function MaterialEditorModal({
 
     const loadRegions = async () => {
       try {
-        const response = await fetch(`/api/material-master/registration?material_id=${material.id}`);
+        const response = await fetch(`/api/material-master/registration?${new URLSearchParams({ material_id: material.id, department_id: departmentId, shipper_id: shipperId }).toString()}`);
         if (!response.ok) throw new Error("등록 영역 조회에 실패했습니다.");
         const data = (await response.json()) as { regions?: MaterialInspectionRegion[] };
         if (!cancelled) setRegions(data.regions ?? []);
@@ -354,21 +379,23 @@ function MaterialEditorModal({
     return () => {
       cancelled = true;
     };
-  }, [material]);
+  }, [material, departmentId, shipperId]);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     const formData = new FormData(event.currentTarget);
     const code = String(formData.get("code") ?? "").trim();
+    const inspectionMethod = buildInspectionMethod(formData.get("ocr") === "on", formData.get("vision") === "on");
 
+    // 이미지 경로는 업로드 성공 후 서버가 갱신하므로 선택만으로 가짜 경로를 저장하지 않는다
     onSave({
       code,
       name: String(formData.get("name") ?? "").trim(),
       lot: String(formData.get("lot") ?? "").trim(),
-      inspection_method: buildInspectionMethod(formData.get("ocr") === "on", formData.get("vision") === "on"),
-      ocr_image_path: buildMockStoragePath(code, "ocr", formData.get("ocr_image"), material?.ocr_image_path),
-      vision_image_path: buildMockStoragePath(code, "vision", formData.get("vision_image"), material?.vision_image_path),
+      inspection_method: inspectionMethod,
+      ocr_image_path: material?.ocr_image_path,
+      vision_image_path: material?.vision_image_path,
       remark: String(formData.get("remark") ?? "").trim(),
       ocrFile: formData.get("ocr_image") instanceof File && (formData.get("ocr_image") as File).name ? (formData.get("ocr_image") as File) : undefined,
       visionFile:
@@ -431,8 +458,11 @@ function MaterialEditorModal({
                   <span className="text-slate-700">{material?.verification_value || "-"}</span>
                 </div>
               )}
-              <FormCheck name="ocr" defaultChecked={isEditMode ? hasInspectionMethod(material?.inspection_method, "OCR") : true} label="OCR등록" />
-              <FormCheck name="vision" defaultChecked={isEditMode ? hasInspectionMethod(material?.inspection_method, "VISION") : true} label="비전스캔등록" />
+              <p className="text-xs font-bold text-slate-500 sm:col-span-2">
+                둘 다 해제하면 사진검수(작업자 사진 촬영 후 관리자 승인)로 운영됩니다. 체크한 방식은 기준 이미지가 등록되어야 현장 검수가 진행됩니다.
+              </p>
+              <FormCheck name="ocr" defaultChecked={isEditMode ? hasInspectionMethod(material?.inspection_method, "OCR") : false} label="OCR등록" />
+              <FormCheck name="vision" defaultChecked={isEditMode ? hasInspectionMethod(material?.inspection_method, "VISION") : false} label="비전스캔등록" />
               <textarea
                 name="remark"
                 className="min-h-24 w-full rounded-2xl border border-sky-100 bg-white px-3 py-3 text-sm sm:col-span-2"
@@ -449,7 +479,7 @@ function MaterialEditorModal({
               inputName="ocr_image"
               enabledName="ocr"
               enabledLabel="OCR등록"
-              defaultEnabled={isEditMode ? hasInspectionMethod(material?.inspection_method, "OCR") : true}
+              defaultEnabled={isEditMode ? hasInspectionMethod(material?.inspection_method, "OCR") : false}
               currentPath={material?.ocr_image_path}
               storageHint="material-images/{부자재코드}/ocr-{파일명}"
             />
@@ -459,7 +489,7 @@ function MaterialEditorModal({
               inputName="vision_image"
               enabledName="vision"
               enabledLabel="비전스캔등록"
-              defaultEnabled={isEditMode ? hasInspectionMethod(material?.inspection_method, "VISION") : true}
+              defaultEnabled={isEditMode ? hasInspectionMethod(material?.inspection_method, "VISION") : false}
               currentPath={material?.vision_image_path}
               storageHint="material-images/{부자재코드}/vision-{파일명}"
             />
@@ -556,6 +586,7 @@ function RoiOverlayImage({ imageUrl, roi, tone }: { imageUrl: string; roi: Mater
 }
 
 function MaterialImagePreviewModal({ material, onClose }: { material: MaterialMaster; onClose: () => void }) {
+  const { departmentId, shipperId } = useFilterStore();
   const [regions, setRegions] = useState<MaterialInspectionRegionWithImages[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
@@ -567,7 +598,7 @@ function MaterialImagePreviewModal({ material, onClose }: { material: MaterialMa
 
     const loadRegions = async () => {
       try {
-        const response = await fetch(`/api/material-master/registration?material_id=${material.id}`);
+        const response = await fetch(`/api/material-master/registration?${new URLSearchParams({ material_id: material.id, department_id: departmentId, shipper_id: shipperId }).toString()}`);
         if (!response.ok) throw new Error("등록 이미지 조회에 실패했습니다.");
         const data = (await response.json()) as { regions?: MaterialInspectionRegionWithImages[] };
         if (!cancelled) setRegions(data.regions ?? []);
@@ -586,7 +617,7 @@ function MaterialImagePreviewModal({ material, onClose }: { material: MaterialMa
     return () => {
       cancelled = true;
     };
-  }, [material.id]);
+  }, [material.id, departmentId, shipperId]);
 
   const ocrRegion = regions.find((region) => region.method === "OCR");
   const visionRegion = regions.find((region) => region.method === "VISION");

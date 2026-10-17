@@ -6,16 +6,23 @@ import { Barcode, ClipboardCheck, FileSearch, Loader2 } from "lucide-react";
 import { CloudButton } from "@/components/common/CloudButton";
 import { CuteCard } from "@/components/common/CuteCard";
 import { getWorkStatusLabel } from "@/lib/constants/status";
-import { useMobileInspectionRows } from "@/lib/mobile/mobile-api";
+import { getActiveInspections } from "@/lib/mobile/inspection-visibility";
+import { useMobileInspectionRows, useMobileMaterials } from "@/lib/mobile/mobile-api";
+import { getInspectionAggregateStatus } from "@/lib/server/inspection-status";
 import type { WorkInspectionStage } from "@/lib/types/domain";
 
 // 작업검수 진입 화면(스캔 전용). 문서번호를 스캔하면 작업현황 상태값에 따라 곧바로 해당 검수 화면으로 이동한다.
 //   - 대기(registered)  → /mobile/pre/[workId]      (작업전 검수)
 //   - 진행(in_progress) → /mobile/complete/[workId] (완료검수)
+//   - 불합격(inspection_failed, 관리자 재검수요청/미승인 후) → 시작검수가 끝나지 않았으면 작업전 검수, 끝났으면 완료검수 화면.
+//     해당 화면의 OCR 카드가 failed/retrying 항목의 재촬영 UI를 제공하고, 재검수 합격 시 서버가 상태를 다시 전이시킨다.
+//   - 승인대기(admin_review_requested, 사진 제출 후 관리자 승인 대기) → 활성 단계 화면에 읽기 전용(촬영 잠금)으로 진입.
+//     확인요청(admin_requested)이 걸린 경우는 관리자 처리 전까지 안내만 표시한다.
 //   - 그 외(보류/취소/완료 등) → 이동하지 않고 안내만 표시한다.
 // 검수 대상(work_inspections) lazy 생성은 이동한 각 화면이 담당하므로 이 화면은 분기만 책임진다.
 export default function MobileInspectionEntryPage() {
   const { data: rows, source, warning, isLoading, error, refetch } = useMobileInspectionRows();
+  const { data: materials } = useMobileMaterials();
   const [documentNo, setDocumentNo] = useState("");
   const [scanError, setScanError] = useState("");
   const [routing, setRouting] = useState(false);
@@ -52,6 +59,32 @@ export default function MobileInspectionEntryPage() {
       return;
     }
 
+    if (status === "inspection_failed") {
+      // 조회된 inspections는 시작검수 기준이다. 화면과 같은 가시성 규칙으로 시작검수가 끝나지 않았으면 작업전 검수,
+      // 끝났으면(불합격 항목이 완료검수에 있음) 완료검수로 보낸다.
+      const startDone =
+        getInspectionAggregateStatus(
+          getActiveInspections(matched.inspections, materials).map((inspection) => inspection.status)
+        ) === "completed";
+      setScanError("");
+      setRouting(true);
+      router.push(startDone ? `/mobile/complete/${matched.work.id}` : `/mobile/pre/${matched.work.id}`);
+      return;
+    }
+
+    // 사진 승인대기(확인요청 없음)는 활성 단계 화면에 읽기 전용으로 진입해 상태를 확인한다. 시작검수 항목이 모두 끝났으면
+    // (조회된 inspections는 시작검수 기준) 완료검수 단계의 승인대기이므로 완료검수 화면으로 보낸다.
+    if (status === "admin_review_requested" && !matched.inspections.some((inspection) => inspection.status === "admin_requested")) {
+      const startDone =
+        getInspectionAggregateStatus(
+          getActiveInspections(matched.inspections, materials).map((inspection) => inspection.status)
+        ) === "completed";
+      setScanError("");
+      setRouting(true);
+      router.push(startDone ? `/mobile/complete/${matched.work.id}` : `/mobile/pre/${matched.work.id}`);
+      return;
+    }
+
     // 확인요청 중이면 어느 단계에서 걸렸는지 알려준다. 조회된 inspections는 시작검수(stage="start") 기준이므로,
     // 여기에 admin_requested가 있으면 작업전 검수 단계, 없으면 완료검수 단계에서 확인요청이 걸린 것이다.
     const reviewStage: WorkInspectionStage = matched.inspections.some(
@@ -61,7 +94,7 @@ export default function MobileInspectionEntryPage() {
       : "complete";
 
     setScanError(
-      `현재 작업상태가 "${getWorkStatusLabel(status, reviewStage)}"라서 검수를 진행할 수 없어요. 대기(작업전 검수) 또는 진행(완료검수) 상태만 검수할 수 있습니다.`
+      `현재 작업상태가 "${getWorkStatusLabel(status, reviewStage)}"라서 검수를 진행할 수 없어요. 대기(작업전 검수)·진행(완료검수)·불합격(재촬영·재검수)·승인대기(상태 확인) 상태만 검수할 수 있습니다.`
     );
   };
 

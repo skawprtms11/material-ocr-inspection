@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { appRepository } from "@/lib/repositories/app-repository";
 import { errorMessage } from "@/lib/repositories/supabase-scope";
+import { assertWorkInScope, guardErrorResponse, missingScopeResponse, resolveRequestScope, scopeFromSearchParams } from "@/lib/server/scope-guard";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import type { InspectionMethod, InspectionStatus } from "@/lib/types/domain";
+import { getInspectionTargetType, normalizeMaterialInspectionMethod, productKey } from "@/lib/inspection/method-plan";
+import { loadPhotoReviewImages } from "@/lib/server/inspection-images";
+import type { InspectionStatus, WorkInspectionMethod, WorkInspectionStage } from "@/lib/types/domain";
 import type {
   WorkDetailCompletionPhotoDto,
   WorkDetailInfoDto,
   WorkDetailMaterialDto,
   WorkDetailMaterialInspectionDto,
+  WorkDetailPhotoReviewDto,
   WorkDetailProductDto,
   WorkDetailProductsSourceDto,
   WorkDetailResponse
@@ -65,14 +69,14 @@ function mockDetail(workId: string): WorkDetailResponse | null {
       // mock 데이터에는 완료검수 전용 PRODUCT 항목이 없다(부자재 단위 시작검수만 존재).
       const materialInspections: WorkDetailMaterialInspectionDto[] = inspections
         .filter((inspection) => inspection.material_id === mapping.material_id && inspection.method !== "PRODUCT")
-        .map((inspection) => ({ method: inspection.method as Exclude<InspectionMethod, "BOTH">, status: inspection.status }));
+        .map((inspection) => ({ method: inspection.method, status: inspection.status }));
 
       return {
         id: mapping.id,
         materialId: mapping.material_id,
         materialCode: material?.code ?? "-",
         materialName: material?.name ?? "-",
-        inspectionMethod: material?.inspection_method ?? "BOTH",
+        inspectionMethod: normalizeMaterialInspectionMethod(material?.inspection_method),
         unitQuantity: 1,
         verificationValue: material?.verification_value ?? "",
         inspections: materialInspections,
@@ -104,10 +108,12 @@ function mockDetail(workId: string): WorkDetailResponse | null {
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const workId = searchParams.get("work_id");
+  const requestScope = scopeFromSearchParams(searchParams);
 
   if (!workId) {
     return NextResponse.json({ error: "work_id가 필요합니다." }, { status: 400 });
   }
+  if (!requestScope) return missingScopeResponse();
 
   const supabase = createServerSupabaseClient();
 
@@ -118,11 +124,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const { data: workRow, error: workError } = await supabase.from("works").select("*").eq("id", workId).maybeSingle();
-    if (workError) throw workError;
-    if (!workRow) return NextResponse.json({ error: "작업을 찾을 수 없습니다." }, { status: 404 });
-
-    const work = workRow as DbRow;
+    const work = await assertWorkInScope(supabase, workId, await resolveRequestScope(supabase, requestScope));
     const workMasterId = text(work.work_master_id);
     const workQuantity = numberValue(work.quantity, 0);
 
@@ -207,15 +209,21 @@ export async function GET(request: NextRequest) {
     const materialById = new Map(((materialRows ?? []) as DbRow[]).map((row) => [text(row.id), row]));
 
     // 정책: 부자재 내역 표의 검수상태/검수사진은 시작검수(stage="start")만 표시한다(기존 동작 보존).
-    // 완료검수(stage="complete") 결과는 아래 "작업완료사진" 구역에서 별도로 보여준다.
-    const { data: inspectionRows, error: inspectionError } = await supabase
+    // 완료검수(stage="complete") 결과는 아래 "작업완료사진" 구역에서 별도로 보여주고, 제품 사진검수(PHOTO)는 제품내역에 단계별로 붙인다.
+    const { data: allInspectionRows, error: inspectionError } = await supabase
       .from("work_inspections")
-      .select("id, material_id, method, status")
+      .select("id, material_id, method, status, stage, target_type, product_code, product_lot, review_comment, created_at")
       .eq("work_id", workId)
-      .eq("stage", "start");
+      .order("created_at", { ascending: true });
     if (inspectionError) throw inspectionError;
 
-    const inspectionRowList = (inspectionRows ?? []) as DbRow[];
+    const allInspections = ((allInspectionRows ?? []) as DbRow[]).map((row): DbRow & { stage: WorkInspectionStage; target: string } => ({
+      ...row,
+      stage: (text(row.stage, "start") === "complete" ? "complete" : "start") as WorkInspectionStage,
+      target: getInspectionTargetType({ method: text(row.method, "OCR"), material_id: text(row.material_id) || null, target_type: text(row.target_type) || null })
+    }));
+    const productPhotoRows = allInspections.filter((row) => row.target === "product");
+    const inspectionRowList = allInspections.filter((row) => row.stage === "start" && row.target === "material");
     const inspectionsByMaterial = new Map<string, WorkDetailMaterialInspectionDto[]>();
     const materialIdByInspectionId = new Map<string, string>();
 
@@ -224,23 +232,21 @@ export async function GET(request: NextRequest) {
       materialIdByInspectionId.set(text(row.id), materialId);
       const list = inspectionsByMaterial.get(materialId) ?? [];
       list.push({
-        method: text(row.method, "OCR") as Exclude<InspectionMethod, "BOTH">,
-        status: text(row.status, "pending") as InspectionStatus
+        method: text(row.method, "OCR") as WorkInspectionMethod,
+        status: text(row.status, "pending") as InspectionStatus,
+        stage: "start",
+        ...(text(row.review_comment) ? { reviewComment: text(row.review_comment) } : {})
       });
       inspectionsByMaterial.set(materialId, list);
     }
 
-    // 2-1) 완료검수(stage="complete") 항목: "완료제품사진"(material_id 없음) + 부자재 완료검수.
-    const { data: completionInspectionRows, error: completionInspectionError } = await supabase
-      .from("work_inspections")
-      .select("id, material_id, method, status, created_at")
-      .eq("work_id", workId)
-      .eq("stage", "complete")
-      .order("created_at", { ascending: true });
-    if (completionInspectionError) throw completionInspectionError;
-
-    const completionInspectionRowList = (completionInspectionRows ?? []) as DbRow[];
+    // 2-1) 완료검수(stage="complete") 항목: "완료제품사진"(material_id 없음) + 부자재 완료검수(제품 PHOTO는 제외, 제품내역에 표시).
+    const completionInspectionRowList = allInspections.filter((row) => row.stage === "complete" && row.target !== "product");
     const completionInspectionIds = new Set(completionInspectionRowList.map((row) => text(row.id)));
+
+    // 사진검수(PHOTO) 현재 사진(반려 이력 제외)은 서명 URL과 함께 따로 읽는다.
+    const photoInspectionIds = allInspections.filter((row) => text(row.method) === "PHOTO").map((row) => text(row.id));
+    const photoImages = await loadPhotoReviewImages(supabase, photoInspectionIds);
 
     // 3) 검수 사진: inspection_images를 work_id로 한 번만 조회하고, 시작검수(부자재별)/완료검수(항목별) 두
     // 그룹에 필요한 서명 URL을 함께 발급한다.
@@ -248,6 +254,7 @@ export async function GET(request: NextRequest) {
       .from("inspection_images")
       .select("inspection_id, image_type, storage_path, created_at")
       .eq("work_id", workId)
+      .neq("image_type", "photo_review")
       .order("created_at", { ascending: true });
     if (imageError) throw imageError;
 
@@ -296,7 +303,7 @@ export async function GET(request: NextRequest) {
     const materials: WorkDetailMaterialDto[] = materialMappings.map((mapping) => {
       const materialId = text(mapping.material_id);
       const material = materialById.get(materialId);
-      const inspectionMethod = text(material?.inspection_method, "BOTH");
+      const inspectionMethod = text(material?.inspection_method, "NONE");
       const mappingUnitQuantity = typeof mapping.unit_quantity === "number" ? mapping.unit_quantity : undefined;
 
       return {
@@ -304,12 +311,18 @@ export async function GET(request: NextRequest) {
         materialId,
         materialCode: text(material?.code, "-"),
         materialName: text(material?.name, "-"),
-        inspectionMethod: inspectionMethod === "OCR" || inspectionMethod === "VISION" ? inspectionMethod : "BOTH",
+        inspectionMethod: normalizeMaterialInspectionMethod(inspectionMethod),
         unitQuantity: numberValue(mapping.unit_quantity, 1),
         usedQuantity: mappingUnitQuantity !== undefined ? mappingUnitQuantity * workQuantity : undefined,
         verificationValue: text(material?.verification_value),
         inspections: inspectionsByMaterial.get(materialId) ?? [],
-        imageUrls: imageUrlsByMaterial.get(materialId) ?? []
+        imageUrls: [
+          ...(imageUrlsByMaterial.get(materialId) ?? []),
+          ...inspectionRowList
+            .filter((row) => text(row.material_id) === materialId && text(row.method) === "PHOTO")
+            .map((row) => photoImages.get(text(row.id))?.current?.url ?? "")
+            .filter(Boolean)
+        ]
       };
     });
 
@@ -325,11 +338,31 @@ export async function GET(request: NextRequest) {
         return {
           id: text(row.id),
           label: method === "PRODUCT" ? "완료제품사진" : text(material?.name, "-"),
-          method: (method === "OCR" || method === "VISION" || method === "PRODUCT" ? method : "OCR") as WorkDetailCompletionPhotoDto["method"],
+          method: (method === "OCR" || method === "VISION" || method === "PRODUCT" || method === "PHOTO" ? method : "OCR") as WorkDetailCompletionPhotoDto["method"],
           status: text(row.status, "pending") as InspectionStatus,
-          imageUrls: imageUrlsByCompletionInspection.get(text(row.id)) ?? []
+          ...(text(row.review_comment) ? { reviewComment: text(row.review_comment) } : {}),
+          imageUrls: [
+            ...(imageUrlsByCompletionInspection.get(text(row.id)) ?? []),
+            ...(photoImages.get(text(row.id))?.current?.url ? [photoImages.get(text(row.id))?.current?.url as string] : [])
+          ]
         };
       });
+
+    // 제품 사진검수: 코드+LOT 스냅샷으로 제품내역에 붙인다. photoReviews = 단계별(start/complete) 전체.
+    for (const product of products) {
+      const key = productKey(product.productCode.trim(), (product.lot ?? "").trim());
+      const reviews: WorkDetailPhotoReviewDto[] = productPhotoRows
+        .filter((row) => productKey(text(row.product_code).trim(), text(row.product_lot).trim()) === key)
+        .map((row) => ({
+          stage: row.stage,
+          status: text(row.status, "pending") as InspectionStatus,
+          ...(text(row.review_comment) ? { reviewComment: text(row.review_comment) } : {}),
+          imageUrls: photoImages.get(text(row.id))?.current?.url ? [photoImages.get(text(row.id))?.current?.url as string] : []
+        }));
+      if (reviews.length > 0) {
+        product.photoReviews = reviews;
+      }
+    }
 
     const workInfo: WorkDetailInfoDto = {
       workId: text(work.id),
@@ -351,6 +384,8 @@ export async function GET(request: NextRequest) {
       completionPhotos
     } satisfies WorkDetailResponse);
   } catch (error) {
+    const guardResponse = guardErrorResponse(error);
+    if (guardResponse) return guardResponse;
     return NextResponse.json({ error: errorMessage(error, "작업 상세내역 조회에 실패했습니다.") }, { status: 502 });
   }
 }

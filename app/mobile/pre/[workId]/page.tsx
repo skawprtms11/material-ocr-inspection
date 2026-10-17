@@ -6,21 +6,30 @@ import { CheckCircle2, Loader2, PackageCheck } from "lucide-react";
 import { CloudButton } from "@/components/common/CloudButton";
 import { CuteCard } from "@/components/common/CuteCard";
 import { MaterialInspectionList } from "@/components/mobile/MaterialInspectionList";
+import { PhotoReviewSummaryBanner } from "@/components/mobile/PhotoReviewCard";
 import { ProductChecklist } from "@/components/mobile/ProductChecklist";
 import { getWorkStatusLabel, workStatusLabels } from "@/lib/constants/status";
-import { getActiveInspections } from "@/lib/mobile/inspection-visibility";
-import { findInspectionById, useMobileInspectionRows, useMobileMaterials } from "@/lib/mobile/mobile-api";
+import { getActiveInspections, getProductPhotoInspections, getVisibleMaterialInspections } from "@/lib/mobile/inspection-visibility";
+import {
+  findInspectionById,
+  useMobileInspectionRows,
+  useMobileMaterials,
+  useMobilePhotoReview,
+  useMobileScope
+} from "@/lib/mobile/mobile-api";
 import { getInspectionAggregateStatus } from "@/lib/server/inspection-status";
 
 // 작업전 검수(stage="start"): 작업현황 상태값이 "대기"(registered)인 작업을 문서번호로 스캔하면 이 화면으로
 // 바로 들어온다. 화면 구성은 상단 제품내역(제품코드/제품명/LOT/단위수량/사용수량 + 검수여부 체크박스),
-// 하단 부자재 검수(부자재 마스터에서 체크된 OCR/비전 항목만)로 고정된다.
-// 부자재 검수가 모두 합격/승인되면 서버가 작업상태를 "진행"으로 자동 전이시킨다(lib/server/work-auto-status.ts).
+// 하단 부자재 검수(OCR/비전 체크 항목은 해당 카드, 둘 다 미체크 부자재와 제품은 사진 제출 카드)로 고정된다.
+// 사진은 관리자 승인이 필요하며 반려되면 사유를 보고 재촬영한다. 모든 항목이 합격/승인되면 서버가 작업상태를 "진행"으로 자동 전이시킨다(lib/server/work-auto-status.ts).
 export default function MobilePreInspectionPage() {
   const params = useParams<{ workId: string }>();
   const router = useRouter();
   const { data: rows, warning, isLoading, error, refetch } = useMobileInspectionRows();
   const { data: materials } = useMobileMaterials();
+  const scope = useMobileScope();
+  const { reload: reloadPhotos, itemsById: photoItems } = useMobilePhotoReview(params.workId, "start");
   const [preparing, setPreparing] = useState(false);
   const [prepareError, setPrepareError] = useState("");
 
@@ -29,11 +38,24 @@ export default function MobilePreInspectionPage() {
   const inspections = row?.inspections ?? [];
   // 완료 판정은 화면에 실제 표시되는 항목(마스터에서 체크된 부자재 검수)만 대상으로 한다.
   const activeInspections = getActiveInspections(inspections, materials);
+  const photoInspections = [
+    ...getProductPhotoInspections(inspections),
+    ...getVisibleMaterialInspections(inspections, materials).filter((item) => item.method === "PHOTO")
+  ];
+  const productPhotoInspections = getProductPhotoInspections(inspections);
+  // 승인대기(admin_review_requested) 중에는 사진 촬영을 잠그고 상태만 확인하게 한다(읽기 전용 진입).
+  const locked = work?.status === "admin_review_requested";
+  // 카드에서 제출·확인요청이 끝나면 검수 행과 사진 URL을 함께 다시 읽는다.
+  const reloadAll = async () => {
+    await Promise.all([refetch(), reloadPhotos()]);
+  };
   const allDone =
     activeInspections.length > 0 &&
     getInspectionAggregateStatus(activeInspections.map((item) => item.status)) === "completed";
-  // 취소/완료된 작업은 데이터 오염을 막기 위해 검수를 진행할 수 없다(스캔 화면에서도 동일하게 차단된다).
-  const closedWork = work != null && (work.status === "canceled" || work.status === "completed" || work.status === "passed");
+  // 취소/보류/완료된 작업은 데이터 오염을 막기 위해 검수를 진행할 수 없다(스캔 화면·서버 저장 API에서도 동일하게 차단된다).
+  // 불합격(inspection_failed) 작업은 재검수를 위해 진입을 허용한다.
+  const closedWork =
+    work != null && (work.status === "canceled" || work.status === "on_hold" || work.status === "completed" || work.status === "passed");
 
   // 배정 시점에 검수 행이 만들어지지 않은 기존 작업을 커버하는 lazy 생성(기존 스캔 시점 로직을 이 화면으로 옮김).
   useEffect(() => {
@@ -46,7 +68,7 @@ export default function MobilePreInspectionPage() {
     fetch("/api/work-inspection/setup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ workId: params.workId })
+      body: JSON.stringify({ ...scope, workId: params.workId })
     })
       .then(async (response) => {
         const payload = (await response.json()) as { error?: string };
@@ -121,14 +143,25 @@ export default function MobilePreInspectionPage() {
         </CuteCard>
       )}
 
-      <ProductChecklist workId={work.id} />
+      <PhotoReviewSummaryBanner photoInspections={photoInspections} workStatus={work.status} />
+
+      <ProductChecklist
+        workId={work.id}
+        stageLabel="작업전 검수"
+        photoInspections={productPhotoInspections}
+        photoItems={photoItems}
+        locked={locked}
+        onSubmitted={reloadAll}
+      />
 
       <MaterialInspectionList
         workId={work.id}
         inspections={inspections}
         materials={materials}
         stageLabel="작업전 검수"
-        onSubmitted={refetch}
+        photoItems={photoItems}
+        locked={locked}
+        onSubmitted={reloadAll}
       />
 
       {allDone ? (
@@ -150,7 +183,9 @@ export default function MobilePreInspectionPage() {
         </>
       ) : (
         <p className="text-center text-xs font-bold leading-5 text-slate-500">
-          제품내역을 확인하고 부자재 검수를 모두 저장하면 작업전 검수가 완료돼요.
+          {photoInspections.length > 0
+            ? "제품·부자재 사진을 모두 제출하고 OCR·비전 검수를 마치면 관리자 승인 후 작업전 검수가 완료돼요."
+            : "제품내역을 확인하고 부자재 검수를 모두 저장하면 작업전 검수가 완료돼요."}
         </p>
       )}
     </div>

@@ -1,8 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   mapMaterialRows,
-  replaceWorkMasterMaterials
+  replaceWorkMasterMaterials,
+  validateMaterialRows,
+  WorkMasterValidationError
 } from "@/lib/repositories/work-master-supabase-repository";
+import {
+  assertMaterialsInScope,
+  assertWorkMasterInScope,
+  guardErrorResponse,
+  missingScopeResponse,
+  resolveRequestScope,
+  scopeFromBody
+} from "@/lib/server/scope-guard";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { WorkMaterialRowDto } from "@/lib/types/work-master-api";
 
@@ -20,8 +30,22 @@ function errorMessage(error: unknown, fallback: string) {
 
 export async function POST(request: NextRequest, context: RouteContext) {
   const { workMasterId } = await context.params;
-  const body = (await request.json()) as { rows?: WorkMaterialRowDto[] };
+  let body: { departmentId?: string; shipperId?: string; rows?: WorkMaterialRowDto[] };
+  try {
+    body = (await request.json()) as { departmentId?: string; shipperId?: string; rows?: WorkMaterialRowDto[] };
+  } catch {
+    return NextResponse.json({ error: "요청 본문이 올바른 JSON이 아닙니다." }, { status: 400 });
+  }
+  const requestScope = scopeFromBody(body);
+  if (!requestScope) return missingScopeResponse();
   const rows = body.rows ?? [];
+  if (!Array.isArray(rows)) return NextResponse.json({ error: "rows는 배열이어야 합니다." }, { status: 400 });
+
+  try {
+    validateMaterialRows(rows);
+  } catch (error) {
+    return NextResponse.json({ error: errorMessage(error, "입력값이 올바르지 않습니다.") }, { status: 400 });
+  }
   const supabase = createServerSupabaseClient();
 
   if (!supabase || process.env.NEXT_PUBLIC_USE_MOCK_DATA !== "false") {
@@ -36,10 +60,16 @@ export async function POST(request: NextRequest, context: RouteContext) {
   }
 
   try {
+    const scope = await resolveRequestScope(supabase, requestScope);
+    await assertWorkMasterInScope(supabase, workMasterId, scope);
+    await assertMaterialsInScope(supabase, rows.map((row) => row.materialId), scope);
     const savedRows = await replaceWorkMasterMaterials(supabase, workMasterId, rows);
     return NextResponse.json({ source: "supabase", rows: mapMaterialRows(savedRows) });
   } catch (error) {
+    const guardResponse = guardErrorResponse(error);
+    if (guardResponse) return guardResponse;
     const message = errorMessage(error, "작업마스터 부자재 저장에 실패했습니다.");
-    return NextResponse.json({ error: message }, { status: 500 });
+    const status = error instanceof WorkMasterValidationError ? 400 : 502;
+    return NextResponse.json({ error: message }, { status });
   }
 }

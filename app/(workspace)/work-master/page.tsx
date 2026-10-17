@@ -8,6 +8,12 @@ import { CuteCard } from "@/components/common/CuteCard";
 import { EmptyCloudState } from "@/components/common/EmptyCloudState";
 import { PageHeader } from "@/components/common/PageHeader";
 import { appRepository } from "@/lib/repositories/app-repository";
+import { inspectionMethodLabels } from "@/lib/constants/status";
+import {
+  getMissingReferences,
+  missingReferenceBadgeText,
+  missingReferenceHint
+} from "@/lib/inspection/material-reference";
 import { useFilterStore } from "@/lib/state/filter-store";
 import type { MaterialMaster, WorkMaster } from "@/lib/types/domain";
 import type {
@@ -224,7 +230,7 @@ export default function WorkMasterPage() {
       const response = await fetch("/api/work-masters", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids })
+        body: JSON.stringify({ departmentId, shipperId, ids })
       });
       const result = (await response.json()) as { error?: string };
       if (!response.ok) throw new Error(result.error ?? "작업마스터 삭제에 실패했습니다.");
@@ -256,7 +262,7 @@ export default function WorkMasterPage() {
       const response = await fetch(`/api/work-masters/${workMasterId}/materials`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows })
+        body: JSON.stringify({ departmentId, shipperId, rows })
       });
       const result = (await response.json()) as { rows?: WorkMaterialRow[]; error?: string };
       if (!response.ok) throw new Error(result.error ?? "작업마스터 부자재 저장에 실패했습니다.");
@@ -274,7 +280,7 @@ export default function WorkMasterPage() {
       const response = await fetch(`/api/work-masters/${workMasterId}/products`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows })
+        body: JSON.stringify({ departmentId, shipperId, rows })
       });
       const result = (await response.json()) as { rows?: ProductUsageRow[]; error?: string };
       if (!response.ok) throw new Error(result.error ?? "작업마스터 사용제품코드 저장에 실패했습니다.");
@@ -587,6 +593,10 @@ function WorkMaterialModal({
   const addMaterial = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!materialId) return;
+    if (!Number.isFinite(unitQuantity) || unitQuantity < 1) {
+      toast.warning("수량은 1 이상의 숫자로 입력해 주세요.");
+      return;
+    }
     if (rows.some((row) => row.materialId === materialId)) {
       toast.warning("이미 등록된 부자재입니다.");
       return;
@@ -668,7 +678,7 @@ function WorkMaterialModal({
           <table className="w-full min-w-[900px] text-left text-sm">
             <thead className="bg-sky-50/80 text-xs font-black text-sky-700">
               <tr>
-                {["부자재코드", "부자재명", "단위수량", "OCR검수", "비전검수", "삭제"].map((header) => (
+                {["부자재코드", "부자재명", "단위수량", "검수방식", "OCR검수", "비전검수", "삭제"].map((header) => (
                   <th key={header} className="px-4 py-3">
                     {header}
                   </th>
@@ -692,6 +702,26 @@ function WorkMaterialModal({
                         className="h-10 w-24 rounded-xl border border-sky-100 bg-white px-3 text-sm font-bold outline-none focus:ring-2 focus:ring-sky-200"
                         aria-label={`${material?.name ?? "부자재"} 단위수량`}
                       />
+                    </td>
+                    <td className="px-4 py-3">
+                      {material ? (
+                        <div className="flex flex-col items-start gap-1">
+                          <span
+                            className={`rounded-full px-2.5 py-1 text-xs font-black ${
+                              material.inspection_method === "NONE" ? "bg-slate-100 text-slate-600" : "bg-sky-100 text-sky-700"
+                            }`}
+                          >
+                            {inspectionMethodLabels[material.inspection_method]}
+                          </span>
+                          {getMissingReferences(material).length > 0 && (
+                            <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-black text-amber-800">
+                              {missingReferenceBadgeText}({getMissingReferences(material).join("·")}) — {missingReferenceHint}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        "-"
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <input
@@ -721,7 +751,7 @@ function WorkMaterialModal({
               })}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-sm font-bold text-slate-400">
+                  <td colSpan={7} className="px-4 py-8 text-center text-sm font-bold text-slate-400">
                     등록된 부자재가 없습니다.
                   </td>
                 </tr>
@@ -764,6 +794,10 @@ function ProductCodeModal({
     event.preventDefault();
     const code = productCode.trim();
     if (!code) return;
+    if (!Number.isFinite(unitQuantity) || unitQuantity < 1) {
+      toast.warning("수량은 1 이상의 숫자로 입력해 주세요.");
+      return;
+    }
     if (rows.some((row) => row.productCode === code)) {
       toast.warning("이미 등록된 제품코드입니다.");
       return;

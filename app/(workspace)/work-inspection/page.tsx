@@ -1,16 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, ClipboardCheck, Eye, RotateCcw, X, XCircle } from "lucide-react";
+import { AlertTriangle, Camera, CheckCircle2, ClipboardCheck, Eye, RotateCcw, X, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { CloudButton } from "@/components/common/CloudButton";
 import { CuteCard } from "@/components/common/CuteCard";
 import { EmptyCloudState } from "@/components/common/EmptyCloudState";
 import { PageHeader } from "@/components/common/PageHeader";
+import { getWorkStatusLabel, inspectionStatusLabels, photoApprovalStageLabels, workInspectionMethodLabels } from "@/lib/constants/status";
 import { useFilterStore } from "@/lib/state/filter-store";
+import type { WorkInspectionStage } from "@/lib/types/domain";
 import type { WorkInspectionActionResponse, WorkInspectionDataResponse } from "@/lib/types/work-inspection-api";
 import type { InspectionTableRowDto, PendingReviewRequestDto } from "@/lib/types/work-inspection-api";
 import { formatDate } from "@/lib/utils/format";
+import { PhotoApprovalModal } from "./PhotoApprovalModal";
 
 type AdjustmentStatus = "requested" | "approved" | "rejected" | "retry_requested";
 type InspectionTableRow = InspectionTableRowDto;
@@ -22,7 +25,21 @@ const adjustmentLabels: Record<AdjustmentStatus, { label: string; className: str
   retry_requested: { label: "재검수 요청", className: "bg-sky-100 text-sky-700 ring-sky-200" }
 };
 
+const photoStages: WorkInspectionStage[] = ["start", "complete"];
+const photoLockedStatuses = ["canceled", "on_hold", "completed", "passed"];
+
+// 목록의 "사진 확인" 진입 시 먼저 보여줄 단계: 승인대기 사진이 있는 단계 우선, 없으면 작업상태 기준.
+function getDefaultPhotoStage(row: InspectionTableRow): WorkInspectionStage {
+  const start = row.photoReview?.start?.submittedPhotos ?? 0;
+  const complete = row.photoReview?.complete?.submittedPhotos ?? 0;
+  if (start > 0) return "start";
+  if (complete > 0) return "complete";
+  return row.work.status === "in_progress" ? "complete" : "start";
+}
+
 function getStepClassName(step: string) {
+  if (step.includes("반려")) return "bg-rose-100 text-rose-700";
+  if (step.includes("승인대기")) return "bg-indigo-100 text-indigo-700";
   if (step.includes("완료") || step.includes("승인")) return "bg-emerald-100 text-emerald-700";
   if (step.includes("대상")) return "bg-violet-100 text-violet-700";
   if (step.includes("보류") || step.includes("취소")) return "bg-slate-100 text-slate-600";
@@ -35,6 +52,7 @@ function getStepClassName(step: string) {
 export default function WorkInspectionPage() {
   const { departmentId, shipperId } = useFilterStore();
   const [selectedRow, setSelectedRow] = useState<InspectionTableRow | null>(null);
+  const [photoTarget, setPhotoTarget] = useState<{ row: InspectionTableRow; stage: WorkInspectionStage } | null>(null);
   const [tableRows, setTableRows] = useState<InspectionTableRow[]>([]);
   const [pendingReviewRequests, setPendingReviewRequests] = useState<PendingReviewRequestDto[]>([]);
   const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
@@ -72,23 +90,12 @@ export default function WorkInspectionPage() {
 
   if (!departmentId || !shipperId) return <EmptyCloudState />;
 
-  const handleInspectionComplete = async (row: InspectionTableRow) => {
-    try {
-      const response = await fetch("/api/work-inspection", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workId: row.work.id, action: { type: "complete" } })
-      });
-      const result = (await response.json()) as WorkInspectionActionResponse & { error?: string };
-      if (!response.ok) throw new Error(result.error ?? "검수완료 저장에 실패했습니다.");
-
-      setSelectedRow(null);
-      toast.success("검수완료 처리되었습니다. 작업현황은 진행 상태로 자동 변경됩니다.");
-      await loadRows();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "검수완료 저장에 실패했습니다.");
-    }
-  };
+  const photoApprovalQueue = tableRows.flatMap((row) =>
+    photoStages.flatMap((stage) => {
+      const summary = row.photoReview?.[stage];
+      return summary && summary.submittedPhotos > 0 ? [{ row, stage, summary }] : [];
+    })
+  );
 
   const handlePendingReviewProcess = async (item: PendingReviewRequestDto, status: "approved" | "retry_requested") => {
     setProcessingRequestId(item.requestId);
@@ -98,6 +105,8 @@ export default function WorkInspectionPage() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          departmentId,
+          shipperId,
           workId: item.workId,
           action: { type: "adjustment", requestId: item.requestId, status, inspectionId: item.inspectionId }
         })
@@ -123,6 +132,8 @@ export default function WorkInspectionPage() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          departmentId,
+          shipperId,
           workId: row.work.id,
           action: { type: "adjustment", requestId: row.request.id, status }
         })
@@ -131,7 +142,9 @@ export default function WorkInspectionPage() {
       if (!response.ok) throw new Error(result.error ?? "조정 처리 저장에 실패했습니다.");
 
       setSelectedRow(null);
-      if (status === "approved") toast.success("조정승인 및 검수완료 처리되었습니다. 작업현황은 진행 상태로 자동 변경됩니다.");
+      if (status === "approved") toast.success(
+          result.workStatus ? `조정승인 및 검수완료 처리되었습니다. 작업 상태: ${getWorkStatusLabel(result.workStatus)}` : "조정승인 및 검수완료 처리되었습니다."
+        );
       if (status === "rejected") toast.error("조정 미승인 처리되었습니다. 사용자는 재검수를 진행해야 합니다.");
       if (status === "retry_requested") toast.warning("재검수 요청으로 처리되었습니다.");
       await loadRows();
@@ -144,7 +157,7 @@ export default function WorkInspectionPage() {
     <>
       <PageHeader
         title="작업검수"
-        description="모바일 검수 단계와 OCR/비전 확인 요청을 표에서 확인하고 관리자가 조정 처리합니다."
+        description="모바일 검수 단계와 확인 요청을 확인하고, 제출된 제품·부자재 사진을 관리자가 승인/반려합니다."
       />
 
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white/60 px-4 py-2 text-xs font-black text-slate-500 ring-1 ring-white/80">
@@ -220,6 +233,52 @@ export default function WorkInspectionPage() {
         </CuteCard>
       )}
 
+      {photoApprovalQueue.length > 0 && (
+        <CuteCard className="mb-4 p-0">
+          <div className="flex items-center gap-2 border-b border-indigo-100 bg-indigo-50/60 px-5 py-4">
+            <Camera className="size-5 text-indigo-600" />
+            <h2 className="text-lg font-black text-indigo-800">사진 승인대기 {photoApprovalQueue.length}건</h2>
+            <p className="text-sm font-semibold text-indigo-700">현장에서 제출한 제품·부자재 사진의 승인을 기다리는 작업입니다.</p>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[960px] text-left text-sm">
+              <thead className="bg-indigo-50/40 text-xs font-black text-indigo-700">
+                <tr>
+                  {["문서번호", "단계", "제출", "반려", "사진 외 미완료", "제출시각", "처리"].map((header) => (
+                    <th key={header} className="px-4 py-3">
+                      {header}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-indigo-50 bg-white/70">
+                {photoApprovalQueue.map(({ row, stage, summary }) => (
+                  <tr key={`${row.work.id}-${stage}`} className="text-slate-600">
+                    <td className="px-4 py-3 font-black text-sky-700">{row.work.document_no}</td>
+                    <td className="px-4 py-3 font-bold text-slate-700">{photoApprovalStageLabels[stage]}</td>
+                    <td className="px-4 py-3 font-bold">
+                      {summary.submittedPhotos + summary.approvedPhotos}/{summary.totalPhotos}
+                    </td>
+                    <td className="px-4 py-3 font-bold">{summary.rejectedPhotos}</td>
+                    <td className="px-4 py-3 font-bold">{summary.nonPhotoIncomplete}</td>
+                    <td className="px-4 py-3 font-semibold text-slate-500">
+                      {summary.latestSubmittedAt ? formatDate(summary.latestSubmittedAt, "yyyy.MM.dd HH:mm") : "-"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <CloudButton type="button" tone="primary" onClick={() => setPhotoTarget({ row, stage })}>
+                        <Camera className="size-4" />
+                        사진 확인
+                      </CloudButton>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CuteCard>
+      )}
+
       <CuteCard className="p-0">
         <div className="flex flex-col gap-2 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -240,7 +299,7 @@ export default function WorkInspectionPage() {
           <table className="w-full min-w-[1320px] text-left text-sm">
             <thead className="bg-sky-50/80 text-xs font-black text-sky-700">
               <tr>
-                {["등록일자", "작업구분", "문서번호", "완성품코드", "완성품명", "작업수량", "검수단계", "검수처리", "조정확인"].map((header) => (
+                {["등록일자", "작업구분", "문서번호", "완성품코드", "완성품명", "작업수량", "검수단계", "사진검수/승인", "조정확인"].map((header) => (
                   <th key={header} className="px-4 py-3">
                     {header}
                   </th>
@@ -265,15 +324,28 @@ export default function WorkInspectionPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <CloudButton
-                        type="button"
-                        tone={row.inspectionCompleted ? "success" : "soft"}
-                        disabled={row.work.status === "canceled" || row.work.status === "completed"}
-                        onClick={() => handleInspectionComplete(row)}
-                      >
-                        <CheckCircle2 className="size-4" />
-                        {row.inspectionCompleted ? "완료처리됨" : "검수완료"}
-                      </CloudButton>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <CloudButton
+                          type="button"
+                          tone="soft"
+                          onClick={() => setPhotoTarget({ row, stage: getDefaultPhotoStage(row) })}
+                        >
+                          <Camera className="size-4" />
+                          사진 확인
+                        </CloudButton>
+                        <CloudButton
+                          type="button"
+                          tone={row.inspectionCompleted ? "success" : "primary"}
+                          disabled={
+                            photoLockedStatuses.includes(row.work.status) || (row.photoReview?.complete?.submittedPhotos ?? 0) === 0
+                          }
+                          title="완료단계 사진이 제출되면 승인할 수 있습니다."
+                          onClick={() => setPhotoTarget({ row, stage: "complete" })}
+                        >
+                          <CheckCircle2 className="size-4" />
+                          {row.inspectionCompleted ? "완료됨" : "완료승인"}
+                        </CloudButton>
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       {adjustment && row.request ? (
@@ -304,6 +376,18 @@ export default function WorkInspectionPage() {
           </table>
         </div>
       </CuteCard>
+
+      {photoTarget && (
+        <PhotoApprovalModal
+          key={`${photoTarget.row.work.id}-${photoTarget.stage}`}
+          row={photoTarget.row}
+          initialStage={photoTarget.stage}
+          departmentId={departmentId}
+          shipperId={shipperId}
+          onClose={() => setPhotoTarget(null)}
+          onChanged={() => void loadRows()}
+        />
+      )}
 
       {selectedRow?.request && (
         <AdjustmentReviewModal
@@ -383,12 +467,14 @@ function AdjustmentReviewModal({
                 <tbody className="divide-y divide-slate-100">
                   {row.inspections.map((inspection) => (
                     <tr key={inspection.id} className="text-slate-600">
-                      <td className="px-4 py-3 font-black text-slate-800">{inspection.method}</td>
-                      <td className="px-4 py-3 font-bold">{inspection.status}</td>
+                      <td className="px-4 py-3 font-black text-slate-800">{workInspectionMethodLabels[inspection.method] ?? inspection.method}</td>
+                      <td className="px-4 py-3 font-bold">{inspectionStatusLabels[inspection.status] ?? inspection.status}</td>
                       <td className="px-4 py-3">
                         {inspection.method === "OCR"
                           ? inspection.ocr_result_text ?? "-"
-                          : `${Math.round((inspection.vision_similarity ?? 0) * 100)}%`}
+                          : inspection.method === "VISION"
+                            ? `${Math.round((inspection.vision_similarity ?? 0) * 100)}%`
+                            : "-"}
                       </td>
                       <td className="px-4 py-3 font-bold text-sky-700">{inspection.materialVerificationValue || "-"}</td>
                       <td className="px-4 py-3">{inspection.result_summary}</td>

@@ -1,5 +1,7 @@
 # 작업현황 (`app/(workspace)/work-status`)
 
+> 변경 이력(2026-10-18, 문서관리팀): 사진검수·관리자 승인 반영에 맞춰 자동 상태 전이·확인요청 승인 후 상태·`complete` 액션·`reviewKind` 서술을 코드 기준으로 정리하고 `work-inspection.md`와 중복된 전이 규칙을 그쪽으로 일원화함.
+
 ## 개요
 등록된 전체 작업을 월 단위로 조회하고, 각 행의 상태 배지를 클릭해 작업 상태(대기/진행/보류/취소/완료)를 직접 변경할 수 있는 화면이다. 상단에는 완료율과 상태별 건수 요약 카드를, 상세필터 팝업에서는 작업구분/문서번호/완성품코드·명/LOT 조건 검색을 제공한다.
 
@@ -23,6 +25,7 @@
     - **사용수량**(`usedQuantity`, 단위수량 컬럼 오른쪽): `work_master_materials.unit_quantity × 작업수량` 계산값. `unit_quantity`가 없으면 `-`.
     - 검수상태 배지는 해당 부자재의 `work_inspections`(method별)를 집계해 4단계로 표시한다(`summarizeMaterialStatus`): 관리자요청 우선(주황) > 불합격(`failed`/`retrying`, 로즈) > 합격(모든 검수가 `passed`/`admin_approved`, 초록) > 대기(그 외/검수 없음, 회색). 위 "검수 집계 상태"(작업 단위, 완료/대기/취소 3단계)와는 별개의 부자재 단위 판정이다.
     - 검수 사진 컬럼은 `material.imageUrls`(서명 URL, 1시간 유효)를 최대 높이 제한된 썸네일로 표시하며, 클릭 시 `target="_blank"`로 원본을 새 탭에 연다. 사진이 없으면 `-`.
+  - **사진검수(PHOTO) 표시**(2026-10): 제품내역 표에 하나라도 `photoReviews`(단계별 `{stage,status,reviewComment,imageUrls}`)가 있으면 "사진검수" 컬럼이 추가되어 단계(작업전/완료)별 상태 배지(승인대기=남색·승인=초록·반려=빨강)·반려 사유·썸네일을 보여준다(`PhotoReviewCell`). 부자재 내역은 검수방식에 `inspectionMethodLabels`(NONE="사진검수")를 쓰고, 검수상태 판정(`summarizeMaterialStatus`)에 반려(`rejected`)>불합격>관리자요청>승인대기(`submitted`)가 추가됐으며 반려 항목은 사유를 배지 아래 표시한다. 작업완료사진 구역도 method `PHOTO`("사진검수")·반려 사유를 표시한다.
   - **"작업완료사진" 구역**(신규, 부자재 내역 표 바로 아래): 완료검수(작업완료 시 검수, `docs/menus/work-inspection.md`의 "완료검수" 절 참고) 결과를 표시한다. `CompletionPhotoSection` 컴포넌트가 `detail.completionPhotos`(항목/검수방식/검수상태/사진 4컬럼)를 렌더링한다. "완료제품사진"(부자재 아님, `material_id` 없음, 항목명 고정 "완료제품사진")을 항상 먼저, 그다음 부자재 완료검수 항목 순으로 보여준다. 완료제품사진은 모바일에서 최대 3장까지 등록할 수 있어 사진 컬럼에 여러 장이 나란히 표시될 수 있다(부자재 항목은 검수 통과 사진 1장만 유지). 완료검수를 아직 시작하지 않은 작업은 "완료검수 사진이 아직 없습니다" 빈 상태만 표시한다(섹션 자체는 항상 렌더링).
 - `DetailFilterModal` — 년도/월/작업구분/문서번호/완성품코드/완성품명/LOT 검색 폼(초기화/취소/검색 버튼)
 - `departmentId`/`shipperId`가 없으면 `EmptyCloudState`
@@ -49,12 +52,12 @@
   1. `resolveScopeIds`로 부서/화주 UUID 보정
   2. `fetchWorkMasterData`(`@/lib/repositories/work-master-supabase-repository`)로 작업마스터 조회
   3. `.from("works")`를 `department_id`/`shipper_id`로 필터 후 `work_date` 내림차순 조회
-  4. 조회된 work id들로 `.from("work_inspections")`를 `work_id`/`status`/`updated_at`으로 select해 한 번의 `in()` 쿼리로 조회하고, `getInspectionAggregateStatus`(`lib/server/inspection-status.ts`)로 작업별 `inspectionStatus`(`completed`/`waiting`/`canceled`)를, `getInspectionCompletedAt`으로 `workStartedAt`(검수완료 시점, `updated_at` 최댓값)을 계산해 각 row에 포함한다. `completedAt`은 `works.completed_at`을 그대로 반환한다. mock 분기(`mockRows`)도 `appRepository.listInspections(work.id)`로 `inspectionStatus`를 동일 규칙으로 적용하지만, mock 데이터에는 `updated_at`/`completed_at`이 없어 `workStartedAt`/`completedAt`은 항상 `undefined`("-" 표시)다.
+  4. 조회된 work id들로 `.from("work_inspections")`를 `work_id`/`stage`/`status`/`updated_at`/`method`/`material_id`로 전 단계 한 번의 `in()` 쿼리로 조회하고, 화면과 같은 가시성 규칙(`getActiveInspections`) 적용 후 시작검수(stage="start") 행으로 `getInspectionAggregateStatus`(`lib/server/inspection-status.ts`)로 작업별 `inspectionStatus`(`completed`/`waiting`/`canceled`)를, `getInspectionCompletedAt`으로 `workStartedAt`(검수완료 시점, `updated_at` 최댓값)을 계산해 각 row에 포함한다. `completedAt`은 `works.completed_at`을 그대로 반환한다. mock 분기(`mockRows`)도 `appRepository.listInspections(work.id)`로 `inspectionStatus`를 동일 규칙으로 적용하지만, mock 데이터에는 `updated_at`/`completed_at`이 없어 `workStartedAt`/`completedAt`은 항상 `undefined`("-" 표시)다.
 - PATCH mock 분기
   - DB 변경 없이 `{ source: "mock", workId, status }`만 반환
 - PATCH Supabase 분기
   - `.from("works")`를 `status`, `latest_inspected_at`, `completed_at`으로 update. `completed_at`은 `getDisplayStatus(status) === "complete"`(즉 `passed`/`completed`로 전환)면 `now()`, 그 외 상태로 전환하면 `null`로 초기화한다.
-- 실DB 모드(`NEXT_PUBLIC_USE_MOCK_DATA === "false"`)에서 Supabase 조회/저장이 예외를 던지면 GET/PATCH 모두 mock 폴백 없이 `502/500 { error }`를 반환한다(mock 폴백은 mock 모드에서만 동작)
+- 실DB 모드(`NEXT_PUBLIC_USE_MOCK_DATA === "false"`)에서 Supabase 조회/저장이 예외를 던지면 GET/PATCH 모두 mock 폴백 없이 `502 { error }`를 반환한다(mock 폴백은 mock 모드에서만 동작)
 
 ## 상태·필터
 - `useFilterStore`(zustand)에서 `departmentId`/`shipperId`를 읽어 `FilterScope`로 사용
@@ -70,11 +73,13 @@
   - 사용자가 상태 배지 드롭다운에서 직접 고를 수 있는 값은 **시작검수 완료 여부**로 제한된다(`getSelectableStatusOptions`, `app/(workspace)/work-status/page.tsx`):
     - 시작검수 미완료(`row.inspectionStatus !== "completed"`): 대기/보류/취소만 선택 가능
     - 시작검수 완료(`row.inspectionStatus === "completed"`): 보류/취소만 선택 가능(대기로 되돌릴 수 없음)
+    - 보류(`on_hold`)/취소(`canceled`) 상태: 시작검수 완료 여부와 무관하게 "보류 해제"/"취소 해제"(= `registered` 요청)를 항상 선택할 수 있다. 서버가 검수 집계로 상태를 재판정하므로(아래 "보류/취소 해제") 화면은 요청값이 아니라 응답의 `status`를 반영하고, 응답 상태가 요청과 다르면 목록을 다시 조회한다.
   - `dashboardWorkStatusOptions`(`lib/state/work-flow-store.ts`)는 5종 전체를 정의하지만 화면은 위 규칙으로 필터링한 부분집합만 드롭다운에 보여준다.
   - 서버(`PATCH /api/work-status`)도 동일하게 방어한다: `registered`/`on_hold`/`canceled` 외의 값(`in_progress`/`completed`/`passed` 등)으로 수동 PATCH하면 `400`을 반환한다(한국어 에러 메시지). 자동 전이는 이 API를 거치지 않고 `works` 테이블을 서버에서 직접 update하므로 이 방어에 영향받지 않는다.
-- **확인요청 승인 후 상태 복귀**: 관리자가 확인요청을 **승인**하고 해당 작업에 남은 `admin_requested` 항목이 없으면 `maybeAdvanceWorkStatus`가 검수 집계를 다시 보고 "진행"/"완료"로 전이시킨다. 전이 조건을 못 채운 경우(예: 작업전 검수 중 확인요청 → 승인, 아직 다른 부자재가 남음)에는 상태가 `admin_review_requested`로 남아 현장에서 검수를 이어갈 수 없으므로, `PATCH /api/work-inspection`(`adjustment`)이 승인 직후 상태를 다시 확인해 **"대기"(`registered`)로 되돌린다**. 재검수 요청/불합격 처리는 기존대로 `inspection_failed`로 간다.
-- **자동 상태 전이(신규, `lib/server/work-auto-status.ts`의 `maybeAdvanceWorkStatus`)**: OCR/제품검수/완료검수 사진 저장 API(성공 시) 3곳과 관리자 확인요청 승인 API(`PATCH /api/work-inspection` `adjustment`, 승인 시) 1곳, 총 4개 지점에서 각 저장/승인 직후 호출한다. 판정 순서: ①시작검수(stage="start") 집계가 `completed`가 아니면 아무것도 하지 않는다 ②시작검수가 끝났는데 완료검수(stage="complete") 집계까지 이미 `completed`면 바로 "완료"로 전이한다(완료검수 화면에서 마지막 항목을 저장/승인한 경우) ③그 외 시작검수만 끝났으면 "진행"으로 전이한다. 보류/취소/완료 상태는 이미 확정된 상태이므로 건드리지 않는다. 멱등이라 여러 지점에서 여러 번 호출돼도 안전하다.
-- 관리자 웹 작업검수 화면의 "검수완료" 버튼(`PATCH /api/work-inspection` `complete` 액션)은 이 자동 전이와 별개로 기존처럼 관리자가 수동으로 작업을 "진행"으로 강제 전환할 수 있는 오버라이드로 남아있다(변경하지 않음).
+- **보류/취소 해제(`PATCH /api/work-status`, `status: "registered"`)**: 현재 상태가 `completed`/`passed`면 `409`. 그 외에는 `releaseWorkHold()`(`lib/server/work-auto-status.ts`)가 검수 집계(마스터 가시성 규칙 적용)로 상태를 다시 판정해 `works`에 반영하고 응답 `status`로 돌려준다: 완료검수까지 완료면 `completed`, 처리 대기 확인요청 항목이 있으면 `admin_review_requested`, 불합격/재검수 항목이 있으면 `inspection_failed`, 그 외 시작검수 완료면 `in_progress`, 아니면 `registered`. 보류 직전 상태를 따로 저장하지 않고 항상 검수 집계로 복원한다.
+- **확인요청 처리 후 상태 복귀**: 관리자가 확인요청을 **승인/재검수 요청/미승인** 처리하고 해당 작업에 남은 `admin_requested` 항목이 없으면 `PATCH /api/work-inspection`(`adjustment`)이 `maybeAdvanceWorkStatus`로 검수 집계를 다시 판정한다(진행/완료 전이, 시작검수가 아직 안 끝났으면 대기, 불합격·반려 항목이 남으면 `inspection_failed`, 사진 승인대기가 남으면 승인대기 유지). 예전의 "승인 직후 대기(`registered`)로 강제복귀"는 제거됐다. `inspection_failed` 작업은 모바일에서 재검수 화면으로 진입할 수 있고(`docs/menus/mobile.md` 참고), 재검수가 합격돼 불합격/재검수 항목이 모두 해소되면 `maybeAdvanceWorkStatus`가 다시 전이시킨다.
+- **자동 상태 전이(`lib/server/work-auto-status.ts`의 `maybeAdvanceWorkStatus` + 순수 함수 `judgeNextStatus`)**: OCR/제품검수/완료검수 사진/사진검수(PHOTO) 제출 저장 API 성공 직후와 관리자 `PATCH /api/work-inspection`(`adjustment`·`photo_review`·`photo_approve_work`·`photo_reject_work`·`complete`) 처리 직후에 호출한다. 집계는 모바일 화면과 같은 가시성 규칙(`lib/mobile/inspection-visibility.ts`의 `getActiveInspections`)을 적용한 항목만 대상으로 한다(작업현황 GET의 `inspectionStatus`도 동일). 판정 순서와 승인 가능 조건(조건 R)의 기준 문서는 `docs/menus/work-inspection.md`의 "사진검수 + 작업승인 코어 규칙"이다(중복 서술 방지). 요약: 시작·완료검수 전부 합격이면 완료, 활성 단계(시작검수 미완료면 start, 아니면 complete)에 확인요청이 있으면 `admin_review_requested`, 불합격·반려가 있고 승인대기가 없으면 `inspection_failed`, 승인대기가 있고 미진행·불합격·확인요청이 없으면 `admin_review_requested`(관리자 작업승인 대기), 그 외 start 활성 `registered`/complete 활성 `in_progress`. 호출 후 작업상태를 반환하며(내부 오류는 `null`, 호출측이 502) 보류/취소/완료 상태는 건드리지 않는다. 멱등이라 여러 지점에서 여러 번 호출돼도 안전하다. 보류/취소 해제(`releaseWorkHold`)도 같은 판정 함수(release 모드)를 쓴다.
+- 관리자 웹 작업검수 화면의 "검수완료" 버튼은 제거됐고(사진 승인 플로우의 "작업승인"/"완료승인"으로 대체) `PATCH /api/work-inspection` `complete` 액션을 웹에서 호출하는 곳은 없다. API는 남아 있으며 취소/보류/완료 작업은 `409`, 완료검수 미완료도 `409`, `maybeAdvanceWorkStatus` 결과가 완료가 아니면 `409`로 거부한다.
 - 화면 표시 상태(`DisplayStatus`, `getDisplayStatus`)
   - `getDisplayStatus`는 `lib/constants/status.ts`에 정의되어 `work-status/page.tsx`와 `app/api/work-status/route.ts`가 공유 import한다(중복 정의 아님)
   - `registered → waiting`
@@ -82,9 +87,10 @@
   - `on_hold`/`inspection_failed`/`admin_review_requested` → `hold`
   - `canceled → cancel`
   - 그 외(`passed`/`completed`) → `complete`
+- **상태 라벨(`reviewKind`, 2026-10)**: `WorkStatusRowDto.reviewKind`(`"request"|"photo"`)를 `getWorkStatusLabel(status, reviewStage, reviewKind)`에 넘겨, `admin_review_requested`가 사진 승인대기 기인이면 "작업승인대기"(start)/"완료승인대기"(complete), 확인요청이면 기존 "검수확인중"/"완료확인중"으로 표시한다(확인요청이 함께면 서버가 `request`로 내려준다). `inspection_failed`이면서 `reviewKind === "photo"`면 "반려"로 표시하도록 화면이 구현돼 있으나, 서버는 확인요청(`admin_requested`)·승인대기(`submitted`) 행이 있을 때만 `reviewKind`를 내려주므로 승인대기가 남지 않은 반려 상태에서는 이 분기에 도달하지 않을 수 있다(점검 필요). 색상·아이콘·카운트 카드 분류는 보류 그대로이며, 수동 상태 변경 시 낙관적 업데이트에서 `reviewStage`·`reviewKind`를 함께 비운다. 공용 `StatusBadge`도 `reviewKind` prop과 `submitted`(남색) 색상을 지원한다.
 - **확인요청 단계 표시(`reviewStage`)**: `admin_review_requested`는 `getDisplayStatus`상 `hold`(보류)로 묶이지만, **작업현황의 상태 라벨은 어느 단계에서 확인요청이 걸렸는지에 따라 "검수확인중"(작업전 검수) / "완료확인중"(완료검수)으로 표시한다**(색상·아이콘·카운트 카드 분류는 보류 그대로 유지).
-  - `GET /api/work-status`가 `work_inspections`에서 `status = "admin_requested"`인 행을 별도 조회해(검수 집계용 조회는 `stage="start"` 전용이라 완료검수를 못 보므로 쿼리를 하나 더 쓴다) 작업별 `reviewStage`(`"start" | "complete"`)를 계산해 `WorkStatusRowDto.reviewStage`로 내려준다. 두 단계에 모두 걸려 있으면 더 진행된 `"complete"`를 쓴다. mock 모드는 stage 개념이 없어 항상 `"start"`("검수확인중")로 본다.
-  - 라벨 문자열은 `lib/constants/status.ts`의 `reviewStageLabels` / `getWorkStatusLabel(status, reviewStage)` 한 곳에서만 정의하고, 웹 작업현황 표·모바일 `/mobile/status`의 `StatusBadge`(`reviewStage` prop)·모바일 검수 화면 헤더가 공유한다.
+  - `GET /api/work-status`가 전 단계 `work_inspections`를 한 번에 조회해(가시성 규칙 적용) 작업별 `reviewStage`(`"start" | "complete"`)와 `reviewKind`(`"request" | "photo"`)를 계산해 `WorkStatusRowDto`로 내려준다. 확인요청(`admin_requested`) 행이 있으면 그 단계·`request`가 우선이고, 없고 승인대기(`submitted`) 행이 있으면 그 단계·`photo`다. 한 종류가 두 단계에 모두 걸려 있으면 더 진행된 `"complete"`를 쓴다. mock 모드는 stage 개념이 없어 확인요청 행이 있을 때만 `"start"`·`"request"`("검수확인중")로 본다.
+  - 라벨 문자열은 `lib/constants/status.ts`의 `reviewStageLabels` / `getWorkStatusLabel(status, reviewStage, reviewKind)` 한 곳에서만 정의하고, 웹 작업현황 표·모바일 `/mobile/status`의 `StatusBadge`(`reviewStage`·`reviewKind` prop)·모바일 검수 화면 헤더가 공유한다.
   - 라벨 대체는 **실제 `work.status`가 `admin_review_requested`일 때만** 적용한다(관리자가 수동으로 보류/취소 등으로 바꾼 뒤 잔여 `reviewStage` 때문에 오표시되지 않도록, 수동 변경 시 낙관적 업데이트에서도 `reviewStage`를 비운다).
 
 ## 검수 집계 상태(`inspectionStatus`)
@@ -105,10 +111,10 @@
 - `lib/types/work-status-api.ts`
   - `DisplayWorkStatusDto`
   - `InspectionAggregateStatusDto`: `"completed" | "waiting" | "canceled"`
-  - `WorkStatusRowDto`: work + displayStatus + inspectionStatus + workType/productCode/productName/lot/quantity + `workStartedAt`(검수완료 처리 일자, 미완료 시 `undefined`) + `completedAt`(`works.completed_at`, 미완료 시 `undefined`)
+  - `WorkStatusRowDto`: work + displayStatus + `reviewStage`/`reviewKind`(2026-10, 사진 승인대기·확인요청 구분) + inspectionStatus + workType/productCode/productName/lot/quantity + `workStartedAt`(검수완료 처리 일자, 미완료 시 `undefined`) + `completedAt`(`works.completed_at`, 미완료 시 `undefined`)
   - `WorkStatusDataResponse`: GET 응답
   - `UpdateWorkStatusResponse`: PATCH 응답
-  - `WorkDetailResponse`(+ `WorkDetailInfoDto`/`WorkDetailProductDto`/`WorkDetailProductsSourceDto`/`WorkDetailMaterialDto`/`WorkDetailMaterialInspectionDto`/`WorkDetailCompletionPhotoDto`): `GET /api/work-status/detail` 응답(상세내역 팝업). `WorkDetailMaterialDto.imageUrls`는 부자재별 검수 사진 서명 URL 목록(최신 발급, 1시간 후 만료). `WorkDetailProductDto.usedQuantity`/`WorkDetailMaterialDto.usedQuantity`는 사용수량 계산값(위 데이터 흐름 참고). `WorkDetailResponse.completionPhotos: WorkDetailCompletionPhotoDto[]`(신규)는 완료검수(`work_inspections.stage="complete"`) 항목별 `{ id, label, method, status, imageUrls }`.
+  - `WorkDetailResponse`(+ `WorkDetailInfoDto`/`WorkDetailProductDto`/`WorkDetailProductsSourceDto`/`WorkDetailMaterialDto`/`WorkDetailMaterialInspectionDto`/`WorkDetailPhotoReviewDto`/`WorkDetailCompletionPhotoDto`): `GET /api/work-status/detail` 응답(상세내역 팝업; 사진검수 필드 `WorkDetailProductDto.photoReviews`·`WorkDetailMaterialInspectionDto.reviewComment`·`WorkDetailCompletionPhotoDto.reviewComment`는 옵셔널이며 서버(`/api/work-status/detail`)가 해당 항목이 있을 때만 채운다). `WorkDetailMaterialDto.imageUrls`는 부자재별 검수 사진 서명 URL 목록(최신 발급, 1시간 후 만료). `WorkDetailProductDto.usedQuantity`/`WorkDetailMaterialDto.usedQuantity`는 사용수량 계산값(위 데이터 흐름 참고). `WorkDetailResponse.completionPhotos: WorkDetailCompletionPhotoDto[]`(신규)는 완료검수(`work_inspections.stage="complete"`) 항목별 `{ id, label, method, status, imageUrls }`.
 - `lib/types/domain.ts`: `Work`, `WorkStatus`, `InspectionStatus`
 - `lib/server/inspection-status.ts`: `getInspectionAggregateStatus`(검수 집계 판정 공유 함수), `getInspectionCompletedAt`(검수완료 시점 = `work_inspections.updated_at` 최댓값 판정 공유 함수)
 - `lib/state/work-flow-store.ts`: `dashboardWorkStatusOptions`(상태 드롭다운 옵션 목록)
@@ -121,3 +127,12 @@
 - `lot`, `quantity`, `workType` 값은 Supabase 조회 시 `works` 테이블에 `finished_product_lot`/`quantity`/`work_type` 컬럼이 없으면 `getFallbackFinishedProductLot`(work_date 기반 생성값)과 `workTypeOptions` 순환 인덱스로 대체된다(실제 저장값이 아닐 수 있음).
 - 상세필터의 문서번호/완성품코드/완성품명/LOT 검색은 대소문자 무시 부분일치(`includesText`)로, 서버 쿼리가 아닌 클라이언트 필터링이다.
 - 상세내역 팝업의 부자재 검수 사진 서명 URL은 발급 후 1시간이 지나면 만료된다. 팝업을 닫았다가 다시 열면 재조회하며 새 서명 URL을 받아온다(클라이언트에 캐시하지 않음).
+
+## 스코프 가드 (2026-10 추가, `lib/server/scope-guard.ts`)
+- 공통 규칙: API 라우트는 서비스롤 키로 RLS를 우회하므로, 쓰기·삭제·상태변경·리소스ID 조회 요청은 부서/화주 스코프(JSON/FormData `departmentId`·`shipperId`, 쿼리 `department_id`·`shipper_id`)를 **필수**로 받는다. 누락 `400`, 리소스 없음 `404`, 스코프 불일치 `403`, 가드 내 DB 오류 `502`. 이 검증은 mock 모드에서도 스코프 존재(400)까지 동일하게 적용된다. 호출측은 웹은 `useFilterStore`, 모바일은 `useMobileScope()`(`lib/mobile/mobile-api.ts`, 기본 스코프 폴백 포함)의 값을 보낸다. 인증(로그인 사용자 확인)은 별도 범위다.
+- `PATCH /api/work-status` body `{ departmentId, shipperId, workId, status }`, `GET /api/work-status/detail?work_id=&department_id=&shipper_id=`: 작업이 스코프 소속인지 확인(없음 404 / 불일치 403). 웹 `WorkDetailModal`과 모바일 `ProductChecklist`가 스코프를 함께 보낸다.
+
+## 사진검수 반영 API (2026-10)
+- `GET /api/work-status`: `reviewStage` + `reviewKind`("request"|"photo") 산출 규칙은 위 "확인요청 단계 표시" 참고(확인요청이 있으면 request 우선, 없고 승인대기가 있으면 photo, 두 단계에 걸리면 complete 기준)
+- `GET /api/work-status/detail`: `products[].photoReviews[]`(단계별 상태·반려 사유·현재 사진 서명URL), 부자재 `inspections[]`에 PHOTO(stage·reviewComment)와 현재 사진 URL, `completionPhotos`에 부자재 PHOTO 포함(제품 PHOTO는 제품내역에만). 부자재 폴백값은 NONE(`normalizeMaterialInspectionMethod`)
+- PATCH 수동 상태 저장 DB 오류는 502

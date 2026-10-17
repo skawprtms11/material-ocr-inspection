@@ -6,8 +6,16 @@ import {
   createWorkMaster,
   deleteWorkMasters,
   fetchWorkMasterData,
-  mapWorkMasterRow
+  mapWorkMasterRow,
+  WorkMasterValidationError
 } from "@/lib/repositories/work-master-supabase-repository";
+import {
+  assertWorkMastersInScope,
+  guardErrorResponse,
+  missingScopeResponse,
+  resolveRequestScope,
+  scopeFromBody
+} from "@/lib/server/scope-guard";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { MaterialMaster, WorkMaster } from "@/lib/types/domain";
 import type {
@@ -80,13 +88,18 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const body = (await request.json()) as {
+  let body: {
     mode?: "single" | "batch";
     departmentId?: string;
     shipperId?: string;
     draft?: DraftWorkMasterDto;
     rows?: BatchWorkMasterRowDto[];
   };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "요청 본문이 올바른 JSON이 아닙니다." }, { status: 400 });
+  }
   const departmentId = body.departmentId;
   const shipperId = body.shipperId;
 
@@ -115,7 +128,7 @@ export async function POST(request: NextRequest) {
               shipper_id: shipperId,
               name: `${code} (부자재마스터 등록 필요)`,
               code,
-              inspection_method: "BOTH",
+              inspection_method: "NONE",
               reference_image_path: "",
               remark: "작업마스터 일괄등록에서 자동 생성됨. 부자재마스터 등록 필요",
               is_active: true,
@@ -169,7 +182,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(response);
     } catch (error) {
       const message = errorMessage(error, "작업마스터 일괄등록에 실패했습니다.");
-      return NextResponse.json({ error: message }, { status: 500 });
+      return NextResponse.json({ error: message }, { status: error instanceof WorkMasterValidationError ? 400 : 500 });
     }
   }
 
@@ -206,7 +219,14 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const body = (await request.json()) as { ids?: string[] };
+  let body: { departmentId?: string; shipperId?: string; ids?: string[] };
+  try {
+    body = (await request.json()) as { departmentId?: string; shipperId?: string; ids?: string[] };
+  } catch {
+    return NextResponse.json({ error: "요청 본문이 올바른 JSON이 아닙니다." }, { status: 400 });
+  }
+  const requestScope = scopeFromBody(body);
+  if (!requestScope) return missingScopeResponse();
   const ids = body.ids ?? [];
 
   if (ids.length === 0) return NextResponse.json({ error: "삭제할 작업마스터가 없습니다." }, { status: 400 });
@@ -218,9 +238,13 @@ export async function DELETE(request: NextRequest) {
   }
 
   try {
+    const scope = await resolveRequestScope(supabase, requestScope);
+    await assertWorkMastersInScope(supabase, ids, scope);
     await deleteWorkMasters(supabase, ids);
     return NextResponse.json({ source: "supabase", deletedIds: ids });
   } catch (error) {
+    const guardResponse = guardErrorResponse(error);
+    if (guardResponse) return guardResponse;
     const message = errorMessage(error, "작업마스터 삭제에 실패했습니다.");
     return NextResponse.json({ error: message }, { status: 500 });
   }

@@ -5,7 +5,7 @@ import { ArrowLeft, Camera, CheckCircle2, ImagePlus, Pencil, Plus, RotateCcw, Sa
 import { CloudButton } from "@/components/common/CloudButton";
 import { CuteCard } from "@/components/common/CuteCard";
 import { TouchRegionSelector } from "@/components/mobile/TouchRegionSelector";
-import { useMobileMaterials } from "@/lib/mobile/mobile-api";
+import { useMobileMaterials, useMobileScope } from "@/lib/mobile/mobile-api";
 import type { MaterialMaster } from "@/lib/types/domain";
 import { cn } from "@/lib/utils/cn";
 
@@ -247,6 +247,7 @@ function constrainRect(rect: Rect): Rect {
 
 export default function MobileMaterialRegistrationPage() {
   const { data: materials, source, warning, isLoading, error, reload } = useMobileMaterials();
+  const scope = useMobileScope();
   const initialRegistrationStatus = useMemo(() => {
     return materials.reduce<Record<RegistrationMethod, Set<string>>>(
       (acc, material) => {
@@ -325,6 +326,8 @@ export default function MobileMaterialRegistrationPage() {
     const formData = new FormData();
     const files = payload.files ?? (payload.file ? [payload.file] : []);
 
+    formData.append("departmentId", scope.departmentId);
+    formData.append("shipperId", scope.shipperId);
     formData.append("materialId", material.id);
     formData.append("method", method);
     formData.append("imagePath", buildMobileMaterialImagePath(material, method, payload.fileName));
@@ -363,7 +366,7 @@ export default function MobileMaterialRegistrationPage() {
       const response = await fetch("/api/material-master/registration", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ materialId: selectedMaterialId })
+        body: JSON.stringify({ ...scope, materialId: selectedMaterialId })
       });
       const result = (await response.json()) as { error?: string };
 

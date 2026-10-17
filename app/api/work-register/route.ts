@@ -1,35 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import { appRepository } from "@/lib/repositories/app-repository";
-import { errorMessage, isUuid, resolveScopeIds } from "@/lib/repositories/supabase-scope";
+import { errorMessage, resolveScopeIds } from "@/lib/repositories/supabase-scope";
 import { fetchWorkMasterData } from "@/lib/repositories/work-master-supabase-repository";
 import { setupWorkInspections } from "@/lib/server/inspection-setup";
 import { getInspectionAggregateStatus } from "@/lib/server/inspection-status";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import type { AppUser, InspectionStatus, WorkMaster } from "@/lib/types/domain";
+import {
+  EDIT_LOCKED_REASON,
+  RouteError,
+  addDays,
+  fetchComponentsByWorkIds,
+  fetchScopedWorkMaster,
+  insertWorkComponents,
+  makePendingWork,
+  text,
+  validateRegistrationBody,
+  type DbRow
+} from "@/lib/server/work-register-shared";
+import type { AppUser, InspectionStatus } from "@/lib/types/domain";
 import type {
   CreateWorkRegistrationRequest,
   CreateWorkRegistrationResponse,
   PendingAssignmentWorkDto,
-  WorkComponentRowDto,
   WorkRegisterDataResponse
 } from "@/lib/types/work-register-api";
 import type { WorkMasterDataResponse } from "@/lib/types/work-master-api";
-
-type DbRow = Record<string, unknown>;
-
-function text(value: unknown, fallback = "") {
-  return typeof value === "string" ? value : fallback;
-}
-
-function numberValue(value: unknown, fallback = 0) {
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-}
-
-function addDays(dateValue: string, days: number) {
-  const date = new Date(dateValue);
-  date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
-}
 
 function mockPendingWorks(departmentId: string, shipperId: string) {
   const workMasters = appRepository.listWorkMasters({ departmentId, shipperId });
@@ -99,64 +94,10 @@ function userFromRow(row: DbRow): AppUser {
   };
 }
 
-function makePendingWork(row: DbRow, workMaster?: WorkMaster, components?: WorkComponentRowDto[]): PendingAssignmentWorkDto {
-  const workDate = text(row.work_date, new Date().toISOString().slice(0, 10));
-
-  return {
-    id: text(row.id),
-    registeredAt: workDate,
-    workMasterId: text(row.work_master_id),
-    workType: text(row.work_type, "리드레싱"),
-    documentNo: text(row.document_no),
-    finishedProductCode: workMaster?.code ?? text(row.finished_product_code, "-"),
-    finishedProductName: workMaster?.name ?? text(row.finished_product_name, "-"),
-    finishedProductLot: text(row.finished_product_lot, ""),
-    quantity: numberValue(row.quantity),
-    dueDate: text(row.due_date, addDays(workDate, 2)),
-    memo: text(row.memo),
-    componentRows: components
-  };
-}
-
-function componentFromRow(row: DbRow): WorkComponentRowDto {
-  const kind = text(row.component_kind, text(row.kind, "제품"));
-  const code = text(row.item_code, text(row.code));
-
-  return {
-    rowId: text(row.id, `component-${code}`),
-    groupId: text(row.group_id, code),
-    kind: kind === "부자재" ? "부자재" : "제품",
-    code,
-    name: text(row.item_name, text(row.name)),
-    unitQuantity: numberValue(row.unit_quantity, 1),
-    requiredQuantity: numberValue(row.required_quantity),
-    lot: text(row.lot),
-    allocatedQuantity: numberValue(row.allocated_quantity),
-    memo: text(row.memo)
-  };
-}
-
-async function fetchUsers() {
-  const supabase = createServerSupabaseClient();
-  if (!supabase) return appRepository.listUsers().filter((user) => user.is_active && user.role !== "viewer");
-
+async function fetchUsers(supabase: NonNullable<ReturnType<typeof createServerSupabaseClient>>) {
   const { data, error } = await supabase.from("app_users").select("*").neq("role", "viewer");
-  if (error) return appRepository.listUsers().filter((user) => user.is_active && user.role !== "viewer");
+  if (error) throw error;
   return ((data ?? []) as DbRow[]).map(userFromRow).filter((user) => user.is_active);
-}
-
-async function fetchComponentsByWorkIds(workIds: string[]) {
-  const supabase = createServerSupabaseClient();
-  if (!supabase || workIds.length === 0) return {};
-
-  const { data, error } = await supabase.from("work_components").select("*").in("work_id", workIds);
-  if (error) return {};
-
-  return ((data ?? []) as DbRow[]).reduce<Record<string, WorkComponentRowDto[]>>((acc, row) => {
-    const workId = text(row.work_id);
-    acc[workId] = [...(acc[workId] ?? []), componentFromRow(row)];
-    return acc;
-  }, {});
 }
 
 export async function GET(request: NextRequest) {
@@ -187,15 +128,14 @@ export async function GET(request: NextRequest) {
     if (error) throw error;
 
     const unassignedRows = ((workRows ?? []) as DbRow[]).filter((row) => !row.assigned_to && !row.assigned_at);
-    const inspectionStatusesByWorkId = new Map<string, InspectionStatus[]>();
+    const startStatusesByWorkId = new Map<string, InspectionStatus[]>();
+    const startedWorkIds = new Set<string>();
     const unassignedWorkIds = unassignedRows.map((row) => text(row.id));
 
     if (unassignedWorkIds.length > 0) {
-      // 검수완료 제외 판정은 시작검수(stage="start") 기준이다(완료검수는 배정 이후 단계라 여기서는 무관).
       const { data: inspectionRows, error: inspectionError } = await supabase
         .from("work_inspections")
-        .select("work_id, status")
-        .eq("stage", "start")
+        .select("work_id, status, stage")
         .in("work_id", unassignedWorkIds);
 
       if (inspectionError) throw inspectionError;
@@ -203,25 +143,37 @@ export async function GET(request: NextRequest) {
       for (const inspectionRow of (inspectionRows ?? []) as DbRow[]) {
         const workId = text(inspectionRow.work_id);
         const status = text(inspectionRow.status) as InspectionStatus;
-        const list = inspectionStatusesByWorkId.get(workId) ?? [];
-        list.push(status);
-        inspectionStatusesByWorkId.set(workId, list);
+        // 수정 잠금은 모든 stage 기준(pending이 아닌 행이 하나라도 있으면 검수 시작으로 본다)
+        if (status !== "pending") startedWorkIds.add(workId);
+        // 검수완료 제외 판정은 시작검수(stage="start") 기준이다(완료검수는 배정 이후 단계라 여기서는 무관).
+        if (text(inspectionRow.stage) === "start") {
+          const list = startStatusesByWorkId.get(workId) ?? [];
+          list.push(status);
+          startStatusesByWorkId.set(workId, list);
+        }
       }
     }
 
     // 검수완료 작업은 등록 목록에서 제외하고 작업현황에서만 조회한다(대표님 스펙)
     const rows = unassignedRows.filter(
-      (row) => getInspectionAggregateStatus(inspectionStatusesByWorkId.get(text(row.id)) ?? []) !== "completed"
+      (row) => getInspectionAggregateStatus(startStatusesByWorkId.get(text(row.id)) ?? []) !== "completed"
     );
-    const componentsByWork = await fetchComponentsByWorkIds(rows.map((row) => text(row.id)));
+    const componentsByWork = await fetchComponentsByWorkIds(supabase, rows.map((row) => text(row.id)));
     const workMasterById = new Map(masterData.workMasters.map((workMaster) => [workMaster.id, workMaster]));
 
     return NextResponse.json({
       source: "supabase",
-      pendingWorks: rows.map((row) => makePendingWork(row, workMasterById.get(text(row.work_master_id)), componentsByWork[text(row.id)])),
+      pendingWorks: rows.map((row) =>
+        makePendingWork(
+          row,
+          workMasterById.get(text(row.work_master_id)),
+          componentsByWork[text(row.id)],
+          startedWorkIds.has(text(row.id)) ? EDIT_LOCKED_REASON : undefined
+        )
+      ),
       workMasters: masterData.workMasters,
       materials: masterData.materials,
-      users: await fetchUsers(),
+      users: await fetchUsers(supabase),
       materialRowsByWork: masterData.materialRowsByWork,
       productRowsByWork: masterData.productRowsByWork,
       metaByWork: masterData.metaByWork
@@ -234,14 +186,14 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const body = (await request.json()) as CreateWorkRegistrationRequest;
   const supabase = createServerSupabaseClient();
+  const isMock = !supabase || process.env.NEXT_PUBLIC_USE_MOCK_DATA !== "false";
 
-  if (!body.departmentId || !body.shipperId || !body.workMasterId || !body.documentNo) {
-    return NextResponse.json({ error: "작업등록 필수값이 부족합니다." }, { status: 400 });
-  }
+  const validationError = validateRegistrationBody(body, !isMock);
+  if (validationError) return NextResponse.json({ error: validationError }, { status: 400 });
 
   const registeredAt = new Date().toISOString().slice(0, 10);
 
-  if (!supabase || process.env.NEXT_PUBLIC_USE_MOCK_DATA !== "false") {
+  if (!supabase || isMock) {
     const workMaster = appRepository.listWorkMasters({ departmentId: body.departmentId, shipperId: body.shipperId }).find((item) => item.id === body.workMasterId);
     const response: CreateWorkRegistrationResponse = {
       source: "mock",
@@ -263,80 +215,63 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(response);
   }
 
+  let createdWorkId: string | null = null;
+
   try {
     const scope = await resolveScopeIds(supabase, body.departmentId, body.shipperId);
-    const { data: workMasterData } = await supabase.from("work_masters").select("*").eq("id", body.workMasterId).maybeSingle();
-    const workMaster = workMasterData as DbRow | null;
-    const payload = {
-      department_id: scope.departmentId,
-      shipper_id: scope.shipperId,
-      work_master_id: body.workMasterId,
-      document_no: body.documentNo,
-      work_date: registeredAt,
-      status: "registered",
-      worker_name: "",
-      memo: body.memo,
-      work_type: body.workType,
-      quantity: body.quantity,
-      due_date: body.dueDate,
-      finished_product_lot: body.finishedProductLot
-    };
+    const workMaster = await fetchScopedWorkMaster(supabase, body.workMasterId, scope);
 
-    let insertResult = await supabase.from("works").insert(payload).select("*").single();
+    const { data: workData, error: workError } = await supabase
+      .from("works")
+      .insert({
+        department_id: scope.departmentId,
+        shipper_id: scope.shipperId,
+        work_master_id: body.workMasterId,
+        document_no: body.documentNo,
+        work_date: registeredAt,
+        status: "registered",
+        worker_name: "",
+        memo: body.memo,
+        work_type: body.workType,
+        quantity: body.quantity,
+        due_date: body.dueDate,
+        finished_product_lot: body.finishedProductLot
+      })
+      .select("*")
+      .single();
+    if (workError) throw workError;
 
-    if (insertResult.error) {
-      const { work_type: _workType, quantity: _quantity, due_date: _dueDate, finished_product_lot: _lot, ...fallbackPayload } = payload;
-      insertResult = await supabase.from("works").insert(fallbackPayload).select("*").single();
-    }
-
-    if (insertResult.error) throw insertResult.error;
-
-    const workRow = insertResult.data as DbRow;
+    const workRow = workData as DbRow;
     const workId = text(workRow.id);
+    createdWorkId = workId;
 
-    if (body.componentRows.length > 0) {
-      const componentPayload = body.componentRows.map((row, index) => ({
-        work_id: workId,
-        component_kind: row.kind,
-        group_id: row.groupId,
-        item_code: row.code,
-        item_name: row.name,
-        unit_quantity: row.unitQuantity,
-        required_quantity: row.requiredQuantity,
-        lot: row.lot,
-        allocated_quantity: row.allocatedQuantity,
-        memo: row.memo,
-        sort_order: index + 1
-      }));
+    await insertWorkComponents(supabase, workId, body.componentRows);
 
-      await supabase.from("work_components").insert(componentPayload);
-    }
-
-    // 작업 등록 직후 검수 대상 행을 생성한다(등록 시점 생성, 실패해도 등록 자체는 성공 유지)
+    // 작업 등록 직후 검수 대상 행을 생성한다. 실패(failed)는 성공으로 보지 않고 아래 catch에서 등록 전체를 롤백한다.
     const inspectionSetup = await setupWorkInspections(supabase, workId, body.workMasterId);
+    if (inspectionSetup === "failed") throw new Error("검수 행 생성에 실패해 작업등록을 취소했습니다.");
 
     const response: CreateWorkRegistrationResponse = {
       source: "supabase",
       inspectionSetup,
-      work: makePendingWork(
-        workRow,
-        workMaster
-          ? {
-              id: text(workMaster.id),
-              department_id: text(workMaster.department_id),
-              shipper_id: text(workMaster.shipper_id),
-              code: text(workMaster.code),
-              name: text(workMaster.name),
-              description: text(workMaster.description),
-              is_active: typeof workMaster.is_active === "boolean" ? workMaster.is_active : true
-            }
-          : undefined,
-        body.componentRows
-      )
+      work: makePendingWork(workRow, workMaster, body.componentRows)
     };
 
     return NextResponse.json(response);
   } catch (error) {
-    return NextResponse.json({ error: errorMessage(error, "작업등록 저장에 실패했습니다.") }, { status: 500 });
+    // 구성품 저장 실패 시 방금 만든 작업 행이 구성품 없이 남지 않도록 롤백한다
+    if (createdWorkId) {
+      await supabase.from("work_components").delete().eq("work_id", createdWorkId);
+      await supabase.from("work_inspections").delete().eq("work_id", createdWorkId);
+      const { error: rollbackError } = await supabase.from("works").delete().eq("id", createdWorkId);
+      if (rollbackError) {
+        return NextResponse.json(
+          { error: `${errorMessage(error, "작업등록 저장에 실패했습니다.")} (작업 롤백 실패: ${rollbackError.message})` },
+          { status: 502 }
+        );
+      }
+    }
+    const status = error instanceof RouteError ? error.status : 502;
+    return NextResponse.json({ error: errorMessage(error, "작업등록 저장에 실패했습니다.") }, { status });
   }
 }

@@ -3,6 +3,7 @@
 import { ChangeEvent, useCallback, useEffect, useState } from "react";
 import { Camera, CheckCircle2, ImagePlus, Trash2 } from "lucide-react";
 import { CuteCard } from "@/components/common/CuteCard";
+import { useMobileScope } from "@/lib/mobile/mobile-api";
 import { cn } from "@/lib/utils/cn";
 import type { InspectionWithVerificationDto } from "@/lib/types/work-inspection-api";
 
@@ -27,8 +28,9 @@ export function CompletionProductPhotoCard({
 }: {
   workId: string;
   inspection: InspectionWithVerificationDto;
-  onSubmitted: () => Promise<void> | void;
+  onSubmitted: () => Promise<unknown> | void;
 }) {
+  const scope = useMobileScope();
   const [photos, setPhotos] = useState<CompletionPhoto[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -38,10 +40,13 @@ export function CompletionProductPhotoCard({
   const loadPhotos = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch(
-        `/api/work-inspection/completion-photo?inspection_id=${inspection.id}&work_id=${workId}`,
-        { cache: "no-store" }
-      );
+      const query = new URLSearchParams({
+        inspection_id: inspection.id,
+        work_id: workId,
+        department_id: scope.departmentId,
+        shipper_id: scope.shipperId
+      });
+      const response = await fetch(`/api/work-inspection/completion-photo?${query.toString()}`, { cache: "no-store" });
       const payload = (await response.json()) as PhotoResponse;
       if (!response.ok || payload.error) throw new Error(payload.error ?? "완료제품 사진을 불러오지 못했습니다.");
       setPhotos(payload.photos ?? []);
@@ -51,7 +56,7 @@ export function CompletionProductPhotoCard({
     } finally {
       setLoading(false);
     }
-  }, [inspection.id, workId]);
+  }, [inspection.id, workId, scope.departmentId, scope.shipperId]);
 
   useEffect(() => {
     void loadPhotos();
@@ -80,6 +85,8 @@ export function CompletionProductPhotoCard({
       });
 
       const formData = new FormData();
+      formData.append("departmentId", scope.departmentId);
+      formData.append("shipperId", scope.shipperId);
       formData.append("inspectionId", inspection.id);
       formData.append("workId", workId);
       formData.append("image", compressedFile);
@@ -107,7 +114,7 @@ export function CompletionProductPhotoCard({
       const response = await fetch("/api/work-inspection/completion-photo", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inspectionId: inspection.id, workId, imageId })
+        body: JSON.stringify({ ...scope, inspectionId: inspection.id, workId, imageId })
       });
       const payload = (await response.json()) as PhotoResponse;
       if (!response.ok || payload.error) throw new Error(payload.error ?? "사진 삭제에 실패했습니다.");

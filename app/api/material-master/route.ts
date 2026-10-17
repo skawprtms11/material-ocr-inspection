@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
+import { normalizeMaterialInspectionMethod } from "@/lib/inspection/method-plan";
 import { appRepository } from "@/lib/repositories/app-repository";
 import { errorMessage, resolveScopeIds, toMockScopeIds } from "@/lib/repositories/supabase-scope";
+import {
+  assertMaterialInScope,
+  guardErrorResponse,
+  missingScopeResponse,
+  resolveRequestScope,
+  scopeFromBody
+} from "@/lib/server/scope-guard";
+import { attachMissingReferences } from "@/lib/server/material-reference";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { InspectionMethod, MaterialMaster } from "@/lib/types/domain";
 
@@ -25,8 +34,6 @@ function text(value: unknown, fallback = "") {
 }
 
 function toMaterial(row: DbRow): MaterialMaster {
-  const method = text(row.inspection_method, "BOTH");
-
   return {
     id: text(row.id),
     department_id: text(row.department_id),
@@ -34,7 +41,7 @@ function toMaterial(row: DbRow): MaterialMaster {
     code: text(row.code),
     name: text(row.name),
     lot: text(row.lot) || undefined,
-    inspection_method: method === "OCR" || method === "VISION" || method === "BOTH" ? method : "BOTH",
+    inspection_method: normalizeMaterialInspectionMethod(row.inspection_method),
     reference_image_path: text(row.reference_image_path),
     ocr_image_path: text(row.ocr_image_path) || undefined,
     vision_image_path: text(row.vision_image_path) || undefined,
@@ -52,6 +59,22 @@ function mockData(departmentId: string, shipperId: string, warning?: string) {
     warning,
     materials: appRepository.listMaterials(scope)
   };
+}
+
+const allowedInspectionMethods: readonly string[] = ["OCR", "VISION", "BOTH", "NONE"];
+
+// 미전송은 NONE(사진검수)으로 보고, 전송된 값이 허용값이 아니면 거부한다.
+function invalidInspectionMethod(payload: MaterialPayload) {
+  const value: unknown = payload.inspection_method;
+  if (value === undefined) {
+    payload.inspection_method = "NONE";
+    return false;
+  }
+  return typeof value !== "string" || !allowedInspectionMethods.includes(value);
+}
+
+function inspectionMethodErrorResponse() {
+  return NextResponse.json({ error: "inspection_method는 OCR, VISION, BOTH, NONE 중 하나여야 합니다." }, { status: 400 });
 }
 
 function payloadToDb(payload: MaterialPayload, departmentId?: string, shipperId?: string) {
@@ -76,41 +99,38 @@ export async function GET(request: NextRequest) {
   const shipperId = searchParams.get("shipper_id");
   const materialId = searchParams.get("material_id");
 
-  if ((!departmentId || !shipperId) && !materialId) {
+  if (!departmentId || !shipperId) {
     return NextResponse.json({ error: "department_id와 shipper_id가 필요합니다." }, { status: 400 });
   }
 
   const supabase = createServerSupabaseClient();
 
   if (!supabase || process.env.NEXT_PUBLIC_USE_MOCK_DATA !== "false") {
-    return NextResponse.json(mockData(departmentId ?? "", shipperId ?? ""));
+    return NextResponse.json(mockData(departmentId, shipperId));
   }
 
   try {
-    const rows: DbRow[] = [];
+    const scope = await resolveScopeIds(supabase, departmentId, shipperId);
+    const { data, error } = await supabase
+      .from("material_masters")
+      .select("*")
+      .eq("department_id", scope.departmentId)
+      .eq("shipper_id", scope.shipperId)
+      .order("code", { ascending: true });
 
-    if (departmentId && shipperId) {
-      const scope = await resolveScopeIds(supabase, departmentId, shipperId);
-      const { data, error } = await supabase
-        .from("material_masters")
-        .select("*")
-        .eq("department_id", scope.departmentId)
-        .eq("shipper_id", scope.shipperId)
-        .order("code", { ascending: true });
+    if (error) throw error;
+    const rows = (data ?? []) as DbRow[];
 
-      if (error) throw error;
-      rows.push(...((data ?? []) as DbRow[]));
-    }
-
+    // material_id 단독 조회(모바일 부자재사진)도 스코프 안의 부자재만 허용한다. 스코프 밖이면 403/404.
     if (materialId && !rows.some((row) => text(row.id) === materialId)) {
-      const { data, error } = await supabase.from("material_masters").select("*").eq("id", materialId).single();
-
-      if (error) throw error;
-      rows.unshift(data as DbRow);
+      const material = await assertMaterialInScope(supabase, materialId, scope);
+      rows.unshift(material);
     }
 
-    return NextResponse.json({ source: "supabase", materials: rows.map(toMaterial) });
+    return NextResponse.json({ source: "supabase", materials: await attachMissingReferences(supabase, rows.map(toMaterial)) });
   } catch (error) {
+    const guardResponse = guardErrorResponse(error);
+    if (guardResponse) return guardResponse;
     return NextResponse.json({ error: errorMessage(error, "Supabase 부자재마스터 조회에 실패했습니다.") }, { status: 502 });
   }
 }
@@ -121,6 +141,7 @@ export async function POST(request: NextRequest) {
   if (!body.departmentId || !body.shipperId || !body.code || !body.name) {
     return NextResponse.json({ error: "부서, 화주, 부자재코드, 부자재명이 필요합니다." }, { status: 400 });
   }
+  if (invalidInspectionMethod(body)) return inspectionMethodErrorResponse();
 
   const supabase = createServerSupabaseClient();
 
@@ -143,18 +164,23 @@ export async function POST(request: NextRequest) {
     const { data, error } = await supabase.from("material_masters").insert(payloadToDb(body, scope.departmentId, scope.shipperId)).select("*").single();
     if (error) throw error;
 
-    return NextResponse.json({ source: "supabase", material: toMaterial(data as DbRow) });
+    const [material] = await attachMissingReferences(supabase, [toMaterial(data as DbRow)]);
+    return NextResponse.json({ source: "supabase", material });
   } catch (error) {
-    return NextResponse.json({ error: errorMessage(error, "부자재 저장에 실패했습니다.") }, { status: 500 });
+    return NextResponse.json({ error: errorMessage(error, "부자재 저장에 실패했습니다.") }, { status: 502 });
   }
 }
 
 export async function PATCH(request: NextRequest) {
   const body = (await request.json()) as MaterialPayload;
 
+  const requestScope = scopeFromBody(body);
+  if (!requestScope) return missingScopeResponse();
+
   if (!body.id || !body.code || !body.name) {
     return NextResponse.json({ error: "부자재 ID, 코드, 명칭이 필요합니다." }, { status: 400 });
   }
+  if (invalidInspectionMethod(body)) return inspectionMethodErrorResponse();
 
   const supabase = createServerSupabaseClient();
 
@@ -163,6 +189,9 @@ export async function PATCH(request: NextRequest) {
   }
 
   try {
+    const scope = await resolveRequestScope(supabase, requestScope);
+    await assertMaterialInScope(supabase, body.id, scope);
+
     const { data, error } = await supabase
       .from("material_masters")
       .update(payloadToDb(body))
@@ -171,14 +200,19 @@ export async function PATCH(request: NextRequest) {
       .single();
     if (error) throw error;
 
-    return NextResponse.json({ source: "supabase", material: toMaterial(data as DbRow) });
+    const [material] = await attachMissingReferences(supabase, [toMaterial(data as DbRow)]);
+    return NextResponse.json({ source: "supabase", material });
   } catch (error) {
-    return NextResponse.json({ error: errorMessage(error, "부자재 수정에 실패했습니다.") }, { status: 500 });
+    const guardResponse = guardErrorResponse(error);
+    if (guardResponse) return guardResponse;
+    return NextResponse.json({ error: errorMessage(error, "부자재 수정에 실패했습니다.") }, { status: 502 });
   }
 }
 
 export async function DELETE(request: NextRequest) {
-  const body = (await request.json()) as { id?: string };
+  const body = (await request.json()) as { id?: string; departmentId?: string; shipperId?: string };
+  const requestScope = scopeFromBody(body);
+  if (!requestScope) return missingScopeResponse();
 
   if (!body.id) return NextResponse.json({ error: "삭제할 부자재 ID가 필요합니다." }, { status: 400 });
 
@@ -189,11 +223,16 @@ export async function DELETE(request: NextRequest) {
   }
 
   try {
+    const scope = await resolveRequestScope(supabase, requestScope);
+    await assertMaterialInScope(supabase, body.id, scope);
+
     const { error } = await supabase.from("material_masters").delete().eq("id", body.id);
     if (error) throw error;
 
     return NextResponse.json({ source: "supabase", id: body.id });
   } catch (error) {
-    return NextResponse.json({ error: errorMessage(error, "부자재 삭제에 실패했습니다.") }, { status: 500 });
+    const guardResponse = guardErrorResponse(error);
+    if (guardResponse) return guardResponse;
+    return NextResponse.json({ error: errorMessage(error, "부자재 삭제에 실패했습니다.") }, { status: 502 });
   }
 }

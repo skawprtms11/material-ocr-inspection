@@ -5,6 +5,7 @@ import { AlertTriangle, Camera, CheckCircle2, RotateCcw, ScanText, XCircle } fro
 import { CloudButton } from "@/components/common/CloudButton";
 import { CuteCard } from "@/components/common/CuteCard";
 import { TouchRegionSelector } from "@/components/mobile/TouchRegionSelector";
+import { useMobileScope } from "@/lib/mobile/mobile-api";
 import { cropImageFile, loadImage } from "@/lib/utils/image-crop";
 import { cn } from "@/lib/utils/cn";
 import type { MaterialInspectionRegion, MaterialMaster, RoiRect } from "@/lib/types/domain";
@@ -70,8 +71,9 @@ export function OcrInspectionCard({
   inspection: InspectionWithVerificationDto;
   material?: MaterialMaster;
   index: number;
-  onSubmitted: () => Promise<void> | void;
+  onSubmitted: () => Promise<unknown> | void;
 }) {
+  const scope = useMobileScope();
   const [guideLoading, setGuideLoading] = useState(true);
   const [guideError, setGuideError] = useState("");
   const [region, setRegion] = useState<RegistrationRegion | null>(null);
@@ -99,7 +101,7 @@ export function OcrInspectionCard({
     setGuideLoading(true);
     setGuideError("");
 
-    fetch(`/api/material-master/registration?material_id=${inspection.material_id}`, { cache: "no-store" })
+    fetch(`/api/material-master/registration?${new URLSearchParams({ material_id: inspection.material_id, department_id: scope.departmentId, shipper_id: scope.shipperId }).toString()}`, { cache: "no-store" })
       .then((response) => response.json())
       .then((payload: RegistrationResponse) => {
         if (cancelled) return;
@@ -117,7 +119,7 @@ export function OcrInspectionCard({
     return () => {
       cancelled = true;
     };
-  }, [inspection.material_id]);
+  }, [inspection.material_id, scope.departmentId, scope.shipperId]);
 
   useEffect(() => {
     return () => {
@@ -205,6 +207,8 @@ export function OcrInspectionCard({
 
     try {
       const formData = new FormData();
+      formData.append("departmentId", scope.departmentId);
+      formData.append("shipperId", scope.shipperId);
       formData.append("inspectionId", inspection.id);
       formData.append("workId", workId);
       formData.append("image", croppedFile);
@@ -244,6 +248,7 @@ export function OcrInspectionCard({
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          ...scope,
           workId,
           action: { type: "request_review", inspectionId: inspection.id, reason: trimmedMemo, label }
         })
@@ -274,9 +279,20 @@ export function OcrInspectionCard({
       "확인요청 사유를 입력하세요 (선택, 비워두면 기본 사유로 저장됩니다)"
     );
 
+  const requestNoGuideReview = () =>
+    submitReviewRequest(
+      "기준 미등록 확인요청",
+      "기준 사진이 없어 OCR 검수를 진행할 수 없습니다. 관리자에게 확인을 요청하시겠습니까?",
+      "확인요청 사유를 입력하세요 (선택, 비워두면 기본 사유로 저장됩니다)"
+    );
+
   // 불합격(saved:false)은 서버 상태가 바뀌지 않으므로 로컬 결과로도 재검수/취소 버튼을 노출한다.
   const localUnsavedFailure = result != null && result.canVerify !== false && result.matched === false && result.saved === false;
-  const showFailureActions = localUnsavedFailure || inspection.status === "failed" || inspection.status === "retrying";
+  // 기준 사진이 없으면(미등록·조회 실패) 촬영 UI가 열리지 않아 재검수로는 진행할 수 없다. 이때는 상태와 관계없이
+  // 관리자 확인요청 버튼을 항상 노출해 관리자 조정승인으로 진행할 수 있게 한다.
+  const noGuide = !guideLoading && (Boolean(guideError) || !guideImageUrl);
+  const showFailureActions =
+    !noGuide && (localUnsavedFailure || inspection.status === "failed" || inspection.status === "retrying");
   const canRequestReview = inspection.status !== "admin_requested" && !showFailureActions;
 
   return (
@@ -293,9 +309,14 @@ export function OcrInspectionCard({
       </div>
 
       {canRequestReview && (
-        <CloudButton tone="soft" className="mb-3 w-full" disabled={cancelLoading} onClick={() => void requestReview()}>
+        <CloudButton
+          tone={noGuide ? "warning" : "soft"}
+          className="mb-3 w-full"
+          disabled={cancelLoading}
+          onClick={() => void (noGuide ? requestNoGuideReview() : requestReview())}
+        >
           <AlertTriangle className="size-4" />
-          {cancelLoading ? "요청 중..." : "확인요청"}
+          {cancelLoading ? "요청 중..." : noGuide ? "관리자 확인요청 (기준 미등록)" : "확인요청"}
         </CloudButton>
       )}
 

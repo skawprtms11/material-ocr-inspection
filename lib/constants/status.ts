@@ -3,6 +3,7 @@ import type {
   InspectionMethod,
   InspectionStatus,
   Role,
+  WorkInspectionMethod,
   WorkInspectionStage,
   WorkStatus
 } from "@/lib/types/domain";
@@ -34,10 +35,21 @@ export const reviewStageLabels: Record<WorkInspectionStage, string> = {
   complete: "완료확인중"
 };
 
-// 작업현황에 표시할 작업상태 라벨. 확인요청 중이면 단계별 라벨("검수확인중"/"완료확인중")로 대체한다.
-export function getWorkStatusLabel(status: WorkStatus, reviewStage?: WorkInspectionStage) {
+// 사진검수 승인대기(PHOTO submitted)로 admin_review_requested가 된 작업의 라벨. 확인요청이 함께 걸려 있으면 확인요청 라벨 우선.
+export const photoApprovalStageLabels: Record<WorkInspectionStage, string> = {
+  start: "작업승인대기",
+  complete: "완료승인대기"
+};
+
+// admin_review_requested의 원인: "request" = 현장 확인요청(admin_requested), "photo" = 사진 승인대기(submitted).
+export type ReviewKind = "request" | "photo";
+
+// 작업현황에 표시할 작업상태 라벨. 확인요청 중이면 단계별 라벨("검수확인중"/"완료확인중"),
+// 사진 승인대기면 "작업승인대기"/"완료승인대기"로 대체한다(reviewKind 생략 시 확인요청 라벨 = 기존 동작).
+export function getWorkStatusLabel(status: WorkStatus, reviewStage?: WorkInspectionStage, reviewKind: ReviewKind = "request") {
   if (status === "admin_review_requested") {
-    return reviewStageLabels[reviewStage ?? "start"];
+    const labels = reviewKind === "photo" ? photoApprovalStageLabels : reviewStageLabels;
+    return labels[reviewStage ?? "start"];
   }
   return workStatusLabels[status] ?? status;
 }
@@ -48,7 +60,9 @@ export const inspectionStatusLabels: Record<InspectionStatus, string> = {
   failed: "불합격",
   retrying: "재검수",
   admin_requested: "관리자 요청",
-  admin_approved: "관리자 승인"
+  admin_approved: "관리자 승인",
+  submitted: "승인대기",
+  rejected: "반려"
 };
 
 export const adminReviewStatusLabels: Record<AdminReviewStatus, string> = {
@@ -61,7 +75,16 @@ export const adminReviewStatusLabels: Record<AdminReviewStatus, string> = {
 export const inspectionMethodLabels: Record<InspectionMethod, string> = {
   OCR: "OCR",
   VISION: "비전",
-  BOTH: "OCR + 비전"
+  BOTH: "OCR + 비전",
+  NONE: "사진검수"
+};
+
+// work_inspections.method 표시 라벨(검수 항목 행 단위).
+export const workInspectionMethodLabels: Record<WorkInspectionMethod, string> = {
+  OCR: "OCR",
+  VISION: "비전",
+  PRODUCT: "완료제품사진",
+  PHOTO: "사진검수"
 };
 
 // 작업상태를 화면 표시용 상태(대기/진행/보류/취소/완료)로 묶는다. work-status 웹/API/모바일이 공유한다.

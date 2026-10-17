@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { appRepository } from "@/lib/repositories/app-repository";
 import { errorMessage } from "@/lib/repositories/supabase-scope";
+import { checkInspectionWritable, checkWorkAcceptsInspection } from "@/lib/server/inspection-guard";
 import { pruneStaleInspectionImages } from "@/lib/server/inspection-images";
+import {
+  assertWorkInScope,
+  guardErrorResponse,
+  missingScopeResponse,
+  resolveRequestScope,
+  scopeFromFormData
+} from "@/lib/server/scope-guard";
 import { runOcr, type RoiRect } from "@/lib/server/ocr";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { maybeAdvanceWorkStatus } from "@/lib/server/work-auto-status";
@@ -76,6 +84,9 @@ export async function POST(request: NextRequest) {
   const workId = text(formData.get("workId"));
   const image = formData.get("image");
   const roiRaw = formData.get("roi");
+  const requestScope = scopeFromFormData(formData);
+
+  if (!requestScope) return missingScopeResponse();
 
   if (!inspectionId || !workId) {
     return NextResponse.json({ error: "inspectionId와 workId가 필요합니다." }, { status: 400 });
@@ -103,6 +114,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    await assertWorkInScope(supabase, workId, await resolveRequestScope(supabase, requestScope));
+
     const { data: inspectionRow, error: inspectionError } = await supabase
       .from("work_inspections")
       .select("*")
@@ -116,6 +129,11 @@ export async function POST(request: NextRequest) {
     }
 
     const inspection = inspectionRow as DbRow;
+
+    const writeFailure =
+      checkInspectionWritable(inspection, ["OCR"]) ?? (await checkWorkAcceptsInspection(supabase, workId));
+    if (writeFailure) return NextResponse.json({ error: writeFailure.error }, { status: writeFailure.status });
+
     const materialId = text(inspection.material_id);
 
     const { data: materialRow, error: materialError } = await supabase
@@ -184,18 +202,7 @@ export async function POST(request: NextRequest) {
     if (uploadError) throw uploadError;
 
     try {
-      const { error: updateError } = await supabase
-        .from("work_inspections")
-        .update({
-          status: nextStatus,
-          ocr_result_text: recognizedText,
-          result_summary: resultSummary,
-          attempt_count: attemptCount,
-          updated_at: new Date().toISOString()
-        })
-        .eq("id", inspectionId);
-      if (updateError) throw updateError;
-
+      // 이미지 행 저장이 성공한 뒤에 합격 상태를 반영한다(이미지 저장 실패 시 합격만 남는 불일치 방지).
       const { data: insertedImage, error: imageInsertError } = await supabase
         .from("inspection_images")
         .insert({
@@ -218,8 +225,25 @@ export async function POST(request: NextRequest) {
         .single();
       if (imageInsertError) throw imageInsertError;
 
+      const insertedImageId = (insertedImage as { id: string }).id;
+      const { error: updateError } = await supabase
+        .from("work_inspections")
+        .update({
+          status: nextStatus,
+          ocr_result_text: recognizedText,
+          result_summary: resultSummary,
+          attempt_count: attemptCount,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", inspectionId);
+      if (updateError) {
+        // 상태 반영 실패 시 방금 넣은 이미지 행을 지워 이미지만 남는 불일치를 막는다(스토리지 파일은 아래 catch가 정리).
+        await supabase.from("inspection_images").delete().eq("id", insertedImageId);
+        throw updateError;
+      }
+
       // 검증을 통과한 사진 1장만 유지한다(재검수로 이전에 저장된 사진이 있으면 정리).
-      await pruneStaleInspectionImages(supabase, inspectionImageBucket, inspectionId, (insertedImage as { id: string }).id);
+      await pruneStaleInspectionImages(supabase, inspectionImageBucket, inspectionId, insertedImageId);
     } catch (dbError) {
       // 업로드 성공 후 DB 저장이 실패하면 고아 파일이 남지 않도록 스토리지를 정리한다.
       try {
@@ -243,6 +267,8 @@ export async function POST(request: NextRequest) {
       saved: true
     });
   } catch (error) {
+    const guardResponse = guardErrorResponse(error);
+    if (guardResponse) return guardResponse;
     return NextResponse.json({ error: errorMessage(error, "OCR 검수 저장에 실패했습니다.") }, { status: 500 });
   }
 }

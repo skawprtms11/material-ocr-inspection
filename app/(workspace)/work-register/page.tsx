@@ -1,26 +1,29 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { Eye, Plus, Save, UserPlus, X } from "lucide-react";
+import { Eye, Pencil, Plus, Save, UserPlus, X } from "lucide-react";
 import { toast } from "sonner";
 import { CloudButton } from "@/components/common/CloudButton";
 import { CuteCard } from "@/components/common/CuteCard";
 import { EmptyCloudState } from "@/components/common/EmptyCloudState";
 import { PageHeader } from "@/components/common/PageHeader";
+import type { EditablePendingWorkDto } from "@/lib/server/work-register-shared";
 import { useFilterStore } from "@/lib/state/filter-store";
 import { assignWorkToInspection } from "@/lib/state/work-flow-store";
 import type { AppUser, MaterialMaster, WorkMaster } from "@/lib/types/domain";
 import type {
   CreateWorkRegistrationRequest,
   CreateWorkRegistrationResponse,
-  PendingAssignmentWorkDto,
   WorkComponentRowDto,
   WorkRegisterDataResponse
 } from "@/lib/types/work-register-api";
 import type { ProductUsageRowDto, WorkMaterialRowDto } from "@/lib/types/work-master-api";
 import { formatDate } from "@/lib/utils/format";
 
-type PendingAssignmentWork = PendingAssignmentWorkDto;
+type PendingAssignmentWork = EditablePendingWorkDto;
+
+// 실DB 모드에서는 가짜 제품 폴백을 쓰지 않는다
+const isRealDbMode = process.env.NEXT_PUBLIC_USE_MOCK_DATA === "false";
 
 type ComponentKind = "제품" | "부자재";
 
@@ -67,7 +70,7 @@ function makeFallbackProductRows(workMasterCode: string, quantity: number): Comp
 
 function makeProductRows(workMaster: WorkMaster, quantity: number, productRowsByWork: Record<string, ProductUsageRowDto[]>): ComponentRow[] {
   const productRows = productRowsByWork[workMaster.id] ?? [];
-  if (productRows.length === 0) return makeFallbackProductRows(workMaster.code, quantity);
+  if (productRows.length === 0) return isRealDbMode ? [] : makeFallbackProductRows(workMaster.code, quantity);
 
   return productRows.map((row, index) => ({
     rowId: `product-${row.id}-${index}`,
@@ -118,6 +121,7 @@ export default function WorkRegisterPage() {
   const [pendingWorks, setPendingWorks] = useState<PendingAssignmentWork[]>([]);
   const [assignTarget, setAssignTarget] = useState<PendingAssignmentWork | null>(null);
   const [detailTarget, setDetailTarget] = useState<PendingAssignmentWork | null>(null);
+  const [editTarget, setEditTarget] = useState<PendingAssignmentWork | null>(null);
   const [isRegisterOpen, setIsRegisterOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [dataSource, setDataSource] = useState<"supabase" | "mock" | null>(null);
@@ -133,6 +137,7 @@ export default function WorkRegisterPage() {
     setDataSource(data.source);
     setAssignTarget(null);
     setDetailTarget(null);
+    setEditTarget(null);
     setIsRegisterOpen(false);
   }, []);
 
@@ -194,6 +199,31 @@ export default function WorkRegisterPage() {
     }
   };
 
+  const handleUpdate = async (workId: string, payload: RegisterPayload) => {
+    if (!departmentId || !shipperId) return;
+
+    try {
+      const response = await fetch(`/api/work-register/${workId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...payload, departmentId, shipperId } satisfies CreateWorkRegistrationRequest)
+      });
+      const result = (await response.json()) as CreateWorkRegistrationResponse & { error?: string };
+      if (!response.ok) {
+        // 검수가 이미 시작된 경우 목록을 갱신해 수정 버튼 잠금 상태를 반영한다
+        if (response.status === 409) void loadWorkRegister();
+        throw new Error(result.error ?? "작업 수정 저장에 실패했습니다.");
+      }
+
+      setPendingWorks((current) => current.map((work) => (work.id === workId ? result.work : work)));
+      setDataSource(result.source);
+      setEditTarget(null);
+      toast.success("작업이 수정되었습니다.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "작업 수정 저장에 실패했습니다.");
+    }
+  };
+
   const handleAssign = async (workId: string, assignee: AppUser) => {
     if (!departmentId || !shipperId) return;
 
@@ -204,7 +234,7 @@ export default function WorkRegisterPage() {
       const response = await fetch(`/api/work-register/${workId}/assign`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assigneeId: assignee.id, assigneeName: assignee.name })
+        body: JSON.stringify({ departmentId, shipperId, assigneeId: assignee.id, assigneeName: assignee.name })
       });
       const result = (await response.json()) as { error?: string };
       if (!response.ok) throw new Error(result.error ?? "작업 할당 저장에 실패했습니다.");
@@ -257,10 +287,10 @@ export default function WorkRegisterPage() {
             </span>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1340px] text-left text-sm">
+            <table className="w-full min-w-[1440px] text-left text-sm">
               <thead className="bg-sky-50/80 text-xs font-black text-sky-700">
                 <tr>
-                  {["등록일자", "작업구분", "문서번호", "완성품코드", "완성품명", "LOT", "작업수량", "완료요청일", "비고", "작업할당"].map((header) => (
+                  {["등록일자", "작업구분", "문서번호", "완성품코드", "완성품명", "LOT", "작업수량", "완료요청일", "비고", "수정", "작업할당"].map((header) => (
                     <th key={header} className="px-4 py-3">
                       {header}
                     </th>
@@ -292,6 +322,13 @@ export default function WorkRegisterPage() {
                     <td className="px-4 py-3 font-bold">{formatDate(work.dueDate)}</td>
                     <td className="max-w-[220px] truncate px-4 py-3 text-slate-500">{work.memo || "-"}</td>
                     <td className="px-4 py-3">
+                      <CloudButton type="button" tone="soft" disabled={Boolean(work.editLockedReason)} onClick={() => setEditTarget(work)}>
+                        <Pencil className="size-4" />
+                        수정
+                      </CloudButton>
+                      {work.editLockedReason && <p className="mt-1 text-[10px] font-black text-rose-600">{work.editLockedReason}</p>}
+                    </td>
+                    <td className="px-4 py-3">
                       <CloudButton type="button" tone="soft" onClick={() => setAssignTarget(work)}>
                         <UserPlus className="size-4" />
                         할당
@@ -301,7 +338,7 @@ export default function WorkRegisterPage() {
                 ))}
                 {pendingWorks.length === 0 && (
                   <tr>
-                    <td colSpan={10} className="px-4 py-10 text-center text-sm font-bold text-slate-400">
+                    <td colSpan={11} className="px-4 py-10 text-center text-sm font-bold text-slate-400">
                       할당 대기중인 작업이 없습니다. 상단의 작업 등록 버튼으로 새 작업을 등록해주세요.
                     </td>
                   </tr>
@@ -321,6 +358,18 @@ export default function WorkRegisterPage() {
           productRowsByWork={productRowsByWork}
           onClose={() => setIsRegisterOpen(false)}
           onRegister={handleRegister}
+        />
+      )}
+
+      {editTarget && (
+        <WorkRegisterModal
+          editWork={editTarget}
+          workMasters={workMasters}
+          materials={materials}
+          materialRowsByWork={materialRowsByWork}
+          productRowsByWork={productRowsByWork}
+          onClose={() => setEditTarget(null)}
+          onRegister={(payload) => handleUpdate(editTarget.id, payload)}
         />
       )}
 
@@ -347,6 +396,7 @@ export default function WorkRegisterPage() {
 }
 
 function WorkRegisterModal({
+  editWork,
   workMasters,
   materials,
   materialRowsByWork,
@@ -354,6 +404,7 @@ function WorkRegisterModal({
   onClose,
   onRegister
 }: {
+  editWork?: PendingAssignmentWork;
   workMasters: WorkMaster[];
   materials: MaterialMaster[];
   materialRowsByWork: Record<string, WorkMaterialRowDto[]>;
@@ -361,28 +412,54 @@ function WorkRegisterModal({
   onClose: () => void;
   onRegister: (payload: RegisterPayload) => void;
 }) {
-  const [selectedWorkMasterId, setSelectedWorkMasterId] = useState(workMasters[0]?.id ?? "");
-  const [quantity, setQuantity] = useState(100);
-  const [componentRows, setComponentRows] = useState<ComponentRow[]>([]);
+  const isEdit = Boolean(editWork);
+  const buildRows = (workMasterId: string, nextQuantity: number): ComponentRow[] => {
+    const workMaster = workMasters.find((item) => item.id === workMasterId);
+    if (!workMaster) return [];
+    return [
+      ...makeProductRows(workMaster, nextQuantity, productRowsByWork),
+      ...makeMaterialRows(workMaster.id, nextQuantity, materials, materialRowsByWork)
+    ];
+  };
+
+  const [selectedWorkMasterId, setSelectedWorkMasterId] = useState(editWork?.workMasterId ?? workMasters[0]?.id ?? "");
+  const [quantity, setQuantity] = useState(editWork?.quantity ?? 100);
+  // 수정 모드는 저장된 구성품(LOT/할당수량/비고)을 프리필한다. 저장된 구성품이 없으면 작업마스터 기준으로 생성한다.
+  const [componentRows, setComponentRows] = useState<ComponentRow[]>(() =>
+    editWork?.componentRows && editWork.componentRows.length > 0
+      ? editWork.componentRows
+      : buildRows(editWork?.workMasterId ?? workMasters[0]?.id ?? "", editWork?.quantity ?? 100)
+  );
   const selectedWorkMaster = workMasters.find((workMaster) => workMaster.id === selectedWorkMasterId);
+
+  // 작업마스터가 바뀔 때만 구성품을 재생성한다(수량 변경은 필요수량만 갱신해 사용자 입력 보존)
+  const handleWorkMasterChange = (workMasterId: string) => {
+    setSelectedWorkMasterId(workMasterId);
+    setComponentRows(buildRows(workMasterId, quantity));
+  };
+
+  const handleQuantityChange = (nextQuantity: number) => {
+    setQuantity(nextQuantity);
+    setComponentRows((current) =>
+      current.map((row) => {
+        const requiredQuantity = row.unitQuantity * nextQuantity;
+        const groupSize = current.filter((item) => item.kind === row.kind && item.groupId === row.groupId).length;
+        // 기존 할당수량이 필요수량과 같았고 LOT 분할이 없는 행만 새 필요수량을 따라간다
+        const followsRequired = groupSize === 1 && row.allocatedQuantity === row.requiredQuantity;
+        return { ...row, requiredQuantity, allocatedQuantity: followsRequired ? requiredQuantity : row.allocatedQuantity };
+      })
+    );
+  };
 
   useEffect(() => {
     if (!selectedWorkMasterId && workMasters[0]) {
       setSelectedWorkMasterId(workMasters[0].id);
+      setComponentRows(buildRows(workMasters[0].id, quantity));
     }
-  }, [selectedWorkMasterId, workMasters]);
+    // 작업마스터 목록이 늦게 도착한 경우의 초기 선택 1회용
+  }, [workMasters]);
 
-  useEffect(() => {
-    if (!selectedWorkMaster) {
-      setComponentRows([]);
-      return;
-    }
-
-    setComponentRows([
-      ...makeProductRows(selectedWorkMaster, quantity, productRowsByWork),
-      ...makeMaterialRows(selectedWorkMaster.id, quantity, materials, materialRowsByWork)
-    ]);
-  }, [materials, materialRowsByWork, productRowsByWork, quantity, selectedWorkMaster]);
+  const missingProducts = isRealDbMode && !componentRows.some((row) => row.kind === "제품");
 
   const updateComponentRow = (rowId: string, patch: Partial<ComponentRow>) => {
     setComponentRows((current) => current.map((row) => (row.rowId === rowId ? { ...row, ...patch } : row)));
@@ -434,6 +511,11 @@ function WorkRegisterModal({
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
+    if (missingProducts) {
+      toast.error("제품 구성 미등록 — 작업마스터에서 사용제품코드를 먼저 등록하세요.");
+      return;
+    }
+
     if (productAllocationErrors.length > 0) {
       toast.error(`제품 LOT 분할 수량을 확인해주세요. ${productAllocationErrors[0]}`);
       return;
@@ -468,9 +550,9 @@ function WorkRegisterModal({
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
             <p className="text-xs font-black text-sky-600">작업등록</p>
-            <h2 className="mt-1 text-2xl font-black text-slate-800">새 작업 등록</h2>
+            <h2 className="mt-1 text-2xl font-black text-slate-800">{isEdit ? "작업 수정" : "새 작업 등록"}</h2>
             <p className="mt-2 text-sm font-semibold text-slate-500">
-              저장하면 할당대기 목록에 추가됩니다.
+              {isEdit ? "검수 시작 전 작업만 수정할 수 있습니다. 저장하면 목록에 반영됩니다." : "저장하면 할당대기 목록에 추가됩니다."}
             </p>
           </div>
           <button
@@ -504,6 +586,7 @@ function WorkRegisterModal({
                     <td className="px-3 py-3">
                       <select
                         name="workType"
+                        defaultValue={editWork?.workType}
                         className="h-10 w-full rounded-xl border border-sky-100 bg-white px-3 text-sm font-bold outline-none focus:ring-2 focus:ring-sky-200"
                         required
                       >
@@ -517,6 +600,7 @@ function WorkRegisterModal({
                     <td className="px-3 py-3">
                       <input
                         name="documentNo"
+                        defaultValue={editWork?.documentNo}
                         className="h-10 w-full rounded-xl border border-sky-100 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-sky-200"
                         placeholder="DOC-2026-0000"
                         required
@@ -526,7 +610,7 @@ function WorkRegisterModal({
                       <select
                         name="workMasterId"
                         value={selectedWorkMasterId}
-                        onChange={(event) => setSelectedWorkMasterId(event.target.value)}
+                        onChange={(event) => handleWorkMasterChange(event.target.value)}
                         className="h-10 w-full rounded-xl border border-sky-100 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-sky-200"
                         required
                       >
@@ -548,6 +632,7 @@ function WorkRegisterModal({
                     <td className="px-3 py-3">
                       <input
                         name="finishedProductLot"
+                        defaultValue={editWork?.finishedProductLot}
                         className="h-10 w-full rounded-xl border border-sky-100 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-sky-200"
                         placeholder="LOT-260708-A"
                         required
@@ -559,7 +644,7 @@ function WorkRegisterModal({
                         type="number"
                         min={1}
                         value={quantity}
-                        onChange={(event) => setQuantity(Math.max(1, Number(event.target.value || 1)))}
+                        onChange={(event) => handleQuantityChange(Math.max(1, Math.floor(Number(event.target.value || 1))))}
                         className="h-10 w-full rounded-xl border border-sky-100 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-sky-200"
                       />
                     </td>
@@ -567,13 +652,14 @@ function WorkRegisterModal({
                       <input
                         name="dueDate"
                         type="date"
-                        defaultValue={addDays(new Date().toISOString().slice(0, 10), 2)}
+                        defaultValue={editWork?.dueDate ?? addDays(new Date().toISOString().slice(0, 10), 2)}
                         className="h-10 w-full rounded-xl border border-sky-100 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-sky-200"
                       />
                     </td>
                     <td className="px-3 py-3">
                       <input
                         name="memo"
+                        defaultValue={editWork?.memo}
                         className="h-10 w-full rounded-xl border border-sky-100 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-sky-200"
                         placeholder="현장 메모"
                       />
@@ -691,6 +777,11 @@ function WorkRegisterModal({
                 </tbody>
               </table>
             </div>
+            {missingProducts && (
+              <div className="mt-2 rounded-2xl bg-rose-50 px-4 py-3 text-xs font-bold leading-5 text-rose-700">
+                제품 구성 미등록 — 작업마스터에서 사용제품코드를 먼저 등록하세요.
+              </div>
+            )}
             {productAllocationErrors.length > 0 && (
               <div className="mt-2 rounded-2xl bg-rose-50 px-4 py-3 text-xs font-bold leading-5 text-rose-700">
                 {productAllocationErrors.map((error) => (
@@ -704,9 +795,9 @@ function WorkRegisterModal({
             <CloudButton type="button" tone="soft" onClick={onClose}>
               취소
             </CloudButton>
-            <CloudButton type="submit">
+            <CloudButton type="submit" disabled={missingProducts}>
               <Save className="size-4" />
-              할당대기 목록에 등록
+              {isEdit ? "수정 저장" : "할당대기 목록에 등록"}
             </CloudButton>
           </div>
         </form>

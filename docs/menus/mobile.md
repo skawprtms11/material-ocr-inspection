@@ -1,12 +1,16 @@
 # 모바일 현장 검수 (`app/mobile`)
 
+> 변경 이력(2026-10-18, 문서관리팀): 사진검수(PHOTO)·승인대기 진입 규칙, 부자재 검수 목록(OCR/비전/사진) 판정, 제품 사진 카드, 작업현황 라벨 서술을 코드 기준으로 정리함.
+
 ## 개요
 `app/mobile` 하위는 현장 작업자가 스마트폰 브라우저에서 사용하는 화면들로 구성된다. `app/mobile/layout.tsx`가 모든 화면을 `MobileShell`로 감싸고, `MobileShell` 내부의 `MobileScopeInitializer`가 부서/화주 스코프(`useFilterStore`)를 자동으로 세팅한 뒤 children을 렌더링한다. 헤더 우측에는 `MobileScopeBadge`가 현재 부서·화주명을 작게 표시하며(모든 모바일 화면 공통), 탭하면 설정 탭으로 이동한다. 코드상 실제로는 두 갈래의 검수 플로우가 공존한다.
 - **작업검수 플로우(주 플로우)**: 홈(`/mobile`, `MobileInspectionEntryPage`)은 **문서번호 스캔 전용 화면**이다. 스캔하면 작업현황 상태값에 따라 곧바로 해당 검수 화면으로 라우팅된다.
   - 대기(`registered`) → `/mobile/pre/[workId]` (작업전 검수)
   - 진행(`in_progress`) → `/mobile/complete/[workId]` (완료검수)
-  - 그 외(보류/취소/완료 등) → 이동하지 않고 스캔 화면에 안내 문구만 표시한다.
-  두 검수 화면은 **상단 제품내역 + 하단 부자재 검수**라는 동일한 구성을 공유하며(`ProductChecklist` + `MaterialInspectionList`), 완료검수에만 "완료제품 사진등록"(1~3장, 압축 저장)이 추가된다.
+  - 불합격(`inspection_failed`) → 시작검수 집계가 끝나지 않았으면 `/mobile/pre/[workId]`, 끝났으면 `/mobile/complete/[workId]` (반려·불합격 항목 재촬영/재검수)
+  - 승인대기(`admin_review_requested`, 확인요청 항목 없음) → 같은 규칙으로 pre/complete 화면에 읽기 전용(촬영 잠금) 진입
+  - 그 외(보류/취소/완료, 확인요청 중 등) → 이동하지 않고 스캔 화면에 안내 문구만 표시한다.
+  두 검수 화면은 **상단 제품내역 + 하단 부자재 검수**라는 동일한 구성을 공유하며(`ProductChecklist` + `MaterialInspectionList`), 완료검수에만 "완료제품 사진등록"(1~3장, 압축 저장)이 추가된다. 제품과 사진검수 부자재는 사진을 제출하면 관리자 승인(작업승인/완료승인)을 받아야 완료된다(아래 "사진검수·관리자 승인/반려").
 - `/mobile/scan` → `/mobile/inspection/[workId]` → `/mobile/sign/[workId]` → `/mobile/result/[workId]`: 바코드/문서번호로 작업을 찾은 뒤 STEP별 검수 상세, 서명, 결과 화면으로 이어지는 별도 플로우. 이 플로우의 재검수·관리자 요청·촬영 검수 버튼은 `toast`만 띄우는 mock이며 실제 저장 로직은 없다(`app/mobile/inspection/[workId]/page.tsx`).
 
 하단 탭바(`MobileShell`)의 "작업검수"(`/mobile`) 메뉴로는 주 플로우만 연결되어 있고, `/mobile/scan` 이하 라우트는 `BarcodeScannerPanel` 내부 라우팅으로만 진입 가능하다(하단 탭바에는 링크가 없음).
@@ -16,8 +20,10 @@
 [하단 탭: 작업검수] /mobile (홈, 문서번호 스캔 전용)
    └─ 스캔 성공 시 work.status로 자동 분기(router.push)
       ├─ registered(대기)   → /mobile/pre/[workId]      (작업전 검수)
-      └─ in_progress(진행)  → /mobile/complete/[workId] (완료검수)
-      ※ 그 외 상태는 이동하지 않고 안내 문구만 표시
+      ├─ in_progress(진행)  → /mobile/complete/[workId] (완료검수)
+      ├─ inspection_failed(불합격) / admin_review_requested(승인대기, 확인요청 없음)
+      │     → 시작검수 미완료면 /mobile/pre, 완료면 /mobile/complete (재촬영 / 읽기 전용)
+      └─ ※ 그 외 상태(확인요청 중 등)는 이동하지 않고 안내 문구만 표시
 [하단 탭: 작업현황] /mobile/status  (읽기 전용 현황 리스트, 연/월 select로 조회 + "진행" 작업의 "완료검수" 버튼)
    └─ work.status === "in_progress"인 작업의 "완료검수" 버튼
       → /mobile/complete/[workId]
@@ -36,8 +42,8 @@
 ```
 - `layout.tsx`: 모든 화면 공통 래퍼. 하단 탭 4개(`작업검수`/`작업현황`/`부자재등록`/`설정`)만 노출한다.
 - `/mobile` (홈): 문서번호를 스캔해 작업상태에 맞는 검수 화면으로 분기시키는 진입 전용 화면.
-- `/mobile/pre/[workId]`: 작업전 검수(제품내역 + 부자재 OCR/비전 검수).
-- `/mobile/complete/[workId]`: 완료검수(제품내역 + 부자재 OCR/비전 검수 + 완료제품 사진 1~3장).
+- `/mobile/pre/[workId]`: 작업전 검수(제품 사진검수 + 부자재 OCR/비전/사진검수).
+- `/mobile/complete/[workId]`: 완료검수(제품 사진검수 + 부자재 OCR/비전/사진검수 + 완료제품 사진 1~3장).
 - `/mobile/scan`: 문서번호 검색 전용 진입점(`BarcodeScannerPanel`).
 - `/mobile/inspection/[workId]`: 부자재별 STEP 검수 카드(재검수/관리자요청 mock 버튼).
 - `/mobile/sign/[workId]`: 작업자 서명 캡처.
@@ -61,9 +67,11 @@
   |---|---|---|
   | `registered` | 대기 | `router.push('/mobile/pre/{workId}')` — 작업전 검수 |
   | `in_progress` | 진행 | `router.push('/mobile/complete/{workId}')` — 완료검수 |
-  | 그 외(`on_hold`/`canceled`/`completed`/`passed`/`inspection_failed`/`admin_review_requested`) | 보류·취소·완료·검수확인중·완료확인중 등 | 이동하지 않고 "현재 작업상태가 '...'라서 검수를 진행할 수 없어요" 안내만 표시 |
+  | `inspection_failed` | 불합격(재검수 요청/미승인/사진 반려 후) | 시작검수(마스터 가시성 규칙 적용)가 끝나지 않았으면 `/mobile/pre/{workId}`, 끝났으면 `/mobile/complete/{workId}`로 이동 — 해당 화면의 `OcrInspectionCard`가 `failed`/`retrying` 항목의 재촬영 UI를 제공하고, 재검수 합격 시 서버가 상태를 다시 전이시킨다 |
+  | `admin_review_requested` + 확인요청(`admin_requested`) 항목 없음 | 작업승인대기/완료승인대기(사진 승인대기) | 같은 규칙(시작검수 집계)으로 `/mobile/pre/{workId}` 또는 `/mobile/complete/{workId}`에 **읽기 전용**(`locked`, 촬영 잠금)으로 진입 |
+  | 그 외(`on_hold`/`canceled`/`completed`/`passed`, 시작검수 확인요청이 있는 `admin_review_requested`) | 보류·취소·완료·검수확인중 등 | 이동하지 않고 "현재 작업상태가 '...'라서 검수를 진행할 수 없어요" 안내만 표시 |
 
-- 확인요청 중(`admin_review_requested`)인 작업의 안내 문구에는 단계별 라벨("검수확인중"/"완료확인중")을 쓴다. 조회된 `inspections`는 시작검수(`stage="start"`) 기준이므로 그중 `admin_requested`가 있으면 작업전 검수 단계, 없으면 완료검수 단계로 판정한다(`getWorkStatusLabel`). 관리자가 승인하면 대기/진행/완료로 돌아가 다시 스캔 진입이 가능해진다.
+- 안내 분기 주의: 확인요청(`admin_requested`) 판정은 홈이 조회한 시작검수(`stage="start"`) 행만 대상으로 한다. 시작검수 확인요청 중이면 "검수확인중" 안내만 표시하고(`getWorkStatusLabel`), 완료검수 단계의 확인요청은 이 화면에서 감지되지 않아 사진 승인대기와 동일하게 완료검수 화면 읽기 전용 진입으로 처리된다(안내 문구의 "완료확인중" 분기에는 도달하지 않음 — 점검 필요). 관리자가 처리하면 상태가 재판정되어 다시 스캔 진입이 가능해진다.
 
 - 검수 대상(`work_inspections`) lazy 생성(`POST /api/work-inspection/setup`)은 **이 화면이 아니라 이동한 각 검수 화면이 담당**한다(직접 URL 진입도 동일하게 커버하기 위함). 홈은 분기만 책임진다.
 - 문서번호 입력칸은 기본값이 빈 문자열이다(과거 `rows[0]`으로 자동 채우던 버그를 제거함, 아래 "주의사항" 참고).
@@ -72,20 +80,21 @@
 ### 2-1. `app/mobile/pre/[workId]/page.tsx` (작업전 검수)
 - 경로: `/mobile/pre/[workId]`
 - 주요 컴포넌트: `ProductChecklist`(상단 제품내역), `MaterialInspectionList`(하단 부자재 검수, 내부에서 `OcrInspectionCard`/`CompletionPhotoCard`를 렌더링)
-- 진입 조건: 홈에서 상태값이 "대기"(`registered`)인 문서를 스캔했을 때. 직접 URL로 들어와도 되지만 `canceled`/`completed`/`passed` 작업은 안내 문구만 보여주고 검수 UI를 렌더링하지 않는다(데이터 오염 방지).
+- 진입 조건: 홈에서 상태값이 "대기"(`registered`)인 문서를 스캔했을 때(`inspection_failed`는 재촬영, `admin_review_requested`는 읽기 전용 `locked`로도 진입). 직접 URL로 들어와도 되지만 `canceled`/`on_hold`/`completed`/`passed` 작업은 안내 문구만 보여주고 검수 UI를 렌더링하지 않는다(데이터 오염 방지).
 - 하는 일: `useMobileInspectionRows()`(`GET /api/work-inspection`, stage="start")로 검수 행을 조회하고, 0건이면 `POST /api/work-inspection/setup`(`{ workId }`)으로 lazy 생성한 뒤 재조회한다.
-  - **상단 — 제품내역**(`ProductChecklist`): `GET /api/work-status/detail?work_id=`의 `products`를 표시한다. 행마다 **제품코드 / 제품명 / LOT / 단위수량 / 사용수량**과 **검수여부 체크박스**가 있다. 체크 상태는 화면 로컬(`useState`)이며 서버 저장·합격 판정에는 관여하지 않는다(카드 우측 상단에 "검수 n/m" 진행 배지만 표시).
-  - **하단 — 부자재 검수**(`MaterialInspectionList`): `work_inspections` 중 `method !== "PRODUCT"`인 항목을 렌더링하되, **부자재 마스터에서 체크된 검수방법만 표시한다**(`lib/mobile/inspection-visibility.ts`의 `getVisibleMaterialInspections`, 판정 기준은 `material_masters.inspection_method` = 자재 마스터 수정 모달의 "OCR등록"/"비전스캔등록" 체크박스). 마스터를 찾지 못한 항목은 검수 누락을 막기 위해 숨기지 않는다.
+  - **상단 — 제품내역**(`ProductChecklist`): `GET /api/work-status/detail?work_id=`의 `products`를 표시한다. 행마다 **제품코드 / 제품명 / LOT / 단위수량 / 사용수량**과 **검수여부 체크박스**가 있다. 체크 상태는 화면 로컬(`useState`)이며 서버 저장·합격 판정에는 관여하지 않는다(카드 우측 상단에 "검수 n/m" 진행 배지만 표시). 제품 PHOTO 행(`getProductPhotoInspections`)이 있으면(사진검수 도입 후 등록·재판정된 작업) 체크박스를 없애고 제품별 `PhotoReviewCard`로 사진을 제출한다(제출 = 제품 확인, 관리자 승인 필요). PHOTO 행이 없는 과거 작업만 기존 체크박스를 쓴다.
+  - **하단 — 부자재 검수**(`MaterialInspectionList`): 부자재 행(`target_type='material'`)을 렌더링하되 **부자재 마스터 검수방식으로 현재 계획된 방식만 표시한다**(`lib/mobile/inspection-visibility.ts`의 `getVisibleMaterialInspections`, 판정 = `planMaterialMethods(material_masters.inspection_method)`: BOTH=OCR+VISION, OCR, VISION, NONE·이상값=PHOTO). 마스터를 찾지 못한 항목은 검수 누락을 막기 위해 숨기지 않는다.
     - `method === "OCR"` → `OcrInspectionCard`(현행 유지, 아래 "OCR 검수 카드" 참고)
     - `method === "VISION"` → `CompletionPhotoCard`(현행 유지, 비전 참고 사진 표시 + 촬영·압축·저장). `eyebrow` prop으로 "작업전 검수 · 비전 검수" 라벨을 넘겨 작업전 검수 화면에 "완료검수"가 잘못 표시되던 문제를 없앴다.
+    - `method === "PHOTO"` → `PhotoReviewCard`(사진검수, eyebrow "작업전 검수 · 사진검수", 아래 "사진검수·관리자 승인/반려" 참고)
     - 같은 부자재의 OCR+비전 항목은 부자재 단위로 번호를 공유해 "부자재 N · OCR"/"부자재 N · 비전"으로 묶어 보인다(반복 표시 방지).
 - 완료 판정(`allDone`): **화면에 실제 표시되는 항목만** 대상으로 `getInspectionAggregateStatus`를 적용한다(`getActiveInspections`). 마스터에서 체크가 해제된 뒤 남아있는 과거 검수 행 때문에 영원히 완료되지 않는 상황을 막기 위함이다.
-- 다음 화면 조건: 부자재 검수가 모두 `passed`/`admin_approved`가 되면 서버가 작업상태를 "진행"으로 자동 전이시키고(`maybeAdvanceWorkStatus`), 화면에 "작업전 검수 완료" 카드와 함께 "완료검수로 이동"(`/mobile/complete/{workId}`) / "다음 작업문서 스캔"(`/mobile`) 버튼이 나타난다.
+- 다음 화면 조건: 제품·부자재 검수 항목이 모두 `passed`/`admin_approved`가 되면(사진검수 항목은 관리자 작업승인 후) 서버가 작업상태를 "진행"으로 자동 전이시키고(`maybeAdvanceWorkStatus`), 화면에 "작업전 검수 완료" 카드와 함께 "완료검수로 이동"(`/mobile/complete/{workId}`) / "다음 작업문서 스캔"(`/mobile`) 버튼이 나타난다.
 
 #### OCR 검수 카드 (`components/mobile/OcrInspectionCard.tsx`)
 - 부자재마스터에 등록된 **기준 사진**을 먼저 보여준 뒤 촬영하는 실동작 카드. 마운트 시 `GET /api/material-master/registration?material_id={inspection.material_id}`를 호출해 `method === "OCR"`이고 `imageUrls.length > 0`인 region을 찾는다.
   - region이 있으면: 첫 번째 등록 이미지 위에 저장된 ROI를 퍼센트 좌표 절대배치 오버레이로 표시하고("표시된 위치가 보이도록 촬영하세요"), `material.verification_value`(없으면 `region.expected_text`)를 검증값으로 함께 보여준다.
-  - region이 없거나 조회 오류면: "기준 사진 미등록 — 부자재등록에서 먼저 등록하세요" 경고만 표시하고 촬영 UI 자체를 렌더링하지 않는다(등록 없이는 촬영 불가).
+  - region이 없거나 조회 오류면: "기준 사진 미등록 — 부자재등록에서 먼저 등록하세요" 경고만 표시하고 촬영 UI 자체를 렌더링하지 않는다(등록 없이는 촬영 불가). 대신 "관리자 확인요청 (기준 미등록)" 버튼이 항상 노출된다(`request_review`, 아래 "사진검수·관리자 승인/반려" 참고).
 - **촬영 → 위치 조정 → 크롭 확인 → 검수 실행(작업검수 8단계 스펙 ⑥, 사용자 선정 UI)**: 3단계로 진행한다.
   1. **촬영**: 카메라 input(`capture="environment"`)으로 원본 사진을 찍는다.
   2. **위치 조정**: 촬영한 원본 사진 위에 `components/mobile/TouchRegionSelector.tsx`(부자재등록 화면과 공용, 아래 참고)를 등록 ROI를 초기값으로 오버레이한다. 사용자가 드래그(이동)/모서리 드래그(리사이즈)/방향 버튼으로 인식 위치를 조정한 뒤 "위치 확정"을 누르면 `lib/utils/image-crop.ts`의 `cropImageFile`로 조정된 ROI 기준 캔버스 크롭을 만들고 크롭 미리보기 단계로 넘어간다("다시 촬영"으로 촬영 단계부터 다시 할 수 있다).
@@ -138,19 +147,19 @@
 ### 8. `app/mobile/status/page.tsx`
 - 경로: `/mobile/status`
 - 주요 컴포넌트: `StatusBadge`
-- 하는 일: `useMobileWorkStatusRows`로 작업 목록을 불러온 뒤, 상단 년도/월 `select` 2개(기본값은 `lib/utils/date.ts`의 `getCurrentYearMonth()` = 오늘 기준 연/월, select 스타일은 `/mobile/settings`의 select 패턴을 따름)로 선택한 연/월과 `work_date`가 일치하는 작업만 클라이언트에서 필터해 표시한다. 연도 선택지는 웹 `work-status/page.tsx`와 같은 방식(조회된 rows에 등장하는 연도 + 현재 연도 합집합, 내림차순)으로 구성되고, 월은 01~12 고정이며, 연/월 일치 판정은 `lib/utils/date.ts`의 `isYearMonthMatch`를 웹과 공유해서 쓴다. 카운트 카드는 각 행의 `displayStatus`(`GET /api/work-status`가 `lib/constants/status.ts`의 `getDisplayStatus`로 계산해 내려주는 값)를 기준으로 4종 집계한다: 진행(`waiting`+`progress`) / 확인필요(`hold`) / 완료(`complete`, `passed` 포함) / 취소(`cancel`). 네 카드 합계는 선택된 연/월로 필터된 전체 건수와 같다. 각 목록 카드 우측 상단에는 작업상태 `StatusBadge` 하나만 표시한다 — 확인요청 중이면 `reviewStage` prop으로 "검수확인중"/"완료확인중" 라벨이 적용된다. 과거 그 아래에 함께 표시하던 검수 집계 배지(검수완료/검수대기/검수취소)는 상태 배지와 중복되고 용어가 어긋나 제거했다(2026-08, 웹 작업현황도 동일하게 제거. `docs/menus/work-status.md`의 "검수 집계 상태" 참고). **`row.work.status === "in_progress"`(작업현황 상태값이 "진행")이면** 카드 하단에 "완료검수" 버튼(`/mobile/complete/{workId}`로 이동)이 나타난다 — 홈 화면(`/mobile`)에서 문서번호를 스캔했을 때 완료검수로 분기되는 조건과 동일하다(`docs/menus/work-inspection.md`의 "검수 화면 진입 조건" 참고). 새 상태 모델에서 "진행"은 시작검수 완료 시 시스템이 자동으로만 설정하므로 이 조건은 사실상 "시작검수 완료"와 같다(보류/취소 상태의 작업은 시작검수가 끝났어도 완료검수 버튼이 보이지 않는다). 목록 자체는 읽기 전용이며 카드 클릭 동작은 없다.
+- 하는 일: `useMobileWorkStatusRows`로 작업 목록을 불러온 뒤, 상단 년도/월 `select` 2개(기본값은 `lib/utils/date.ts`의 `getCurrentYearMonth()` = 오늘 기준 연/월, select 스타일은 `/mobile/settings`의 select 패턴을 따름)로 선택한 연/월과 `work_date`가 일치하는 작업만 클라이언트에서 필터해 표시한다. 연도 선택지는 웹 `work-status/page.tsx`와 같은 방식(조회된 rows에 등장하는 연도 + 현재 연도 합집합, 내림차순)으로 구성되고, 월은 01~12 고정이며, 연/월 일치 판정은 `lib/utils/date.ts`의 `isYearMonthMatch`를 웹과 공유해서 쓴다. 카운트 카드는 각 행의 `displayStatus`(`GET /api/work-status`가 `lib/constants/status.ts`의 `getDisplayStatus`로 계산해 내려주는 값)를 기준으로 4종 집계한다: 진행(`waiting`+`progress`) / 확인필요(`hold`) / 완료(`complete`, `passed` 포함) / 취소(`cancel`). 네 카드 합계는 선택된 연/월로 필터된 전체 건수와 같다. 각 목록 카드 우측 상단에는 작업상태 `StatusBadge` 하나만 표시한다(`PhotoAwareStatusBadge`는 서버가 내려준 `reviewStage`·`reviewKind`를 그대로 넘기는 얇은 래퍼) — `admin_review_requested`는 확인요청이면 "검수확인중"/"완료확인중", 사진 승인대기면 "작업승인대기"/"완료승인대기"로 표시되고, `inspection_failed` 카드에는 "반려된 항목이 있어요…" 재촬영 안내 문구가 함께 표시된다. 과거 그 아래에 함께 표시하던 검수 집계 배지(검수완료/검수대기/검수취소)는 상태 배지와 중복되고 용어가 어긋나 제거했다(2026-08, 웹 작업현황도 동일하게 제거. `docs/menus/work-status.md`의 "검수 집계 상태" 참고). **`row.work.status === "in_progress"`(작업현황 상태값이 "진행")이면** 카드 하단에 "완료검수" 버튼(`/mobile/complete/{workId}`로 이동)이 나타난다 — 홈 화면(`/mobile`)에서 문서번호를 스캔했을 때 완료검수로 분기되는 조건과 동일하다(`docs/menus/work-inspection.md`의 "검수 화면 진입 조건" 참고). 새 상태 모델에서 "진행"은 시작검수 완료 시 시스템이 자동으로만 설정하므로 이 조건은 사실상 "시작검수 완료"와 같다(보류/취소 상태의 작업은 시작검수가 끝났어도 완료검수 버튼이 보이지 않는다). 목록 자체는 읽기 전용이며 카드 클릭 동작은 없다.
 - 다음 화면 조건: 없음(다른 화면으로 이동하는 버튼/링크 없음).
 
 ### 8-1. `app/mobile/complete/[workId]/page.tsx` (완료검수)
 - 경로: `/mobile/complete/[workId]`
 - 주요 컴포넌트: `ProductChecklist`(상단 제품내역), `MaterialInspectionList`(하단 부자재 검수), `CompletionProductPhotoCard`(완료제품 사진등록 1~3장)
-- 진입 조건: 홈에서 상태값이 "진행"(`in_progress`)인 문서를 스캔했을 때, 또는 `/mobile/status`에서 "진행" 작업의 "완료검수" 버튼. `work.status !== "in_progress"`이면 안내 문구만 보여주고 검수 UI를 렌더링하지 않는다(`registered`이면 "작업전 검수로 이동" 버튼을 함께 제공).
+- 진입 조건: 홈에서 상태값이 "진행"(`in_progress`)인 문서를 스캔했을 때, 또는 `/mobile/status`에서 "진행" 작업의 "완료검수" 버튼. `work.status`가 `in_progress`가 아니면(완료검수 행이 이미 있는 `inspection_failed`(재검수)·`admin_review_requested`(승인대기, 읽기 전용) 작업은 예외로 진입 허용) 안내 문구만 보여주고 검수 UI를 렌더링하지 않는다(`registered`이면 "작업전 검수로 이동" 버튼을 함께 제공).
 - 하는 일: `useMobileCompletionInspectionRows()`(`GET /api/work-inspection?...&stage=complete`)로 완료검수 행을 조회하고, 0건이면 `POST /api/work-inspection/setup`(`{ workId, stage: "complete" }`)으로 lazy 생성한 뒤 재조회한다. **화면 구성은 작업전 검수(`/mobile/pre/[workId]`)와 동일하며, "완료제품 사진등록" 한 항목만 추가된다.**
   1. **상단 — 제품내역**(`ProductChecklist`): 작업전 검수와 완전히 동일(제품코드/제품명/LOT/단위수량/사용수량 + 검수여부 체크박스).
-  2. **하단 — 부자재 검수**(`MaterialInspectionList`): 작업전 검수와 완전히 동일(마스터에서 체크된 OCR/비전 항목만, `eyebrow`는 "완료검수 · 비전 검수").
+  2. **하단 — 부자재 검수**(`MaterialInspectionList`): 작업전 검수와 완전히 동일(마스터 검수방식으로 계획된 OCR/비전/사진검수 항목만, `eyebrow`는 "완료검수 · 비전 검수"/"완료검수 · 사진검수").
   3. **완료제품 사진등록**(`CompletionProductPhotoCard`, `method: "PRODUCT"` · `material_id` 없음 · 완료검수에만 존재): 작업이 완료된 제품을 촬영해 **최소 1장 ~ 최대 3장**까지 자유롭게 저장한다. 촬영본은 업로드 전에 `browser-image-compression`으로 **압축**(0.8MB / 긴 변 1600px / 품질 0.82)한 뒤 `POST /api/work-inspection/completion-photo`로 저장된다. 저장된 사진은 3열 썸네일 그리드로 보이고 각 썸네일의 휴지통 버튼으로 개별 삭제(`DELETE /api/work-inspection/completion-photo`)할 수 있다. 사진이 1장 이상이면 이 검수 항목이 `passed`, 전부 삭제하면 다시 `pending`으로 되돌아간다.
 - 완료 판정(`allDone`): 작업전 검수와 동일하게 **화면에 실제 표시되는 항목**(마스터에서 체크된 부자재 검수 + 완료제품 사진)만 대상으로 집계한다(`getActiveInspections`).
-- 다음 화면 조건: 모든 항목이 `passed`/`admin_approved`가 되면 **서버가 작업현황 상태를 "완료"(`completed`)로 자동 전이시킨다**(`maybeAdvanceWorkStatus`, `docs/menus/work-status.md`의 "자동 상태 전이" 참고). "완료 확인하고 나가기" 버튼은 이 시점에 활성화되며, 클릭 시 상태를 직접 바꾸지 않고 `refetch()`로 최신 상태를 다시 불러온 뒤 `/mobile/status`로 이동한다(수동 `completed` PATCH는 서버가 거부한다).
+- 다음 화면 조건: 모든 항목이 `passed`/`admin_approved`가 되면 **서버가 작업현황 상태를 "완료"(`completed`)로 자동 전이시킨다**(`maybeAdvanceWorkStatus`, `docs/menus/work-status.md`의 "자동 상태 전이" 참고). "완료 확인하고 나가기" 버튼은 이 시점에 활성화되며, 클릭 시 상태를 직접 바꾸지 않고 `refetch()`로 최신 상태를 다시 불러와 실제로 `completed`일 때만 "작업이 완료 처리되었습니다" 토스트를 띄우고 `/mobile/status`로 이동한다(미전이/조회 실패면 경고 토스트만 표시)(수동 `completed` PATCH는 서버가 거부한다).
 - 각 부자재 항목의 "확인요청" 버튼은 기존 `PATCH /api/work-inspection`(`request_review`)을 그대로 재사용한다(작업전 검수와 동일).
 - **의존성**: 이 화면 전체가 `work_inspections.stage` 컬럼(적용 완료, 상세는 `docs/menus/work-inspection.md`의 "완료검수" 절 참고)에 의존한다. 유니크 제약도 `(work_id, material_id, method, stage)`로 재생성돼 있어 같은 부자재의 시작검수 행과 완료검수 행이 동시에 존재할 수 있다.
 
@@ -160,7 +169,7 @@
 - 다음 화면 조건: 없음.
 
 ## 데이터 흐름
-`lib/mobile/mobile-api.ts`는 `useFilterStore`의 `departmentId`/`shipperId`를 쿼리스트링에 실어 `fetch`하는 공통 훅 `useScopedMobileData`를 기반으로 3개의 훅을 제공한다. 응답이 `!response.ok`이거나 JSON에 `error`가 포함되면(실DB 모드에서 API가 mock 폴백 없이 `502 { error }`를 반환하는 경우 포함) `error` 상태로 노출하고 mock 데이터를 보여주지 않는다. 반환값에 `reload`/`refetch`(동일 함수의 별칭) 함수가 포함되어 있으며, 홈(`/mobile`)·작업전 검수(`/mobile/pre/[workId]`)·완료검수(`/mobile/complete/[workId]`)·작업현황(`/mobile/status`)·부자재등록(`/mobile/material-photo`) 화면은 오류 배지 옆에 "다시 시도" 버튼을 두어 이 함수를 호출한다.
+`lib/mobile/mobile-api.ts`는 `useFilterStore`의 `departmentId`/`shipperId`를 쿼리스트링에 실어 `fetch`하는 공통 훅 `useScopedMobileData`를 기반으로 3개의 훅을 제공한다. 응답이 `!response.ok`이거나 JSON에 `error`가 포함되면(실DB 모드에서 API가 mock 폴백 없이 `502 { error }`를 반환하는 경우 포함) `error` 상태로 노출하고 mock 데이터를 보여주지 않는다. 요청 순서를 보장한다(새 요청 시 이전 요청을 `AbortController`로 취소하고, 늦게 도착한 이전 응답·언마운트 후 응답은 상태에 반영하지 않는다). 반환값에 `reload`/`refetch`(동일 함수의 별칭, 성공 시 새 데이터·실패/무효 시 `null`을 resolve) 함수가 포함되어 있으며, 홈(`/mobile`)·작업전 검수(`/mobile/pre/[workId]`)·완료검수(`/mobile/complete/[workId]`)·작업현황(`/mobile/status`)·부자재등록(`/mobile/material-photo`) 화면은 오류 배지 옆에 "다시 시도" 버튼을 두어 이 함수를 호출한다.
 
 | 함수 | 호출 API | 응답에서 읽는 Supabase 테이블(각 API 라우트 코드 기준) |
 |---|---|---|
@@ -170,13 +179,14 @@
 | `useMobileMaterials()` | `GET /api/material-master?department_id&shipper_id[&material_id]` | `material_masters` |
 
 작업전 검수(`/mobile/pre/[workId]`)·완료검수(`/mobile/complete/[workId]`) 화면이 호출하는 API:
-- `POST /api/work-inspection/setup` — 작업전 검수는 `{ workId }`, 완료검수는 `{ workId, stage: "complete" }`. 검수 행이 0건일 때만 호출하는 lazy 생성이다(홈 스캔 화면이 아니라 각 검수 화면이 담당). 상세는 `docs/menus/work-inspection.md`의 "검수 대상 lazy 생성 API" 참고.
+- `POST /api/work-inspection/setup` — 작업전 검수는 `{ workId }`, 완료검수는 `{ workId, stage: "complete" }`. 검수 행이 0건일 때만 호출하는 lazy 생성이다(서버는 `reconcileInspectionPlan`으로 생성·재판정)(홈 스캔 화면이 아니라 각 검수 화면이 담당). 상세는 `docs/menus/work-inspection.md`의 "검수 대상 lazy 생성 API" 참고.
 - `GET /api/work-status/detail?work_id=` — `ProductChecklist`의 제품내역(제품코드/제품명/LOT/단위수량/사용수량) 조회.
 - `POST /api/work-inspection/ocr`, `PATCH /api/work-inspection`(`request_review`) — 부자재 OCR 항목(`OcrInspectionCard`)에서 사용. 두 화면 동일.
 - `GET /api/material-master/registration?material_id=` — 부자재 비전 참고 사진 미리보기(`CompletionPhotoCard`의 `materialId` prop).
 - `POST /api/work-inspection/completion-photo` — `inspectionId`, `workId`, `image`(압축된 촬영 사진)를 FormData로 전송. 부자재 비전 항목(양쪽 화면)과 완료제품 사진(완료검수 전용)이 공유한다. **`method === "PRODUCT"`이면 최대 3장까지 누적 저장**하고(초과 시 409), 그 외(비전)는 기존대로 최신 1장만 유지한다. 응답에 `photos`(id + 서명 URL) 배열이 함께 내려온다.
 - `GET /api/work-inspection/completion-photo?inspection_id=&work_id=` (신규) — 완료제품 사진 갤러리 조회(진입 시 1회).
 - `DELETE /api/work-inspection/completion-photo` (신규) — `{ inspectionId, workId, imageId }`. 완료제품 사진 개별 삭제. 삭제 후 남은 장수로 검수 상태를 재판정한다(0장이면 `pending`).
+- `POST /api/work-inspection/photo`(multipart) / `GET /api/work-inspection/photo?work_id&stage` — 제품·사진검수 부자재 사진 제출(`PhotoReviewCard`)과 항목·반려 사유 조회(`useMobilePhotoReview`). 상세는 아래 "사진검수·관리자 승인/반려"와 `docs/menus/work-inspection.md`의 "사진검수 + 작업승인 API".
 - (완료 처리 자체는 API 호출이 아니다 — 마지막 완료검수 항목 저장/승인 시 서버가 자동으로 상태를 전이한다. "완료 확인하고 나가기" 버튼은 `refetch()`만 호출한다.)
 
 부자재 OCR 검수 카드(`OcrInspectionCard`, 작업전 검수·완료검수 공용)가 호출하는 API:
@@ -186,7 +196,7 @@
 
 부자재등록 화면(`material-photo`)이 추가로 호출하는 API:
 - `POST /api/ocr` — `image`(크롭된 File), `expectedText`, `roi` 등을 FormData로 전송. `OCR_PROVIDER=google-vision` 환경변수와 Google Cloud 서비스계정 자격증명이 없으면 `mockOcr()`로 `matched: false, canVerify: false` 응답만 반환. Google Vision 호출 로직은 `lib/server/ocr.ts`의 `runOcr()`로 추출되어 있으며, 홈 화면의 `POST /api/work-inspection/ocr`도 같은 함수를 공유한다(두 라우트 모두 이 함수 하나로 Google Cloud Vision을 호출).
-- `POST /api/material-master/registration` — `materialId`, `method`(OCR|VISION), `roi`, `expectedText`, `recognizedText`, `similarity`, `images`(File[])를 FormData로 전송. Supabase 사용 시 `material-images` 스토리지 버킷에 `mobile/{materialId}/{method}/{timestamp}-{index}-{fileName}.{ext}` 경로로 업로드(`ensureMaterialImageBucket`이 버킷을 없으면 자동 생성, `public: false`, 8MB 제한, jpeg/png/webp만 허용)한 뒤 `material_masters.ocr_image_path`/`vision_image_path`/`reference_image_path`를 갱신하고 `material_inspection_regions` 테이블에 ROI·인식결과를 upsert(기존 삭제 후 insert) 한다. `method === "OCR"`이면 `material_masters.verification_value`도 함께 갱신한다: OCR 등록 화면은 OCR 검토를 거쳤으므로 `recognizedText` FormData 필드를 값이 비어있어도 항상 전송하고, 서버는 그 값을 그대로(빈 문자열이어도) 저장한다. `recognizedText` 필드가 아예 전송되지 않은 요청(OCR 검토 없이 이미지만 등록하는 웹 관리자 플로우)만 `expectedText`(부자재코드)로 대신 채운다. 저장 완료 후 응답에 담긴 `material`(갱신된 `verification_value` 포함)로 `reload()`가 로컬 상태를 다시 채운다.
+- `POST /api/material-master/registration` — `materialId`, `method`(OCR|VISION), `roi`, `expectedText`, `recognizedText`, `similarity`, `images`(File[])를 FormData로 전송. Supabase 사용 시 `material-images` 스토리지 버킷에 `mobile/{materialId}/{method}/{timestamp}-{index}-{fileName}.{ext}` 경로로 업로드(`ensureMaterialImageBucket`이 버킷을 없으면 자동 생성, `public: false`, 8MB 제한, jpeg/png/webp만 허용)한 뒤 `material_masters.ocr_image_path`/`vision_image_path`/`reference_image_path`를 갱신하고 `material_inspection_regions` 테이블에 ROI·인식결과를 upsert(기존 삭제 후 insert) 한다. `method === "OCR"`이면 `material_masters.verification_value`도 함께 갱신한다: OCR 등록 화면은 OCR 검토를 거쳤으므로 `recognizedText` FormData 필드를 값이 비어있어도 항상 전송하고, 서버는 그 값을 그대로(빈 문자열이어도) 저장한다. `recognizedText` 필드가 아예 전송되지 않은 요청(OCR 검토 없이 이미지만 등록하는 웹 관리자 플로우)만 `expectedText`(부자재코드)로 대신 채운다. 저장 완료 후 응답에 담긴 `material`(갱신된 `verification_value` 포함)로 `reload()`가 로컬 상태를 다시 채운다. 기준 이미지 등록은 `material_masters.inspection_method`를 바꾸지 않는다(2026-10부터 OCR/VISION 자동 병합 제거 — 검수방식은 웹 부자재마스터 수정 모달에서만 변경).
 - `DELETE /api/material-master/registration` — `material_masters`의 이미지 경로 초기화 + `material_inspection_regions` 삭제.
 
 설정/스코프 초기화 화면이 호출하는 API:
@@ -207,7 +217,7 @@
 
 ## 주의사항
 - 두 개의 검수 플로우(홈 스캔 → `/mobile/pre`·`/mobile/complete` 방식 vs `/mobile/scan` → `/mobile/inspection` 방식)가 코드상 동시에 존재하며 하단 탭바는 주 플로우만 연결한다. `/mobile/scan` 계열은 `BarcodeScannerPanel`을 통해서만 진입 가능하고 다른 화면에서 이 경로로 가는 링크가 없다.
-- **부자재 검수 대상 판정 기준이 두 겹이다**: ① `lib/server/inspection-setup.ts`가 검수 행을 만들 때 `material_masters.inspection_method`로 OCR/비전 행을 생성하고, ② 화면에서 다시 `lib/mobile/inspection-visibility.ts`가 같은 기준으로 필터한다. ②는 검수 행이 만들어진 뒤 마스터에서 체크가 해제된 경우를 커버하기 위한 것이며, 완료 판정도 ②를 통과한 항목만 대상으로 한다(숨겨진 과거 행 때문에 완료가 막히지 않도록).
+- **부자재 검수 대상 판정 기준이 두 겹이다**: ① `lib/server/inspection-setup.ts`가 검수 행을 만들 때 `planMaterialMethods(material_masters.inspection_method)`(BOTH=OCR+VISION, NONE=PHOTO)로 OCR/비전/사진 행을 생성하고(제품은 항상 PHOTO), ② 화면에서 다시 `lib/mobile/inspection-visibility.ts`가 같은 기준으로 필터한다. ②는 검수 행이 만들어진 뒤 마스터 체크가 바뀐 경우를 커버하기 위한 것이며 완료 판정도 ②를 통과한 항목만 대상으로 한다(숨겨진 과거 행 때문에 완료가 막히지 않도록). 단 모바일은 검수 행이 0건일 때만 setup API를 호출하므로 이미 만들어진 행의 재판정(`reconcileInspectionPlan`)은 모바일 진입으로 일어나지 않는다.
 - `app/mobile/scan/page.tsx`와 `BarcodeScannerPanel`, 홈 화면 스캔 UI 모두 실제 카메라 바코드 인식은 미구현이며 문서번호 텍스트 입력으로만 동작한다(코드 주석: `TODO: BarcodeDetector 또는 @zxing/browser 카메라 스캐너 연결`). 문서번호 입력칸은 `BarcodeScannerPanel`(`components/mobile/BarcodeScannerPanel.tsx`)도 홈 화면과 동일하게 항상 빈 값으로 시작한다(과거 `rows[0]`로 자동 채우던 동일한 버그를 함께 제거함).
 - `app/mobile/inspection/[workId]/page.tsx`의 재검수/관리자 요청/촬영 검수 버튼과 `ImageUploadCard`는 `toast` 알림만 발생시키는 정적 UI이며, 클릭해도 검수 상태나 Supabase 데이터가 바뀌지 않는다(홈 화면의 OCR 검수 카드와는 별개의 미구현 플로우다).
 - `SignaturePad.onSave`는 서명 이미지를 어디에도 저장하지 않고 즉시 다음 페이지로 이동한다. 안내 문구의 "signatures 버킷 저장"은 아직 코드로 연결되어 있지 않다.
@@ -217,3 +227,19 @@
 - OCR 등록은 `OCR_PROVIDER=google-vision` 환경변수와 `GOOGLE_CLOUD_PROJECT_ID`/`GOOGLE_CLOUD_CLIENT_EMAIL`/`GOOGLE_CLOUD_PRIVATE_KEY`가 모두 설정되어야 실제 Google Vision을 호출한다. 하나라도 없으면 `/api/ocr`는 `canVerify: false`, `extractedText: ""`인 mock 응답을 반환한다. 이 경우 프론트(`OcrRegistration`)는 검토 완료(`ocrReviewed`) 상태에서 저장을 허용하며, 화면에 "⚠️ OCR 서버 검증 불가 — 텍스트 검증 없이 저장됩니다" 경고 배지를 표시한다(이때 검증값은 빈 문자열로 저장됨). **부자재코드와 인식 텍스트의 일치(`matched`) 여부는 저장 조건이 아니다** — `canVerify`가 true인 정상 환경에서는 `ocrReviewed && 인식 텍스트가 비어있지 않음`이면 저장 버튼이 활성화되고, `matched`는 "코드와 일치"/"코드와 다름" 참고용 뱃지로만 노출된다. 저장되는 검증값은 항상 실제 인식된 텍스트(`recognizedText`)이며 부자재코드로 강제 치환되지 않는다.
 - `lib/state/work-flow-store.ts`, `lib/providers/inspection-provider.ts`는 모바일 화면 어디서도 사용되지 않는다(코드 검색 기준). 향후 모바일 검수 플로우에 실제 저장 로직을 연결할 때 이 두 파일을 재사용할지, 새로 만들지 판단이 필요하다.
 - `MobileScopeInitializer`와 `/mobile/settings`는 각각 독립적으로 `/api/users`를 호출한다. 두 화면을 동시에 열면 동일 데이터를 중복 조회한다.
+
+## 사진검수·관리자 승인/반려 (2026-10 추가)
+- 결론: 제품 구성 행당 1장, 사진검수 대상 부자재(마스터 OCR·비전 둘 다 미체크, `method="PHOTO"`)당 1장을 촬영해 제출하면 관리자 승인 대기가 된다. 시작검수·완료검수 모두 적용되며, 완료제품사진(1~3장, `CompletionProductPhotoCard`)은 현행 유지.
+- 화면 흐름: 촬영(`PhotoReviewCard`, `<input type="file" accept="image/*" capture="environment">`, `browser-image-compression` 압축) → 제출(`POST /api/work-inspection/photo` multipart: `departmentId`·`shipperId`·`workId`·`inspectionId`·`image`) → 항목 `submitted`("승인대기" 배지, 승인대기 작업 전까지 "사진 교체" 가능) → 모든 사진 제출 + OCR/비전 합격 시 작업 `admin_review_requested`(촬영 잠금, "관리자 승인 대기 중" 안내) → 관리자 반려 시 항목 `rejected`("반려" 배지 + 빨간 박스에 반려 사유 `review_comment`, 반려 사진 축소 표시) → "다시 촬영"으로 재제출 → 승인 시 "승인" 배지(촬영 숨김).
+- 컴포넌트
+  - `components/mobile/PhotoReviewCard.tsx`: 항목 1개 카드(대상명/코드/LOT·상태 배지·사진 미리보기·촬영/교체/재촬영). 상태는 검수 행(`inspection.status`) 기준, 사진 URL·반려 사유는 `GET /api/work-inspection/photo` 항목(`useMobilePhotoReview`)으로 보강. 같은 파일의 `PhotoReviewSummaryBanner`가 "제출 n/m · 승인 k · 반려 r"과 승인대기/반려 안내 표시.
+  - `MaterialInspectionList`: `method==="PHOTO"` 분기 → `PhotoReviewCard`(eyebrow "사진검수"). `ProductChecklist`: 제품 PHOTO 행(`getProductPhotoInspections`)이 있으면 체크박스를 없애고 제품별 `PhotoReviewCard`를 붙인다(없는 과거 작업만 기존 확인용 체크박스).
+  - `OcrInspectionCard`: 기준 사진 미등록·조회 실패 시 상태와 무관하게 "관리자 확인요청 (기준 미등록)" 버튼을 항상 노출(`request_review`, label "기준 미등록 확인요청")하고, 이때 재검수/검수취소 버튼은 숨긴다.
+- 읽기 전용 진입: 홈 스캔에서 `admin_review_requested`(확인요청 `admin_requested` 없음)는 활성 단계 화면(시작검수 미완료면 `/mobile/pre`, 끝났으면 `/mobile/complete`)으로 이동하며 `locked`로 촬영 비활성. 완료검수 화면도 `admin_review_requested`(검수 행 있음)를 진입 허용. 확인요청이 걸린 경우는 기존처럼 안내만(단 홈은 시작검수 행만 보므로 완료검수 단계 확인요청은 감지되지 않는다 — 위 "안내 분기 주의").
+- 작업현황(`/mobile/status`): `admin_review_requested`는 `PhotoAwareStatusBadge`(서버가 내려주는 `reviewStage`·`reviewKind`를 `StatusBadge`에 전달)로 표시한다 — 확인요청이면 "검수확인중/완료확인중", 사진 승인대기면 "작업승인대기/완료승인대기". `inspection_failed`에는 반려 재촬영 안내 문구를 표시한다.
+- 완료 판정(`allDone`)은 `getActiveInspections` 기준이라 PHOTO는 관리자 승인(`admin_approved`) 후에만 완료로 계산된다.
+- 호출처 스코프: `PhotoReviewCard`(POST FormData), `useMobilePhotoReview`(GET 쿼리)도 `useMobileScope()`의 `departmentId`/`shipperId`를 포함한다.
+
+## 스코프 가드 (2026-10 추가, `lib/server/scope-guard.ts`)
+- 공통 규칙: API 라우트는 서비스롤 키로 RLS를 우회하므로, 쓰기·삭제·상태변경·리소스ID 조회 요청은 부서/화주 스코프(JSON/FormData `departmentId`·`shipperId`, 쿼리 `department_id`·`shipper_id`)를 **필수**로 받는다. 누락 `400`, 리소스 없음 `404`, 스코프 불일치 `403`, 가드 내 DB 오류 `502`. 이 검증은 mock 모드에서도 스코프 존재(400)까지 동일하게 적용된다. 호출측은 웹은 `useFilterStore`, 모바일은 `useMobileScope()`(`lib/mobile/mobile-api.ts`, 기본 스코프 폴백 포함)의 값을 보낸다. 인증(로그인 사용자 확인)은 별도 범위다.
+- 모바일 쓰기/리소스 조회 호출(`setup`, `ocr`, `completion-photo` GET/POST/DELETE, `work-inspection` PATCH(확인요청), `material-master/registration` GET/POST/DELETE, `work-status/detail`)은 `useMobileScope()`의 `departmentId`/`shipperId`를 쿼리·JSON·FormData에 포함한다. 호출처: `app/mobile/pre/[workId]`·`complete/[workId]`, `app/mobile/material-photo`, `OcrInspectionCard`, `CompletionPhotoCard`, `CompletionProductPhotoCard`, `ProductChecklist`. 하나라도 빠지면 서버가 400을 반환한다.

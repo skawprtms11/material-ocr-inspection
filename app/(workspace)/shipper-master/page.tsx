@@ -71,7 +71,7 @@ export default function ShipperMasterPage() {
       const response = await fetch("/api/shipper-master", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shipperId, crewLeaderIds })
+        body: JSON.stringify({ departmentId, shipperId, crewLeaderIds })
       });
       const result = (await response.json()) as { source?: "supabase" | "mock"; error?: string };
       if (!response.ok) throw new Error(result.error ?? "작업조장 저장에 실패했습니다.");

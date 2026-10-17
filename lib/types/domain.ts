@@ -1,5 +1,11 @@
 export type Role = "admin" | "manager" | "worker" | "viewer";
-export type InspectionMethod = "OCR" | "VISION" | "BOTH";
+// 부자재마스터 inspection_method(체크 값). NONE = OCR·비전 모두 미체크 → 사진검수(PHOTO) 대상.
+export type MaterialInspectionMethod = "OCR" | "VISION" | "BOTH" | "NONE";
+export type InspectionMethod = MaterialInspectionMethod;
+// work_inspections.method. PHOTO = 사진검수(관리자 승인), PRODUCT = 완료제품사진(자동 합격).
+export type WorkInspectionMethod = "OCR" | "VISION" | "PRODUCT" | "PHOTO";
+// work_inspections.target_type. 값이 없는 과거 행은 material(PRODUCT 행은 completion)로 취급한다.
+export type InspectionTargetType = "material" | "product" | "completion";
 export type WorkStatus =
   | "registered"
   | "in_progress"
@@ -15,7 +21,10 @@ export type InspectionStatus =
   | "failed"
   | "retrying"
   | "admin_requested"
-  | "admin_approved";
+  | "admin_approved"
+  // PHOTO 항목 전용: submitted = 사진 제출(승인대기), rejected = 관리자 반려(재촬영 필요).
+  | "submitted"
+  | "rejected";
 export type AdminReviewStatus = "requested" | "approved" | "retry_requested" | "rejected";
 
 export type RoiRect = {
@@ -77,7 +86,7 @@ export type MaterialMaster = {
 export type MaterialInspectionRegion = {
   id: string;
   material_id: string;
-  method: Exclude<InspectionMethod, "BOTH">;
+  method: "OCR" | "VISION";
   name: string;
   roi: RoiRect;
   expected_text?: string;
@@ -123,11 +132,22 @@ export type WorkInspectionStage = "start" | "complete";
 export type WorkInspection = {
   id: string;
   work_id: string;
+  // 제품 PHOTO·완료제품사진 행은 material_id가 없다(DB NULL → 빈 문자열로 매핑).
   material_id: string;
   // PRODUCT: 완료검수 전용 "완료제품사진" 항목(material_id 없음, 체크리스트 없이 사진 1장 무조건 저장).
-  method: Exclude<InspectionMethod, "BOTH"> | "PRODUCT";
+  // PHOTO: 사진검수 항목(제품 구성 행별 또는 NONE 부자재). 제출 → 관리자 승인/반려.
+  method: WorkInspectionMethod;
   status: InspectionStatus;
   stage?: WorkInspectionStage;
+  target_type?: InspectionTargetType;
+  // target_type="product" 행의 제품 스냅샷(work_components.id는 작업 수정 시 바뀌어 FK 대신 값으로 보관).
+  product_code?: string;
+  product_name?: string;
+  product_lot?: string;
+  // 최근 반려 사유(재제출 중 유지, 승인 시 비움)
+  review_comment?: string;
+  submitted_at?: string;
+  reviewed_at?: string;
   ocr_result_text?: string;
   vision_similarity?: number;
   result_summary: string;
@@ -139,7 +159,8 @@ export type InspectionImage = {
   work_id: string;
   inspection_id: string;
   // completion_photo: 완료검수 사진(완료제품사진 또는 부자재 비전 완료검수 사진) 저장 시 사용.
-  image_type: "ocr_capture" | "vision_capture" | "admin_review" | "product" | "completion_photo";
+  // photo_review: PHOTO 항목 제출 사진(반려 사진은 이력으로 보존).
+  image_type: "ocr_capture" | "vision_capture" | "admin_review" | "product" | "completion_photo" | "photo_review";
   storage_path: string;
   is_compressed: boolean;
   metadata: Record<string, unknown>;
