@@ -3,7 +3,10 @@
 import { useEffect, useState } from "react";
 import { PackageSearch } from "lucide-react";
 import { CuteCard } from "@/components/common/CuteCard";
+import { PhotoReviewCard } from "@/components/mobile/PhotoReviewCard";
+import { useMobileScope } from "@/lib/mobile/mobile-api";
 import { cn } from "@/lib/utils/cn";
+import type { InspectionWithVerificationDto, PhotoReviewItemDto } from "@/lib/types/work-inspection-api";
 
 type ProductRow = {
   id: string;
@@ -23,10 +26,27 @@ function quantityText(value?: number) {
   return typeof value === "number" && Number.isFinite(value) ? value.toLocaleString() : "-";
 }
 
-// 제품내역(작업전검수·완료검수 화면 상단 공통): 제품코드/제품명/LOT/단위수량/사용수량을 보여주고 작업자가
-// 검수여부 체크박스로 확인한다. 서버 저장 없이 화면 진행 중에만 유지되는 확인용 체크리스트이며, 실제
-// 합격/완료 판정은 work_inspections 기반 부자재 검수 결과로만 이뤄진다.
-export function ProductChecklist({ workId }: { workId: string }) {
+// 제품내역(작업전검수·완료검수 화면 상단 공통): 제품코드/제품명/LOT/단위수량/사용수량을 보여준다.
+// 제품 사진검수 항목(photoInspections, 제품 구성 행당 PHOTO 1행)이 있으면 제품 사진 제출이 곧 제품 확인이므로
+// 로컬 체크박스는 없애고 제품별 사진 카드(PhotoReviewCard)를 아래에 붙인다. 항목이 없는 과거 작업만 기존
+// 확인용 체크리스트(서버 저장 없음)로 동작한다.
+export function ProductChecklist({
+  workId,
+  stageLabel = "",
+  photoInspections = [],
+  photoItems,
+  locked = false,
+  onSubmitted
+}: {
+  workId: string;
+  stageLabel?: string;
+  photoInspections?: InspectionWithVerificationDto[];
+  photoItems?: Map<string, PhotoReviewItemDto>;
+  locked?: boolean;
+  onSubmitted?: () => Promise<unknown> | void;
+}) {
+  const hasPhotoCards = photoInspections.length > 0;
+  const scope = useMobileScope();
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -38,7 +58,7 @@ export function ProductChecklist({ workId }: { workId: string }) {
     setError("");
     setChecked({});
 
-    fetch(`/api/work-status/detail?work_id=${workId}`, { cache: "no-store" })
+    fetch(`/api/work-status/detail?${new URLSearchParams({ work_id: workId, department_id: scope.departmentId, shipper_id: scope.shipperId }).toString()}`, { cache: "no-store" })
       .then((response) => response.json())
       .then((payload: WorkDetailResponse) => {
         if (cancelled) return;
@@ -58,30 +78,62 @@ export function ProductChecklist({ workId }: { workId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [workId]);
+  }, [workId, scope.departmentId, scope.shipperId]);
+
+  const photoCards = hasPhotoCards && (
+    <>
+      {photoInspections.map((inspection, index) => (
+        <PhotoReviewCard
+          key={inspection.id}
+          workId={workId}
+          inspection={inspection}
+          item={photoItems?.get(inspection.id)}
+          eyebrow={`${stageLabel ? `${stageLabel} · ` : ""}제품 사진검수`}
+          title={`제품 ${index + 1} · ${inspection.product_name || inspection.product_code || "-"}`}
+          codeText={inspection.product_code}
+          lotText={inspection.product_lot}
+          locked={locked}
+          onSubmitted={onSubmitted ?? (() => undefined)}
+        />
+      ))}
+    </>
+  );
 
   if (loading) {
-    return <CuteCard className="p-4 text-center text-xs font-bold text-slate-400">제품내역을 불러오는 중이에요.</CuteCard>;
+    return (
+      <>
+        <CuteCard className="p-4 text-center text-xs font-bold text-slate-400">제품내역을 불러오는 중이에요.</CuteCard>
+        {photoCards}
+      </>
+    );
   }
 
   if (error) {
-    return <CuteCard className="p-4 text-center text-xs font-bold text-rose-600">{error}</CuteCard>;
+    return (
+      <>
+        <CuteCard className="p-4 text-center text-xs font-bold text-rose-600">{error}</CuteCard>
+        {photoCards}
+      </>
+    );
   }
 
-  if (products.length === 0) return null;
+  if (products.length === 0) return photoCards || null;
 
   const checkedCount = products.filter((product) => checked[product.id]).length;
 
   return (
+    <>
     <CuteCard className="p-4">
       <div className="mb-3 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <PackageSearch className="size-4 text-sky-500" />
           <h3 className="text-sm font-black text-slate-800">제품내역</h3>
         </div>
-        <span className="rounded-full bg-sky-50 px-3 py-1 text-[11px] font-black text-sky-700">
-          검수 {checkedCount}/{products.length}
-        </span>
+        {!hasPhotoCards && (
+          <span className="rounded-full bg-sky-50 px-3 py-1 text-[11px] font-black text-sky-700">
+            검수 {checkedCount}/{products.length}
+          </span>
+        )}
       </div>
       <div className="space-y-2">
         {products.map((product) => {
@@ -92,7 +144,7 @@ export function ProductChecklist({ workId }: { workId: string }) {
               key={product.id}
               className={cn(
                 "flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-sm font-bold ring-1 transition",
-                isChecked ? "bg-emerald-50 text-emerald-800 ring-emerald-100" : "bg-white text-slate-700 ring-sky-100"
+                hasPhotoCards ? "bg-white text-slate-700 ring-sky-100" : isChecked ? "bg-emerald-50 text-emerald-800 ring-emerald-100" : "bg-white text-slate-700 ring-sky-100"
               )}
             >
               <span className="min-w-0">
@@ -103,17 +155,21 @@ export function ProductChecklist({ workId }: { workId: string }) {
                   {quantityText(product.usedQuantity)}
                 </span>
               </span>
-              <input
-                type="checkbox"
-                checked={isChecked}
-                onChange={(event) => setChecked((current) => ({ ...current, [product.id]: event.target.checked }))}
-                className="size-5 shrink-0 accent-emerald-500"
-                aria-label={`${product.productName} 검수여부`}
-              />
+              {!hasPhotoCards && (
+                <input
+                  type="checkbox"
+                  checked={isChecked}
+                  onChange={(event) => setChecked((current) => ({ ...current, [product.id]: event.target.checked }))}
+                  className="size-5 shrink-0 accent-emerald-500"
+                  aria-label={`${product.productName} 검수여부`}
+                />
+              )}
             </label>
           );
         })}
       </div>
     </CuteCard>
+    {photoCards}
+    </>
   );
 }

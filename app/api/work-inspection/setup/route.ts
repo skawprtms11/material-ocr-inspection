@@ -1,23 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errorMessage } from "@/lib/repositories/supabase-scope";
-import { setupWorkInspections } from "@/lib/server/inspection-setup";
+import { reconcileInspectionPlan } from "@/lib/server/inspection-setup";
 import { getInspectionAggregateStatus } from "@/lib/server/inspection-status";
+import { assertWorkInScope, guardErrorResponse, missingScopeResponse, resolveRequestScope, scopeFromBody } from "@/lib/server/scope-guard";
+import { loadInspectionSnapshot } from "@/lib/server/work-auto-status";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import type { InspectionStatus, WorkInspectionStage } from "@/lib/types/domain";
+import type { WorkInspectionStage } from "@/lib/types/domain";
 
 type SetupBody = {
+  departmentId?: string;
+  shipperId?: string;
   workId?: string;
   // 완료검수(신규) lazy 생성 시 "complete"를 전달한다. 생략 시 기존과 동일하게 "start".
   stage?: WorkInspectionStage;
 };
 
-function text(value: unknown, fallback = "") {
-  return typeof value === "string" ? value : fallback;
-}
-
-// 모바일 스캔 시점의 lazy 생성 전용 API. 배정/등록 시점에 생성되지 못한 기존 작업을 커버한다.
+// 모바일 진입 시점의 lazy 생성·재판정 API. 행이 없으면 생성하고, 있으면 마스터 체크 변경분만 반영한다(제출 이력 행은 동결).
 export async function POST(request: NextRequest) {
   const body = (await request.json()) as SetupBody;
+  const requestScope = scopeFromBody(body);
+
+  if (!requestScope) return missingScopeResponse();
 
   if (!body.workId) {
     return NextResponse.json({ error: "workId가 필요합니다." }, { status: 400 });
@@ -30,37 +33,19 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { data: workRow, error: workError } = await supabase
-      .from("works")
-      .select("id, work_master_id")
-      .eq("id", body.workId)
-      .maybeSingle();
-    if (workError) throw workError;
-    if (!workRow) {
-      return NextResponse.json({ error: "작업을 찾을 수 없습니다." }, { status: 404 });
-    }
+    const workRow = await assertWorkInScope(supabase, body.workId, await resolveRequestScope(supabase, requestScope));
 
     const workMasterId =
-      typeof (workRow as { work_master_id?: unknown }).work_master_id === "string"
-        ? ((workRow as { work_master_id: string }).work_master_id)
-        : null;
+      typeof workRow.work_master_id === "string" ? workRow.work_master_id : null;
 
     const stage: WorkInspectionStage = body.stage === "complete" ? "complete" : "start";
 
     // 서버 레벨 방어: 완료검수는 시작검수(stage="start")가 전부 끝난 작업만 준비할 수 있다.
     // 클라이언트 가드(홈/현황 버튼, 완료검수 화면)를 우회해 URL로 직접 진입해도 여기서 막힌다.
     if (stage === "complete") {
-      const { data: startRows, error: startError } = await supabase
-        .from("work_inspections")
-        .select("status")
-        .eq("work_id", body.workId)
-        .eq("stage", "start");
-      if (startError) throw startError;
-
-      const startStatuses = ((startRows ?? []) as { status?: unknown }[]).map(
-        (row) => text(row.status, "pending") as InspectionStatus
-      );
-      if (getInspectionAggregateStatus(startStatuses) !== "completed") {
+      // work-auto-status.ts의 자동 전이 판정과 같은 가시성 규칙(getActiveInspections)으로 시작검수 완료 여부를 본다.
+      const snapshot = await loadInspectionSnapshot(supabase, body.workId);
+      if (getInspectionAggregateStatus(snapshot.startStatuses) !== "completed") {
         return NextResponse.json(
           { error: "시작검수가 아직 완료되지 않아 완료검수를 준비할 수 없습니다. 부자재 검수를 먼저 완료해주세요." },
           { status: 409 }
@@ -68,10 +53,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const inspectionSetup = await setupWorkInspections(supabase, body.workId, workMasterId, stage);
+    const inspectionSetup = await reconcileInspectionPlan(supabase, body.workId, workMasterId, stage);
+
+    if (inspectionSetup === "failed") {
+      return NextResponse.json({ error: "검수 대상 준비에 실패했습니다. 잠시 후 다시 시도해주세요." }, { status: 502 });
+    }
 
     return NextResponse.json({ source: "supabase", workId: body.workId, inspectionSetup });
   } catch (error) {
-    return NextResponse.json({ error: errorMessage(error, "검수 대상 준비에 실패했습니다.") }, { status: 500 });
+    const guardResponse = guardErrorResponse(error);
+    if (guardResponse) return guardResponse;
+    return NextResponse.json({ error: errorMessage(error, "검수 대상 준비에 실패했습니다.") }, { status: 502 });
   }
 }

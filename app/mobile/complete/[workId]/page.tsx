@@ -8,19 +8,22 @@ import { CloudButton } from "@/components/common/CloudButton";
 import { CuteCard } from "@/components/common/CuteCard";
 import { CompletionProductPhotoCard } from "@/components/mobile/CompletionProductPhotoCard";
 import { MaterialInspectionList } from "@/components/mobile/MaterialInspectionList";
+import { PhotoReviewSummaryBanner } from "@/components/mobile/PhotoReviewCard";
 import { ProductChecklist } from "@/components/mobile/ProductChecklist";
 import { getWorkStatusLabel } from "@/lib/constants/status";
-import { getActiveInspections } from "@/lib/mobile/inspection-visibility";
+import { getActiveInspections, getProductPhotoInspections, getVisibleMaterialInspections } from "@/lib/mobile/inspection-visibility";
 import {
   findInspectionById,
   useMobileCompletionInspectionRows,
-  useMobileMaterials
+  useMobileMaterials,
+  useMobilePhotoReview,
+  useMobileScope
 } from "@/lib/mobile/mobile-api";
 import { getInspectionAggregateStatus } from "@/lib/server/inspection-status";
 
 // 완료검수(stage="complete"): 작업현황 상태값이 "진행"(in_progress)인 작업을 문서번호로 스캔하면 이 화면으로
 // 바로 들어온다. 화면 구성은 작업전 검수와 동일하게 상단 제품내역 + 하단 부자재 검수이며, 여기에 "완료제품
-// 사진등록"(1~3장, 압축 저장)이 추가된다.
+// 사진등록"(1~3장, 압축 저장)이 추가된다. 제품·사진검수 부자재는 사진을 제출해 관리자 완료승인을 받는다.
 // 모든 완료검수 항목이 합격/승인되면 서버가 작업상태를 "완료"로 자동 전이시킨다(lib/server/work-auto-status.ts,
 // 각 검수 저장 API 성공 직후 호출). 이 화면은 상태를 직접 바꾸지 않고 확인만 한다.
 export default function MobileCompletionInspectionPage() {
@@ -28,6 +31,8 @@ export default function MobileCompletionInspectionPage() {
   const router = useRouter();
   const { data: rows, warning, isLoading, error, refetch } = useMobileCompletionInspectionRows();
   const { data: materials } = useMobileMaterials();
+  const scope = useMobileScope();
+  const { reload: reloadPhotos, itemsById: photoItems } = useMobilePhotoReview(params.workId, "complete");
   const [preparing, setPreparing] = useState(false);
   const [prepareError, setPrepareError] = useState("");
   const [completing, setCompleting] = useState(false);
@@ -35,10 +40,17 @@ export default function MobileCompletionInspectionPage() {
   const row = findInspectionById(rows, params.workId);
   const work = row?.work;
   const inspections = row?.inspections ?? [];
-  // 취소/완료된 작업은 데이터 오염을 막기 위해 완료검수를 진행할 수 없다(스캔 화면에서도 동일하게 차단된다).
-  const closedWork = work != null && (work.status === "canceled" || work.status === "completed" || work.status === "passed");
-  // 완료검수는 작업전 검수가 끝나 작업상태가 "진행"이 된 작업만 대상이다. 서버(setup API)에서도 동일하게 막는다.
-  const canEnterCompletion = work != null && !closedWork && work.status === "in_progress";
+  // 취소/보류/완료된 작업은 데이터 오염을 막기 위해 완료검수를 진행할 수 없다(스캔 화면에서도 동일하게 차단된다).
+  const closedWork =
+    work != null && (work.status === "canceled" || work.status === "on_hold" || work.status === "completed" || work.status === "passed");
+  // 완료검수는 작업전 검수가 끝나 작업상태가 "진행"이 된 작업이 대상이다. 완료검수 항목이 불합격/재검수 처리돼
+  // 작업이 "불합격"(inspection_failed)이 된 경우도 재검수를 위해 진입을 허용한다(완료검수 행이 이미 있는 경우만 =
+  // 시작검수를 통과해 완료검수가 시작된 작업). 서버(setup API)에서도 시작검수 완료를 동일하게 막는다.
+  const canEnterCompletion =
+    work != null &&
+    !closedWork &&
+    (work.status === "in_progress" ||
+      ((work.status === "inspection_failed" || work.status === "admin_review_requested") && inspections.length > 0));
 
   useEffect(() => {
     if (!row || !canEnterCompletion || inspections.length > 0 || preparing) return;
@@ -50,7 +62,7 @@ export default function MobileCompletionInspectionPage() {
     fetch("/api/work-inspection/setup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ workId: params.workId, stage: "complete" })
+      body: JSON.stringify({ ...scope, workId: params.workId, stage: "complete" })
     })
       .then(async (response) => {
         const payload = (await response.json()) as { error?: string };
@@ -84,7 +96,7 @@ export default function MobileCompletionInspectionPage() {
     return (
       <div className="space-y-4">
         <CuteCard className="p-5 text-center text-sm font-bold leading-6 text-slate-500">
-          작업현황 상태값이 "진행"인 작업만 완료검수할 수 있어요.
+          작업현황 상태값이 "진행"(또는 재검수가 필요한 "불합격")인 작업만 완료검수할 수 있어요.
           <br />
           현재 상태: {getWorkStatusLabel(work.status, "complete")}
         </CuteCard>
@@ -101,6 +113,16 @@ export default function MobileCompletionInspectionPage() {
     );
   }
 
+  const photoInspections = [
+    ...getProductPhotoInspections(inspections),
+    ...getVisibleMaterialInspections(inspections, materials).filter((item) => item.method === "PHOTO")
+  ];
+  const productPhotoInspections = getProductPhotoInspections(inspections);
+  // 승인대기(admin_review_requested) 중에는 사진 촬영을 잠그고 상태만 확인하게 한다(읽기 전용 진입).
+  const locked = work.status === "admin_review_requested";
+  const reloadAll = async () => {
+    await Promise.all([refetch(), reloadPhotos()]);
+  };
   const productPhotoInspection = inspections.find((item) => item.method === "PRODUCT");
   // 완료 판정은 화면에 실제 표시되는 항목(마스터에서 체크된 부자재 검수 + 완료제품 사진)만 대상으로 한다.
   const activeInspections = getActiveInspections(inspections, materials);
@@ -113,9 +135,15 @@ export default function MobileCompletionInspectionPage() {
   const handleComplete = async () => {
     setCompleting(true);
     try {
-      await refetch();
-      toast.success("작업이 완료 처리되었습니다.");
-      router.push("/mobile/status");
+      const latestRows = await refetch();
+      const latestStatus = latestRows ? findInspectionById(latestRows, params.workId)?.work.status : undefined;
+      // 서버가 실제로 완료 전이시킨 경우에만 완료 안내를 띄운다(조회 실패/미전이 시 거짓 안내 방지).
+      if (latestStatus === "completed" || latestStatus === "passed") {
+        toast.success("작업이 완료 처리되었습니다.");
+        router.push("/mobile/status");
+      } else {
+        toast.warning("아직 완료 처리되지 않았어요. 검수 항목을 확인해주세요.");
+      }
     } finally {
       setCompleting(false);
     }
@@ -153,18 +181,29 @@ export default function MobileCompletionInspectionPage() {
         </CuteCard>
       )}
 
-      <ProductChecklist workId={work.id} />
+      <PhotoReviewSummaryBanner photoInspections={photoInspections} workStatus={work.status} />
+
+      <ProductChecklist
+        workId={work.id}
+        stageLabel="완료검수"
+        photoInspections={productPhotoInspections}
+        photoItems={photoItems}
+        locked={locked}
+        onSubmitted={reloadAll}
+      />
 
       <MaterialInspectionList
         workId={work.id}
         inspections={inspections}
         materials={materials}
         stageLabel="완료검수"
-        onSubmitted={refetch}
+        photoItems={photoItems}
+        locked={locked}
+        onSubmitted={reloadAll}
       />
 
       {productPhotoInspection && (
-        <CompletionProductPhotoCard workId={work.id} inspection={productPhotoInspection} onSubmitted={refetch} />
+        <CompletionProductPhotoCard workId={work.id} inspection={productPhotoInspection} onSubmitted={reloadAll} />
       )}
 
       <CloudButton className="w-full" disabled={!allDone || completing} onClick={() => void handleComplete()}>
@@ -175,7 +214,7 @@ export default function MobileCompletionInspectionPage() {
         <CheckCircle2 className="mr-1 inline size-3.5" />
         {allDone
           ? "모든 항목이 완료돼 작업현황 상태가 \"완료\"로 변경됐어요."
-          : "부자재 검수와 완료제품 사진(최소 1장)이 모두 저장되면 작업현황 상태가 \"완료\"로 자동 변경돼요."}
+          : "사진 승인·부자재 검수·완료제품 사진(최소 1장)이 모두 끝나고 관리자가 완료 승인하면 작업현황 상태가 \"완료\"로 변경돼요."}
       </p>
     </div>
   );

@@ -9,7 +9,7 @@ import { EmptyCloudState } from "@/components/common/EmptyCloudState";
 import { PageHeader } from "@/components/common/PageHeader";
 import { useFilterStore } from "@/lib/state/filter-store";
 import { dashboardWorkStatusOptions } from "@/lib/state/work-flow-store";
-import { getDisplayStatus, reviewStageLabels } from "@/lib/constants/status";
+import { getDisplayStatus, getWorkStatusLabel, inspectionMethodLabels, type ReviewKind } from "@/lib/constants/status";
 import { getCurrentYearMonth, isYearMonthMatch } from "@/lib/utils/date";
 import type { InspectionStatus, Work, WorkInspectionStage, WorkStatus } from "@/lib/types/domain";
 import type {
@@ -49,8 +49,9 @@ type WorkStatusRow = {
   quantity: number;
   workStartedAt?: string;
   completedAt?: string;
-  // 확인요청이 걸린 검수 단계(있으면 상태 라벨을 "검수확인중"/"완료확인중"으로 표시).
+  // 확인요청/사진 승인대기가 걸린 검수 단계. reviewKind에 따라 "검수확인중"/"완료확인중" 또는 "작업승인대기"/"완료승인대기"로 표시.
   reviewStage?: WorkInspectionStage;
+  reviewKind?: ReviewKind;
 };
 
 const workTypeOptions = ["리드레싱", "세트작업", "해체작업", "기타작업"];
@@ -102,12 +103,19 @@ function getSelectableWorkStatus(status: WorkStatus): WorkStatus {
 }
 
 // 상태 모델: 진행/완료는 검수 결과에 따라 시스템이 자동으로만 전이한다(서버도 동일하게 막음, app/api/work-status/route.ts).
-// 사용자가 수동으로 고를 수 있는 값은 시작검수 완료 여부에 따라 달라진다.
+// 사용자가 수동으로 고를 수 있는 값은 현재 상태와 시작검수 완료 여부에 따라 달라진다.
 // - 시작검수 미완료: 대기/보류/취소
 // - 시작검수 완료: 보류/취소(대기로 되돌릴 수 없음)
-function getSelectableStatusOptions(inspectionStatus: InspectionAggregateStatusDto) {
-  const manualStatuses: WorkStatus[] = inspectionStatus === "completed" ? ["on_hold", "canceled"] : ["registered", "on_hold", "canceled"];
-  return dashboardWorkStatusOptions.filter((option) => manualStatuses.includes(option.value));
+// - 보류/취소 상태: "보류 해제"/"취소 해제"(서버가 검수 집계로 대기/진행 등을 재판정)를 항상 선택할 수 있다.
+function getSelectableStatusOptions(inspectionStatus: InspectionAggregateStatusDto, workStatus: WorkStatus) {
+  const releaseLabel = workStatus === "on_hold" ? "보류 해제" : workStatus === "canceled" ? "취소 해제" : undefined;
+  const canRelease = releaseLabel !== undefined;
+  const manualStatuses: WorkStatus[] =
+    inspectionStatus === "completed" && !canRelease ? ["on_hold", "canceled"] : ["registered", "on_hold", "canceled"];
+
+  return dashboardWorkStatusOptions
+    .filter((option) => manualStatuses.includes(option.value))
+    .map((option) => (option.value === "registered" && releaseLabel ? { ...option, label: releaseLabel } : option));
 }
 
 function getFallbackFinishedProductLot(work: Work, index: number) {
@@ -220,29 +228,38 @@ export default function WorkStatusPage() {
       const response = await fetch("/api/work-status", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workId, status })
+        body: JSON.stringify({ departmentId, shipperId, workId, status })
       });
       const result = (await response.json()) as UpdateWorkStatusResponse & { error?: string };
       if (!response.ok) throw new Error(result.error ?? "작업상태 저장에 실패했습니다.");
+
+      // 보류 해제처럼 서버가 검수 집계로 다시 판정한 경우를 반영하려고 요청값이 아닌 응답 상태를 쓴다.
+      const savedStatus = result.status ?? status;
 
       setRows((current) =>
         current.map((row) =>
           row.work.id === workId
             ? {
                 ...row,
-                work: { ...row.work, status },
-                displayStatus: getDisplayStatus(status),
-                // 수동으로 상태를 바꾸면 더 이상 확인요청 대기 상태가 아니므로 단계 표시를 지운다.
+                work: { ...row.work, status: savedStatus },
+                displayStatus: getDisplayStatus(savedStatus),
+                // 해제 결과가 확인요청 대기면 단계 표시는 다음 조회에서 채워지므로 우선 지운다.
                 reviewStage: undefined,
-                // PATCH와 동일 규칙: 완료 그룹 전환이면 완료일자를 기록하고, 아니면 초기화한다.
-                completedAt: getDisplayStatus(status) === "complete" ? new Date().toISOString() : undefined
+                reviewKind: undefined,
+                // 서버는 완료 그룹 전환이 아니면 완료일자를 초기화한다.
+                completedAt: getDisplayStatus(savedStatus) === "complete" ? new Date().toISOString() : undefined
               }
             : row
         )
       );
       setDataSource(result.source);
       setStatusMenuWorkId(null);
-      toast.success(`작업상태가 ${dashboardWorkStatusOptions.find((option) => option.value === status)?.label ?? "변경"} 처리되었습니다.`);
+      toast.success(
+        status === "registered"
+          ? `보류/취소가 해제되어 ${dashboardWorkStatusOptions.find((option) => option.value === savedStatus)?.label ?? "대기"} 상태가 되었습니다.`
+          : `작업상태가 ${dashboardWorkStatusOptions.find((option) => option.value === status)?.label ?? "변경"} 처리되었습니다.`
+      );
+      if (savedStatus !== status) void loadRows();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "작업상태 저장에 실패했습니다.");
     }
@@ -384,11 +401,13 @@ export default function WorkStatusPage() {
               {filteredRows.map((row) => {
                 const status = displayStatusMeta[row.displayStatus];
                 const Icon = status.icon;
-                // 확인요청 중이면 "보류" 대신 단계별 라벨("검수확인중"/"완료확인중")을 보여준다(색/아이콘은 유지).
+                // 확인요청/사진 승인대기 중이면 "보류" 대신 단계별 라벨("검수확인중"·"작업승인대기" 등), 사진 반려면 "반려"를 보여준다(색/아이콘은 유지).
                 const statusLabel =
                   row.work.status === "admin_review_requested" && row.reviewStage
-                    ? reviewStageLabels[row.reviewStage]
-                    : status.label;
+                    ? getWorkStatusLabel(row.work.status, row.reviewStage, row.reviewKind)
+                    : row.work.status === "inspection_failed" && row.reviewKind === "photo"
+                      ? "반려"
+                      : status.label;
 
                 return (
                   <tr key={row.work.id} className="text-slate-600 transition hover:bg-sky-50/70">
@@ -412,7 +431,7 @@ export default function WorkStatusPage() {
 
                         {statusMenuWorkId === row.work.id && (
                           <div className="absolute left-0 top-full z-30 mt-2 w-36 overflow-hidden rounded-2xl border border-white/80 bg-white shadow-[0_16px_40px_rgba(15,23,42,0.16)]">
-                            {getSelectableStatusOptions(row.inspectionStatus).map((option) => {
+                            {getSelectableStatusOptions(row.inspectionStatus, row.work.status).map((option) => {
                               const optionStatus = displayStatusMeta[getDisplayStatus(option.value)];
                               const OptionIcon = optionStatus.icon;
                               const selected = getSelectableWorkStatus(row.work.status) === option.value;
@@ -501,24 +520,29 @@ export default function WorkStatusPage() {
 }
 
 const materialStatusMeta: Record<
-  "pass" | "wait" | "fail" | "adminRequest",
+  "pass" | "wait" | "fail" | "adminRequest" | "submitted" | "rejected",
   { label: string; badge: string }
 > = {
   pass: { label: "합격", badge: "bg-emerald-100 text-emerald-700 ring-emerald-200" },
   wait: { label: "대기", badge: "bg-slate-100 text-slate-600 ring-slate-200" },
   fail: { label: "불합격", badge: "bg-rose-100 text-rose-700 ring-rose-200" },
-  adminRequest: { label: "관리자요청", badge: "bg-orange-100 text-orange-700 ring-orange-200" }
+  adminRequest: { label: "관리자요청", badge: "bg-orange-100 text-orange-700 ring-orange-200" },
+  submitted: { label: "승인대기", badge: "bg-indigo-100 text-indigo-700 ring-indigo-200" },
+  rejected: { label: "반려", badge: "bg-rose-100 text-rose-700 ring-rose-200" }
 };
 
 function summarizeMaterialStatus(statuses: InspectionStatus[]): keyof typeof materialStatusMeta {
   if (statuses.length === 0) return "wait";
   if (statuses.some((status) => status === "admin_requested")) return "adminRequest";
+  if (statuses.some((status) => status === "rejected")) return "rejected";
   if (statuses.some((status) => status === "failed" || status === "retrying")) return "fail";
+  if (statuses.some((status) => status === "submitted")) return "submitted";
   if (statuses.every((status) => status === "passed" || status === "admin_approved")) return "pass";
   return "wait";
 }
 
 function WorkDetailModal({ workId, onClose }: { workId: string; onClose: () => void }) {
+  const { departmentId, shipperId } = useFilterStore();
   const [detail, setDetail] = useState<WorkDetailResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
@@ -532,7 +556,8 @@ function WorkDetailModal({ workId, onClose }: { workId: string; onClose: () => v
       setError("");
 
       try {
-        const response = await fetch(`/api/work-status/detail?work_id=${workId}`);
+        const params = new URLSearchParams({ work_id: workId, department_id: departmentId, shipper_id: shipperId });
+        const response = await fetch(`/api/work-status/detail?${params.toString()}`);
         const data = (await response.json()) as WorkDetailResponse & { error?: string };
         if (!response.ok) throw new Error(data.error ?? "작업 상세내역을 불러오지 못했습니다.");
         if (!cancelled) setDetail(data);
@@ -551,7 +576,7 @@ function WorkDetailModal({ workId, onClose }: { workId: string; onClose: () => v
     return () => {
       cancelled = true;
     };
-  }, [workId, retryCount]);
+  }, [workId, retryCount, departmentId, shipperId]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/35 px-4 py-8 backdrop-blur-sm">
@@ -650,7 +675,8 @@ function ProductTable({
 }) {
   // 작업등록 입력 그대로: 제품코드/제품명/LOT/단위수량/수량/사용수량/비고 7컬럼. 마스터 폴백은 수량 자리에 구분(정상품 등)을 대신 표시한다.
   const isWorkComponents = productsSource === "work_components";
-  const colSpan = 7;
+  const hasPhotoReview = products.some((product) => (product.photoReviews?.length ?? 0) > 0);
+  const colSpan = hasPhotoReview ? 8 : 7;
 
   return (
     <div className="overflow-hidden rounded-[1.2rem] border border-white/80 bg-white/75">
@@ -664,6 +690,7 @@ function ProductTable({
             <th className="px-4 py-3">{isWorkComponents ? "수량" : "구분"}</th>
             <th className="px-4 py-3">사용수량</th>
             <th className="px-4 py-3">비고</th>
+            {hasPhotoReview && <th className="px-4 py-3">사진검수</th>}
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
@@ -678,6 +705,23 @@ function ProductTable({
               </td>
               <td className="px-4 py-3 font-bold text-sky-700">{product.usedQuantity?.toLocaleString() ?? "-"}</td>
               <td className="px-4 py-3">{product.memo || "-"}</td>
+              {hasPhotoReview && (
+                <td className="px-4 py-3">
+                  <div className="space-y-2">
+                    {(product.photoReviews ?? []).map((review) => (
+                      <PhotoReviewCell
+                        key={review.stage}
+                        stageLabel={review.stage === "complete" ? "완료" : "작업전"}
+                        statuses={[review.status]}
+                        reviewComment={review.reviewComment}
+                        imageUrls={review.imageUrls}
+                        alt={`${product.productName} 사진검수`}
+                      />
+                    ))}
+                    {(product.photoReviews?.length ?? 0) === 0 && "-"}
+                  </div>
+                </td>
+              )}
             </tr>
           ))}
           {products.length === 0 && (
@@ -718,7 +762,7 @@ function MaterialTable({ materials }: { materials: WorkDetailMaterialDto[] }) {
               <tr key={material.id} className="text-slate-600">
                 <td className="px-4 py-3 font-black text-slate-800">{material.materialCode}</td>
                 <td className="px-4 py-3 font-bold">{material.materialName}</td>
-                <td className="px-4 py-3">{material.inspectionMethod}</td>
+                <td className="px-4 py-3">{inspectionMethodLabels[material.inspectionMethod] ?? material.inspectionMethod}</td>
                 <td className="px-4 py-3">{material.unitQuantity.toLocaleString()}</td>
                 <td className="px-4 py-3 font-bold text-sky-700">{material.usedQuantity?.toLocaleString() ?? "-"}</td>
                 <td className="px-4 py-3 font-bold text-sky-700">{material.verificationValue || "-"}</td>
@@ -726,6 +770,13 @@ function MaterialTable({ materials }: { materials: WorkDetailMaterialDto[] }) {
                   <span className={`inline-flex rounded-full px-3 py-1 text-[11px] font-black ring-1 ${status.badge}`}>
                     {status.label}
                   </span>
+                  {material.inspections
+                    .filter((inspection) => inspection.status === "rejected" && inspection.reviewComment)
+                    .map((inspection, index) => (
+                      <p key={index} className="mt-1 text-[11px] font-bold text-rose-700">
+                        반려 사유: {inspection.reviewComment}
+                      </p>
+                    ))}
                 </td>
                 <td className="px-4 py-3">
                   {material.imageUrls.length > 0 ? (
@@ -761,10 +812,49 @@ function MaterialTable({ materials }: { materials: WorkDetailMaterialDto[] }) {
   );
 }
 
+function PhotoReviewCell({
+  stageLabel,
+  statuses,
+  reviewComment,
+  imageUrls,
+  alt
+}: {
+  stageLabel: string;
+  statuses: InspectionStatus[];
+  reviewComment?: string;
+  imageUrls: string[];
+  alt: string;
+}) {
+  const status = materialStatusMeta[summarizeMaterialStatus(statuses)];
+
+  return (
+    <div>
+      <div className="flex items-center gap-1.5">
+        <span className="text-[11px] font-black text-slate-500">{stageLabel}</span>
+        <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-black ring-1 ${status.badge}`}>{status.label}</span>
+      </div>
+      {reviewComment && statuses.includes("rejected") && (
+        <p className="mt-1 text-[11px] font-bold text-rose-700">반려 사유: {reviewComment}</p>
+      )}
+      {imageUrls.length > 0 && (
+        <div className="mt-1 flex flex-wrap gap-1.5">
+          {imageUrls.map((url, index) => (
+            <a key={url} href={url} target="_blank" rel="noreferrer">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={url} alt={`${alt} ${index + 1}`} className="h-12 w-12 rounded-lg object-cover ring-1 ring-slate-200 transition hover:opacity-80" />
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const completionMethodLabels: Record<WorkDetailCompletionPhotoDto["method"], string> = {
   OCR: "OCR",
   VISION: "비전",
-  PRODUCT: "완료제품"
+  PRODUCT: "완료제품",
+  PHOTO: "사진검수"
 };
 
 // 부자재 내역 표 아래 "작업완료사진" 구역. 완료검수(작업완료 시 검수)를 통과한 완료제품사진/부자재 완료검수
@@ -794,6 +884,9 @@ function CompletionPhotoSection({ photos }: { photos: WorkDetailCompletionPhotoD
                   <span className={`inline-flex rounded-full px-3 py-1 text-[11px] font-black ring-1 ${status.badge}`}>
                     {status.label}
                   </span>
+                  {photo.status === "rejected" && photo.reviewComment && (
+                    <p className="mt-1 text-[11px] font-bold text-rose-700">반려 사유: {photo.reviewComment}</p>
+                  )}
                 </td>
                 <td className="px-4 py-3">
                   {photo.imageUrls.length > 0 ? (

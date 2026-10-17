@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { appRepository } from "@/lib/repositories/app-repository";
 import { errorMessage, resolveScopeIds } from "@/lib/repositories/supabase-scope";
+import { assertShipperInDepartment, guardErrorResponse, resolveRequestScope } from "@/lib/server/scope-guard";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { AppUser, Shipper } from "@/lib/types/domain";
 
@@ -94,11 +95,13 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   const body = (await request.json()) as {
+    departmentId?: string;
     shipperId?: string;
     crewLeaderIds?: string[];
   };
 
   if (!body.shipperId) return NextResponse.json({ error: "shipperId가 필요합니다." }, { status: 400 });
+  if (!body.departmentId) return NextResponse.json({ error: "departmentId가 필요합니다." }, { status: 400 });
 
   const supabase = createServerSupabaseClient();
   const crewLeaderIds = body.crewLeaderIds ?? [];
@@ -108,11 +111,17 @@ export async function PATCH(request: NextRequest) {
   }
 
   try {
+    // 화주마스터는 부서 하위 리소스라 화주 스코프는 의미가 없다. 부서 소속만 대조한다.
+    const { departmentId } = await resolveRequestScope(supabase, { departmentId: body.departmentId, shipperId: body.shipperId });
+    await assertShipperInDepartment(supabase, body.shipperId, departmentId);
+
     const { error } = await supabase.from("shippers").update({ crew_leader_ids: crewLeaderIds }).eq("id", body.shipperId);
     if (error) throw error;
 
     return NextResponse.json({ source: "supabase", shipperId: body.shipperId, crewLeaderIds });
   } catch (error) {
+    const guardResponse = guardErrorResponse(error);
+    if (guardResponse) return guardResponse;
     return NextResponse.json({ error: errorMessage(error, "작업조장 저장에 실패했습니다.") }, { status: 500 });
   }
 }

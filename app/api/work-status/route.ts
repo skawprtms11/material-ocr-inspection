@@ -3,8 +3,11 @@ import { appRepository } from "@/lib/repositories/app-repository";
 import { errorMessage, resolveScopeIds, toMockScopeIds } from "@/lib/repositories/supabase-scope";
 import { fetchWorkMasterData } from "@/lib/repositories/work-master-supabase-repository";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { getDisplayStatus } from "@/lib/constants/status";
+import { getDisplayStatus, type ReviewKind } from "@/lib/constants/status";
+import { getActiveInspections } from "@/lib/mobile/inspection-visibility";
 import { getInspectionAggregateStatus, getInspectionCompletedAt } from "@/lib/server/inspection-status";
+import { assertWorkInScope, guardErrorResponse, missingScopeResponse, resolveRequestScope, scopeFromBody } from "@/lib/server/scope-guard";
+import { releaseWorkHold } from "@/lib/server/work-auto-status";
 import type { InspectionStatus, Work, WorkInspectionStage, WorkStatus } from "@/lib/types/domain";
 import type { UpdateWorkStatusResponse, WorkStatusDataResponse, WorkStatusRowDto } from "@/lib/types/work-status-api";
 
@@ -57,6 +60,7 @@ function mockRows(departmentId: string, shipperId: string): WorkStatusRowDto[] {
       displayStatus: getDisplayStatus(work.status),
       inspectionStatus: getInspectionAggregateStatus(inspectionStatuses),
       reviewStage: mockReviewStage,
+      reviewKind: mockReviewStage ? ("request" as const) : undefined,
       workType: workTypeOptions[index % workTypeOptions.length],
       productCode: workMaster?.code ?? "-",
       productName: workMaster?.name ?? "-",
@@ -106,44 +110,52 @@ export async function GET(request: NextRequest) {
 
     const works = ((data ?? []) as DbRow[]).map((row) => toWork(row));
     const workIds = works.map((work) => work.id);
-    const inspectionRowsByWorkId = new Map<string, { status: InspectionStatus; updated_at?: string }[]>();
+    const inspectionRowsByWorkId = new Map<string, { status: InspectionStatus; updated_at?: string; method: string; material_id: string }[]>();
     const reviewStageByWorkId = new Map<string, WorkInspectionStage>();
+    const reviewKindByWorkId = new Map<string, ReviewKind>();
 
     if (workIds.length > 0) {
-      // "검수" 배지/작업시작 컬럼은 시작검수 전용 개념이라 완료검수(stage="complete") 행은 제외한다.
+      // 전 단계 검수 행을 한 번에 읽는다. "검수" 배지/작업시작 컬럼은 시작검수 전용이라 start 행만 따로 모으고,
+      // 확인요청·사진 승인대기 표시 단계는 두 단계 모두에서 구한다.
       const { data: inspectionRows, error: inspectionError } = await supabase
         .from("work_inspections")
-        .select("work_id, status, updated_at")
-        .eq("stage", "start")
+        .select("work_id, stage, status, updated_at, method, material_id")
         .in("work_id", workIds);
 
       if (inspectionError) throw inspectionError;
 
+      const allRowsByWorkId = new Map<string, { status: InspectionStatus; stage: WorkInspectionStage; method: string; material_id: string; updated_at?: string }[]>();
       for (const inspectionRow of (inspectionRows ?? []) as DbRow[]) {
         const workId = text(inspectionRow.work_id);
-        const status = text(inspectionRow.status) as InspectionStatus;
-        const updatedAt = text(inspectionRow.updated_at) || undefined;
-        const list = inspectionRowsByWorkId.get(workId) ?? [];
-        list.push({ status, updated_at: updatedAt });
-        inspectionRowsByWorkId.set(workId, list);
+        const list = allRowsByWorkId.get(workId) ?? [];
+        list.push({
+          status: text(inspectionRow.status) as InspectionStatus,
+          stage: text(inspectionRow.stage, "start") === "complete" ? "complete" : "start",
+          method: text(inspectionRow.method, "OCR"),
+          material_id: text(inspectionRow.material_id),
+          updated_at: text(inspectionRow.updated_at) || undefined
+        });
+        allRowsByWorkId.set(workId, list);
       }
 
-      // 확인요청 표시 단계: 위 조회는 시작검수 전용이라(검수 배지 정책) 완료검수까지 보려면 별도로 조회한다.
-      // 처리 대기 중인 확인요청(work_inspections.status="admin_requested")이 걸린 stage를 작업별로 모은다.
-      const { data: reviewRows, error: reviewError } = await supabase
-        .from("work_inspections")
-        .select("work_id, stage")
-        .eq("status", "admin_requested")
-        .in("work_id", workIds);
+      for (const [workId, rows] of allRowsByWorkId) {
+        // 화면·서버 자동 전이와 같은 가시성 규칙(마스터에서 체크가 바뀐 과거 행 제외)
+        const active = getActiveInspections(rows, masterData.materials);
+        inspectionRowsByWorkId.set(workId, active.filter((row) => row.stage === "start"));
 
-      if (reviewError) throw reviewError;
-
-      for (const reviewRow of (reviewRows ?? []) as DbRow[]) {
-        const workId = text(reviewRow.work_id);
-        const stage: WorkInspectionStage = text(reviewRow.stage, "start") === "complete" ? "complete" : "start";
-        // 두 단계에 모두 확인요청이 있으면 더 진행된 완료검수 기준("완료확인중")으로 표시한다.
-        if (stage === "complete" || !reviewStageByWorkId.has(workId)) {
-          reviewStageByWorkId.set(workId, stage);
+        // 두 단계에 모두 걸려 있으면 더 진행된 완료검수 기준. 확인요청이 함께 있으면 확인요청 라벨 우선.
+        const pickStage = (status: InspectionStatus) => {
+          const stages = active.filter((row) => row.status === status).map((row) => row.stage);
+          return stages.length === 0 ? undefined : stages.includes("complete") ? ("complete" as const) : ("start" as const);
+        };
+        const requestStage = pickStage("admin_requested");
+        const photoStage = pickStage("submitted");
+        if (requestStage) {
+          reviewStageByWorkId.set(workId, requestStage);
+          reviewKindByWorkId.set(workId, "request");
+        } else if (photoStage) {
+          reviewStageByWorkId.set(workId, photoStage);
+          reviewKindByWorkId.set(workId, "photo");
         }
       }
     }
@@ -151,13 +163,15 @@ export async function GET(request: NextRequest) {
     const workMasterById = new Map(masterData.workMasters.map((workMaster) => [workMaster.id, workMaster]));
     const rows = works.map((work, index): WorkStatusRowDto => {
       const workMaster = workMasterById.get(work.work_master_id);
-      const inspectionRows = inspectionRowsByWorkId.get(work.id) ?? [];
+      // 모바일 화면/서버 자동 전이와 같은 가시성 규칙(마스터에서 체크 해제된 방식의 과거 검수 행 제외)을 적용한다.
+      const inspectionRows = getActiveInspections(inspectionRowsByWorkId.get(work.id) ?? [], masterData.materials);
 
       return {
         work,
         displayStatus: getDisplayStatus(work.status),
         inspectionStatus: getInspectionAggregateStatus(inspectionRows.map((row) => row.status)),
         reviewStage: reviewStageByWorkId.get(work.id),
+        reviewKind: reviewKindByWorkId.get(work.id),
         workType: work.work_type ?? workTypeOptions[index % workTypeOptions.length],
         productCode: workMaster?.code ?? "-",
         productName: workMaster?.name ?? "-",
@@ -176,9 +190,14 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   const body = (await request.json()) as {
+    departmentId?: string;
+    shipperId?: string;
     workId?: string;
     status?: WorkStatus;
   };
+
+  const requestScope = scopeFromBody(body);
+  if (!requestScope) return missingScopeResponse();
 
   if (!body.workId || !body.status) {
     return NextResponse.json({ error: "workId와 status가 필요합니다." }, { status: 400 });
@@ -203,17 +222,28 @@ export async function PATCH(request: NextRequest) {
   }
 
   try {
-    // 완료 그룹(passed/completed)으로 전환되면 completed_at을 기록하고, 그 외 상태로 되돌리면 초기화한다.
-    // (이 API는 이제 완료 그룹으로의 수동 전환을 막으므로 사실상 항상 false지만, 자동 전이와 로직을
-    // 통일해두기 위해 판정 함수는 그대로 둔다.)
-    const isCompleteGroup = getDisplayStatus(body.status) === "complete";
+    const workRow = await assertWorkInScope(supabase, body.workId, await resolveRequestScope(supabase, requestScope));
 
+    const currentStatus = text((workRow as DbRow).status) as WorkStatus;
+    // 완료된 작업은 최종 상태라 수동으로 되돌릴 수 없다.
+    if (currentStatus === "completed" || currentStatus === "passed") {
+      return NextResponse.json({ error: "완료된 작업은 상태를 변경할 수 없습니다." }, { status: 409 });
+    }
+
+    // 대기 선택 = 보류/취소 해제. 대기로 고정하지 않고 검수 집계로 상태를 다시 판정한다
+    // (시작검수가 끝난 작업은 진행으로, 확인요청/불합격 항목이 남아있으면 해당 상태로 복귀).
+    if (body.status === "registered") {
+      const resolvedStatus = await releaseWorkHold(supabase, body.workId);
+      return NextResponse.json({ source: "supabase", workId: body.workId, status: resolvedStatus } satisfies UpdateWorkStatusResponse);
+    }
+
+    // 보류/취소로 바꾸면 완료일자는 초기화한다(완료 그룹으로의 수동 전환은 위에서 이미 막혀 있다).
     const { error } = await supabase
       .from("works")
       .update({
         status: body.status,
         latest_inspected_at: new Date().toISOString(),
-        completed_at: isCompleteGroup ? new Date().toISOString() : null
+        completed_at: null
       })
       .eq("id", body.workId);
 
@@ -221,6 +251,8 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({ source: "supabase", workId: body.workId, status: body.status } satisfies UpdateWorkStatusResponse);
   } catch (error) {
-    return NextResponse.json({ error: errorMessage(error, "작업상태 저장에 실패했습니다.") }, { status: 500 });
+    const guardResponse = guardErrorResponse(error);
+    if (guardResponse) return guardResponse;
+    return NextResponse.json({ error: errorMessage(error, "작업상태 저장에 실패했습니다.") }, { status: 502 });
   }
 }

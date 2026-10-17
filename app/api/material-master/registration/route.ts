@@ -1,11 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
+import { normalizeMaterialInspectionMethod } from "@/lib/inspection/method-plan";
 import { appRepository } from "@/lib/repositories/app-repository";
+import {
+  assertMaterialInScope,
+  guardErrorResponse,
+  missingScopeResponse,
+  resolveRequestScope,
+  scopeFromBody,
+  scopeFromSearchParams,
+} from "@/lib/server/scope-guard";
+import { attachMissingReferences } from "@/lib/server/material-reference";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import type { InspectionMethod, MaterialInspectionRegion, MaterialMaster, RoiRect } from "@/lib/types/domain";
+import type { MaterialInspectionRegion, MaterialMaster, RoiRect } from "@/lib/types/domain";
 
 type DbRow = Record<string, unknown>;
 
 type RegistrationPayload = {
+  departmentId?: string;
+  shipperId?: string;
   materialId?: string;
   method?: "OCR" | "VISION";
   imagePath?: string;
@@ -16,6 +28,8 @@ type RegistrationPayload = {
 };
 
 type RegistrationDeletePayload = {
+  departmentId?: string;
+  shipperId?: string;
   materialId?: string;
   method?: "OCR" | "VISION";
 };
@@ -26,19 +40,6 @@ function text(value: unknown, fallback = "") {
   return typeof value === "string" ? value : fallback;
 }
 
-function toInspectionMethod(value: unknown): InspectionMethod {
-  return value === "OCR" || value === "VISION" || value === "BOTH" ? value : "BOTH";
-}
-
-function mergeInspectionMethod(current: InspectionMethod, method: "OCR" | "VISION"): InspectionMethod {
-  const hasOcr = current === "OCR" || current === "BOTH" || method === "OCR";
-  const hasVision = current === "VISION" || current === "BOTH" || method === "VISION";
-
-  if (hasOcr && hasVision) return "BOTH";
-  if (hasVision) return "VISION";
-  return "OCR";
-}
-
 function toMaterial(row: DbRow): MaterialMaster {
   return {
     id: text(row.id),
@@ -47,7 +48,7 @@ function toMaterial(row: DbRow): MaterialMaster {
     code: text(row.code),
     name: text(row.name),
     lot: text(row.lot) || undefined,
-    inspection_method: toInspectionMethod(row.inspection_method),
+    inspection_method: normalizeMaterialInspectionMethod(row.inspection_method),
     reference_image_path: text(row.reference_image_path),
     ocr_image_path: text(row.ocr_image_path) || undefined,
     vision_image_path: text(row.vision_image_path) || undefined,
@@ -158,6 +159,8 @@ async function parseRequest(
   if (singleFile instanceof File && singleFile.size > 0) files.unshift(singleFile);
 
   return {
+    departmentId: text(formData.get("departmentId")),
+    shipperId: text(formData.get("shipperId")),
     materialId: text(formData.get("materialId")),
     method: text(formData.get("method")) as RegistrationPayload["method"],
     imagePath: text(formData.get("imagePath")) || undefined,
@@ -305,10 +308,12 @@ async function resolveRegionImageUrls(
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const materialId = searchParams.get("material_id");
+  const requestScope = scopeFromSearchParams(searchParams);
 
   if (!materialId) {
     return NextResponse.json({ error: "material_id가 필요합니다." }, { status: 400 });
   }
+  if (!requestScope) return missingScopeResponse();
 
   const supabase = createServerSupabaseClient();
 
@@ -320,6 +325,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    await assertMaterialInScope(supabase, materialId, await resolveRequestScope(supabase, requestScope));
+
     const { data, error } = await supabase
       .from("material_inspection_regions")
       .select("*")
@@ -337,9 +344,11 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ source: "supabase", regions });
   } catch (error) {
+    const guardResponse = guardErrorResponse(error);
+    if (guardResponse) return guardResponse;
     return NextResponse.json(
       { error: errorMessage(error, "등록 영역 조회에 실패했습니다.") },
-      { status: 500 }
+      { status: 502 }
     );
   }
 }
@@ -353,6 +362,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: errorMessage(error, "등록 요청 형식이 올바르지 않습니다.") }, { status: 400 });
   }
 
+  const requestScope = scopeFromBody(body);
+  if (!requestScope) return missingScopeResponse();
+
   if (!body.materialId || !body.method) {
     return NextResponse.json({ error: "부자재 ID와 등록 방식이 필요합니다." }, { status: 400 });
   }
@@ -365,7 +377,6 @@ export async function POST(request: NextRequest) {
       source: "mock",
       material: {
         id: body.materialId,
-        inspection_method: body.method,
         reference_image_path: fallbackPath,
         ...(body.method === "OCR" ? { ocr_image_path: fallbackPath } : { vision_image_path: fallbackPath })
       }
@@ -373,34 +384,25 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { data: current, error: selectError } = await supabase
-      .from("material_masters")
-      .select("*")
-      .eq("id", body.materialId)
-      .single();
-
-    if (selectError) throw selectError;
-
-    const currentRow = current as DbRow;
-    const currentMethod = toInspectionMethod(currentRow.inspection_method);
-    const nextMethod = mergeInspectionMethod(currentMethod, body.method);
+    // 스코프 밖 부자재는 여기서 403/404로 끊는다(업로드·수정 이전).
+    const currentRow = await assertMaterialInScope(supabase, body.materialId, await resolveRequestScope(supabase, requestScope));
     const currentReferencePath = text(currentRow.reference_image_path);
     const uploadedPaths = await uploadFiles(supabase, body.materialId, body.method, body.files);
     const imagePath = uploadedPaths[0] ?? fallbackPath;
 
+    // 기준 이미지 등록은 inspection_method(운영자의 검수 방식 선택)를 바꾸지 않는다.
     const updatePayload = {
-      inspection_method: nextMethod,
       reference_image_path: currentReferencePath || imagePath,
       ...(body.method === "OCR" ? { ocr_image_path: imagePath } : {}),
       ...(body.method === "VISION" ? { vision_image_path: imagePath } : {}),
       // 검증값은 모바일 OCR 검수·저장 시 확정된 인식값을 작업검수 기준값으로 사용한다.
       // recognizedText가 실제로 전송된 경우(OCR 검토를 거친 경우)는 빈 값이어도 그대로 저장하고,
-      // 전송되지 않은 경우(예: 웹 관리자의 단순 이미지 등록)만 부자재코드로 폴백한다.
+      // 전송되지 않은 경우(예: 웹 관리자의 단순 이미지 등록)는 기존 검증값을 유지하고, 없을 때만 부자재코드로 폴백한다.
       ...(body.method === "OCR"
         ? {
             verification_value: body.recognizedTextProvided
               ? body.recognizedText ?? ""
-              : body.expectedText || text(currentRow.verification_value)
+              : text(currentRow.verification_value) || body.expectedText
           }
         : {})
     };
@@ -436,14 +438,20 @@ export async function POST(request: NextRequest) {
       throw dbError;
     }
 
-    return NextResponse.json({ source: "supabase", material: toMaterial(data), uploadedPaths });
+    const [material] = await attachMissingReferences(supabase, [toMaterial(data)]);
+    return NextResponse.json({ source: "supabase", material, uploadedPaths });
   } catch (error) {
-    return NextResponse.json({ error: errorMessage(error, "부자재 등록 정보를 저장하지 못했습니다.") }, { status: 500 });
+    const guardResponse = guardErrorResponse(error);
+    if (guardResponse) return guardResponse;
+    return NextResponse.json({ error: errorMessage(error, "부자재 등록 정보를 저장하지 못했습니다.") }, { status: 502 });
   }
 }
 
 export async function DELETE(request: NextRequest) {
   const body = (await request.json().catch(() => ({}))) as RegistrationDeletePayload;
+
+  const requestScope = scopeFromBody(body);
+  if (!requestScope) return missingScopeResponse();
 
   if (!body.materialId) {
     return NextResponse.json({ error: "부자재 ID가 필요합니다." }, { status: 400 });
@@ -457,7 +465,6 @@ export async function DELETE(request: NextRequest) {
       source: "mock",
       material: {
         id: body.materialId,
-        inspection_method: "BOTH",
         reference_image_path: "",
         ...(deleted.ocr ? { ocr_image_path: "" } : {}),
         ...(deleted.vision ? { vision_image_path: "" } : {})
@@ -466,15 +473,7 @@ export async function DELETE(request: NextRequest) {
   }
 
   try {
-    const { data: current, error: selectError } = await supabase
-      .from("material_masters")
-      .select("*")
-      .eq("id", body.materialId)
-      .single();
-
-    if (selectError) throw selectError;
-
-    const currentRow = current as DbRow;
+    const currentRow = await assertMaterialInScope(supabase, body.materialId, await resolveRequestScope(supabase, requestScope));
     const updatePayload = {
       reference_image_path: nextReferencePath(currentRow, deleted.ocr, deleted.vision),
       ...(deleted.ocr ? { ocr_image_path: "", verification_value: "" } : {}),
@@ -497,8 +496,11 @@ export async function DELETE(request: NextRequest) {
 
     if (error) throw error;
 
-    return NextResponse.json({ source: "supabase", material: toMaterial(data as DbRow) });
+    const [material] = await attachMissingReferences(supabase, [toMaterial(data as DbRow)]);
+    return NextResponse.json({ source: "supabase", material });
   } catch (error) {
-    return NextResponse.json({ error: errorMessage(error, "부자재 등록 삭제에 실패했습니다.") }, { status: 500 });
+    const guardResponse = guardErrorResponse(error);
+    if (guardResponse) return guardResponse;
+    return NextResponse.json({ error: errorMessage(error, "부자재 등록 삭제에 실패했습니다.") }, { status: 502 });
   }
 }

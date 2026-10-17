@@ -4,6 +4,7 @@ import { ChangeEvent, useEffect, useState } from "react";
 import { AlertTriangle, Camera, CheckCircle2 } from "lucide-react";
 import { CloudButton } from "@/components/common/CloudButton";
 import { CuteCard } from "@/components/common/CuteCard";
+import { useMobileScope } from "@/lib/mobile/mobile-api";
 import { cn } from "@/lib/utils/cn";
 import type { InspectionWithVerificationDto } from "@/lib/types/work-inspection-api";
 
@@ -52,11 +53,12 @@ export function CompletionPhotoCard({
   title: string;
   subtitle?: string;
   materialId?: string;
-  onSubmitted: () => Promise<void> | void;
+  onSubmitted: () => Promise<unknown> | void;
 }) {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [resultSummary, setResultSummary] = useState("");
+  const scope = useMobileScope();
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewError, setReviewError] = useState("");
   const [referenceImages, setReferenceImages] = useState<string[]>([]);
@@ -68,7 +70,7 @@ export function CompletionPhotoCard({
     let cancelled = false;
     setReferenceLoading(true);
 
-    fetch(`/api/material-master/registration?material_id=${materialId}`, { cache: "no-store" })
+    fetch(`/api/material-master/registration?${new URLSearchParams({ material_id: materialId, department_id: scope.departmentId, shipper_id: scope.shipperId }).toString()}`, { cache: "no-store" })
       .then((response) => response.json())
       .then((payload: RegistrationResponse) => {
         if (cancelled) return;
@@ -85,7 +87,7 @@ export function CompletionPhotoCard({
     return () => {
       cancelled = true;
     };
-  }, [materialId]);
+  }, [materialId, scope.departmentId, scope.shipperId]);
 
   const isAdminRequested = inspection.status === "admin_requested";
   const canRequestReview = !isAdminRequested;
@@ -113,6 +115,8 @@ export function CompletionPhotoCard({
       });
 
       const formData = new FormData();
+      formData.append("departmentId", scope.departmentId);
+      formData.append("shipperId", scope.shipperId);
       formData.append("inspectionId", inspection.id);
       formData.append("workId", workId);
       formData.append("image", compressedFile);
@@ -146,6 +150,7 @@ export function CompletionPhotoCard({
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          ...scope,
           workId,
           action: { type: "request_review", inspectionId: inspection.id, reason: trimmedMemo, label: "현장 확인요청" }
         })

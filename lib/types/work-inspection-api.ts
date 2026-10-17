@@ -1,4 +1,11 @@
-import type { AdminReviewRequest, InspectionImage, Work, WorkInspection } from "@/lib/types/domain";
+import type {
+  AdminReviewRequest,
+  InspectionImage,
+  Work,
+  WorkInspection,
+  WorkInspectionStage,
+  WorkStatus
+} from "@/lib/types/domain";
 
 export type AdjustmentStatusDto = "requested" | "approved" | "rejected" | "retry_requested";
 
@@ -24,6 +31,18 @@ export type InspectionTableRowDto = {
   images: InspectionImage[];
   adjustmentStatus?: AdjustmentStatusDto;
   inspectionCompleted: boolean;
+  // 사진검수(PHOTO) 단계별 요약. 웹 "승인대기" 섹션·목록의 "사진 검수" 버튼이 쓴다(PHOTO 항목이 없으면 생략).
+  photoReview?: Partial<Record<WorkInspectionStage, PhotoReviewSummaryDto>>;
+};
+
+// 단계별 사진검수 요약(제출 n/m, 반려 k, OCR·비전 등 사진 외 미완료 수).
+export type PhotoReviewSummaryDto = {
+  totalPhotos: number;
+  submittedPhotos: number;
+  approvedPhotos: number;
+  rejectedPhotos: number;
+  nonPhotoIncomplete: number;
+  latestSubmittedAt?: string;
 };
 
 // 검수 중 특이사항 확인요청(미처리 admin_review_requests) 1건. 웹 작업검수 목록 상단 "확인요청" 섹션이 사용한다.
@@ -64,11 +83,80 @@ export type WorkInspectionAction =
       reason?: string;
       // 저장되는 사유의 접두 라벨(기본값 "현장 검수 취소 요청"). 예: "현장 확인요청"
       label?: string;
+    }
+  | {
+      // 항목 단위(일괄) 사진 승인/반려. 승인대기(submitted) PHOTO 항목만 대상. 반려는 reason 필수.
+      type: "photo_review";
+      decisions: PhotoReviewDecision[];
+    }
+  | {
+      // 작업승인: 조건 R 충족(미진행·불합격·확인요청 0 + 승인대기 ≥1) 시 해당 단계 승인대기 전부 승인. start -> in_progress, complete -> completed.
+      type: "photo_approve_work";
+      stage: WorkInspectionStage;
+    }
+  | {
+      // 작업반려: 해당 단계 승인대기 전부 반려(reason 필수).
+      type: "photo_reject_work";
+      stage: WorkInspectionStage;
+      reason: string;
     };
+
+export type PhotoReviewDecision = {
+  inspectionId: string;
+  decision: "approved" | "rejected";
+  reason?: string;
+};
 
 export type WorkInspectionActionResponse = {
   source: "supabase" | "mock";
   workId: string;
   requestId?: string;
   status?: AdjustmentStatusDto;
+  // 사진 승인/반려 액션 후의 작업상태
+  workStatus?: WorkStatus;
+};
+
+// ---- 사진검수(PHOTO) API 계약: POST/GET /api/work-inspection/photo ----
+
+export type PhotoReviewItemStatus = "pending" | "submitted" | "admin_approved" | "rejected";
+
+export type PhotoReviewItemDto = {
+  inspectionId: string;
+  targetType: "product" | "material";
+  label: string;
+  code: string;
+  lot?: string;
+  materialId?: string;
+  status: PhotoReviewItemStatus;
+  reviewComment?: string;
+  submittedAt?: string;
+  reviewedAt?: string;
+  photo?: { id: string; url: string };
+  history?: { id: string; url: string; submissionNo: number; reviewStatus: string; reason?: string; savedAt: string }[];
+};
+
+export type PhotoReviewReadinessDto = {
+  // 작업승인 버튼 활성 판단(조건 R)
+  canApproveWork: boolean;
+  pendingPhotos: number;
+  rejectedPhotos: number;
+  // OCR/VISION/완료제품사진 등 사진 외 항목의 미완료 수
+  nonPhotoIncomplete: number;
+  adminRequested: number;
+};
+
+export type PhotoReviewResponse = {
+  source: "supabase" | "mock";
+  workId: string;
+  workStatus: WorkStatus;
+  stage: WorkInspectionStage;
+  items: PhotoReviewItemDto[];
+  readiness: PhotoReviewReadinessDto;
+};
+
+export type PhotoSubmitResponse = {
+  source: "supabase" | "mock";
+  status: "submitted";
+  photo: { id: string; url: string };
+  workStatus: WorkStatus;
 };

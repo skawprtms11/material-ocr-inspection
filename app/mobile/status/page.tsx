@@ -6,7 +6,16 @@ import { Ban, CheckCircle2, Clock, ListChecks, PackageCheck, TriangleAlert } fro
 import { CuteCard } from "@/components/common/CuteCard";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { useMobileWorkStatusRows } from "@/lib/mobile/mobile-api";
+import type { WorkStatusRowDto } from "@/lib/types/work-status-api";
 import { getCurrentYearMonth, isYearMonthMatch } from "@/lib/utils/date";
+
+// 사진 승인대기(admin_review_requested)의 모바일 표시 배지. 서버가 내려주는 reviewKind(photo|request)와
+// reviewStage(start|complete)로 작업승인대기/완료승인대기/검수확인중/완료확인중을 구분한다.
+function PhotoAwareStatusBadge({ row }: { row: WorkStatusRowDto }) {
+  return (
+    <StatusBadge type="work" status={row.work.status} reviewStage={row.reviewStage} reviewKind={row.reviewKind} />
+  );
+}
 
 export default function MobileStatusPage() {
   const { data: rows, source, warning, isLoading, error, refetch } = useMobileWorkStatusRows();
@@ -135,9 +144,14 @@ export default function MobileStatusPage() {
                   </p>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1">
-                  <StatusBadge type="work" status={row.work.status} reviewStage={row.reviewStage} />
+                  <PhotoAwareStatusBadge row={row} />
                 </div>
               </div>
+              {row.work.status === "inspection_failed" && (
+                <p className="mt-3 rounded-2xl bg-rose-50 p-3 text-xs font-bold leading-5 text-rose-700">
+                  반려된 항목이 있어요. 작업문서를 스캔해 반려 사유를 확인하고 다시 촬영하세요.
+                </p>
+              )}
               {row.work.status === "in_progress" && (
                 <Link href={`/mobile/complete/${row.work.id}`} className="mt-3 block">
                   <span className="flex items-center justify-center gap-2 rounded-full bg-violet-500 px-4 py-2 text-xs font-black text-white shadow-sm">

@@ -16,6 +16,7 @@
 - API 라우트는 서비스롤 키로 **RLS를 우회**하므로, 권한·스코프 검증을 라우트 레벨에서 반드시 수행한다.
 - 모든 목록/조회는 `FilterScope`(departmentId / shipperId) 스코프 필터를 통과해야 한다. 스코프 없는 전체 조회를 새로 만들지 않는다.
 - 상태 관리는 zustand `lib/state/filter-store.ts`(부서/화주 필터 — 워크스페이스·모바일 공용, 모바일은 `MobileScopeInitializer`가 초기화). `lib/state/work-flow-store.ts`는 관리자 페이지(work-register의 `assignWorkToInspection`, work-status의 `dashboardWorkStatusOptions`)에서만 쓰이고 **모바일에서는 사용되지 않는다**(2026-08 기준).
+- **검수 방식 판정 = 부자재마스터 `inspection_method`(BOTH→OCR+VISION, NONE→PHOTO), 제품은 항상 PHOTO**: OCR·비전 단독은 해당 방식, 사진검수(PHOTO)는 작업자 촬영 후 관리자 승인이 필요하다(`lib/inspection/method-plan.ts`, 상세: `docs/menus/work-inspection.md`).
 
 ### 기본 프로세스 (업무 흐름)
 
@@ -25,6 +26,9 @@
 [모바일] 두 갈래 플로우 공존 (상세: docs/menus/mobile.md)
   ① 스캔(scan) → 검수(inspection: OCR/비전) → 서명(sign) → 결과(result)
   ② 홈(/mobile) 탭 완결형 플로우 — 자재사진(material-photo) 등록 포함
+     스캔 → 작업전 검수(pre: 제품·사진검수 부자재 사진 제출 + OCR/비전) → 완료검수(complete)
+    ↓
+[관리자] 작업검수(work-inspection)에서 제출 사진 작업승인/반려(반려 시 현장 재촬영 → 재제출)
     ↓
 [관리자] 작업현황(work-status) 모니터링 → 작업검수(work-inspection) 최종 확인
 ※ /dashboard는 work-register로 리다이렉트만 하는 껍데기 라우트

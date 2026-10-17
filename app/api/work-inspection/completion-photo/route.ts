@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errorMessage } from "@/lib/repositories/supabase-scope";
-import { pruneStaleInspectionImages, relativeStoragePath } from "@/lib/server/inspection-images";
+import { checkInspectionWritable, checkWorkAcceptsInspection } from "@/lib/server/inspection-guard";
+import { ensureInspectionImageBucket, pruneStaleInspectionImages, relativeStoragePath } from "@/lib/server/inspection-images";
+import {
+  assertWorkInScope,
+  guardErrorResponse,
+  missingScopeResponse,
+  resolveRequestScope,
+  scopeFromBody,
+  scopeFromFormData,
+  scopeFromSearchParams
+} from "@/lib/server/scope-guard";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { maybeAdvanceWorkStatus } from "@/lib/server/work-auto-status";
 
@@ -26,21 +36,10 @@ function numberField(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-async function ensureInspectionImageBucket(supabase: NonNullable<ReturnType<typeof createServerSupabaseClient>>) {
-  const { error } = await supabase.storage.getBucket(inspectionImageBucket);
-  if (!error) return;
-
-  const { error: createError } = await supabase.storage.createBucket(inspectionImageBucket, {
-    public: false,
-    fileSizeLimit: 1024 * 1024 * 8,
-    allowedMimeTypes: ["image/jpeg", "image/png", "image/webp"]
-  });
-
-  if (createError && !createError.message.toLowerCase().includes("already exists")) throw createError;
-}
-
-function resultSummaryFor(method: unknown, photoCount = 1) {
-  return method === "PRODUCT" ? `완료제품 사진 저장 (${photoCount}장)` : "완료검수 사진 저장(비전)";
+// 같은 비전 사진 저장 API를 시작검수(stage="start")와 완료검수(stage="complete")가 함께 쓰므로 문구를 stage로 나눈다.
+function resultSummaryFor(method: unknown, photoCount = 1, stage: unknown = "complete") {
+  if (method === "PRODUCT") return `완료제품 사진 저장 (${photoCount}장)`;
+  return stage === "start" ? "시작검수 사진 저장(비전)" : "완료검수 사진 저장(비전)";
 }
 
 // 검수 항목에 저장된 사진 목록을 서명 URL과 함께 돌려준다(완료제품 사진 갤러리용).
@@ -77,14 +76,15 @@ async function syncInspectionStatusByPhotoCount(
   inspectionId: string,
   method: unknown,
   photoCount: number,
-  attemptCount: number
+  attemptCount: number,
+  stage: unknown
 ) {
   const passed = photoCount > 0;
   const { error } = await supabase
     .from("work_inspections")
     .update({
       status: passed ? "passed" : "pending",
-      result_summary: passed ? resultSummaryFor(method, photoCount) : "",
+      result_summary: passed ? resultSummaryFor(method, photoCount, stage) : "",
       attempt_count: attemptCount,
       updated_at: new Date().toISOString()
     })
@@ -112,10 +112,12 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const inspectionId = searchParams.get("inspection_id") ?? "";
   const workId = searchParams.get("work_id") ?? "";
+  const requestScope = scopeFromSearchParams(searchParams);
 
   if (!inspectionId || !workId) {
     return NextResponse.json({ error: "inspection_id와 work_id가 필요합니다." }, { status: 400 });
   }
+  if (!requestScope) return missingScopeResponse();
 
   const supabase = createServerSupabaseClient();
 
@@ -124,6 +126,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    await assertWorkInScope(supabase, workId, await resolveRequestScope(supabase, requestScope));
+
     const inspection = await loadInspection(supabase, inspectionId, workId);
     if (!inspection) {
       return NextResponse.json({ error: "검수 대상을 찾을 수 없습니다." }, { status: 404 });
@@ -132,6 +136,8 @@ export async function GET(request: NextRequest) {
     const photos = await listInspectionPhotos(supabase, inspectionId);
     return NextResponse.json({ source: "supabase", photos, maxCount: maxProductPhotoCount });
   } catch (error) {
+    const guardResponse = guardErrorResponse(error);
+    if (guardResponse) return guardResponse;
     return NextResponse.json({ error: errorMessage(error, "검수 사진 조회에 실패했습니다.") }, { status: 502 });
   }
 }
@@ -141,6 +147,9 @@ export async function POST(request: NextRequest) {
   const inspectionId = text(formData.get("inspectionId"));
   const workId = text(formData.get("workId"));
   const image = formData.get("image");
+  const requestScope = scopeFromFormData(formData);
+
+  if (!requestScope) return missingScopeResponse();
 
   if (!inspectionId || !workId) {
     return NextResponse.json({ error: "inspectionId와 workId가 필요합니다." }, { status: 400 });
@@ -157,10 +166,17 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    await assertWorkInScope(supabase, workId, await resolveRequestScope(supabase, requestScope));
+
     const inspection = await loadInspection(supabase, inspectionId, workId);
     if (!inspection) {
       return NextResponse.json({ error: "검수 대상을 찾을 수 없습니다." }, { status: 404 });
     }
+
+    // OCR 항목은 검증값 판정을 거쳐야 하므로 사진만으로 합격 처리할 수 없다. 완료제품 사진은 합격 후에도 장수를 더 담을 수 있다.
+    const writeFailure =
+      checkInspectionWritable(inspection, ["VISION", "PRODUCT"], true) ?? (await checkWorkAcceptsInspection(supabase, workId));
+    if (writeFailure) return NextResponse.json({ error: writeFailure.error }, { status: writeFailure.status });
 
     const isProductPhoto = inspection.method === "PRODUCT";
     const attemptCount = (numberField(inspection.attempt_count) ?? 0) + 1;
@@ -226,7 +242,7 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      await syncInspectionStatusByPhotoCount(supabase, inspectionId, inspection.method, photoCount, attemptCount);
+      await syncInspectionStatusByPhotoCount(supabase, inspectionId, inspection.method, photoCount, attemptCount, inspection.stage);
     } catch (dbError) {
       // 업로드 성공 후 DB 저장이 실패하면 고아 파일이 남지 않도록 스토리지를 정리한다.
       try {
@@ -244,20 +260,25 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       source: "supabase",
       status: "passed",
-      resultSummary: resultSummaryFor(inspection.method, photoCount),
+      resultSummary: resultSummaryFor(inspection.method, photoCount, inspection.stage),
       photos
     });
   } catch (error) {
-    return NextResponse.json({ error: errorMessage(error, "검수 사진 저장에 실패했습니다.") }, { status: 500 });
+    const guardResponse = guardErrorResponse(error);
+    if (guardResponse) return guardResponse;
+    return NextResponse.json({ error: errorMessage(error, "검수 사진 저장에 실패했습니다.") }, { status: 502 });
   }
 }
 
 // 완료제품 사진 개별 삭제(1~3장 중 잘못 찍은 사진 교체용). 마지막 1장을 지우면 검수 상태가 대기로 돌아간다.
 export async function DELETE(request: NextRequest) {
-  const body = (await request.json()) as { inspectionId?: string; workId?: string; imageId?: string };
+  const body = (await request.json()) as { departmentId?: string; shipperId?: string; inspectionId?: string; workId?: string; imageId?: string };
   const inspectionId = text(body.inspectionId);
   const workId = text(body.workId);
   const imageId = text(body.imageId);
+  const requestScope = scopeFromBody(body);
+
+  if (!requestScope) return missingScopeResponse();
 
   if (!inspectionId || !workId || !imageId) {
     return NextResponse.json({ error: "inspectionId·workId·imageId가 필요합니다." }, { status: 400 });
@@ -270,10 +291,16 @@ export async function DELETE(request: NextRequest) {
   }
 
   try {
+    await assertWorkInScope(supabase, workId, await resolveRequestScope(supabase, requestScope));
+
     const inspection = await loadInspection(supabase, inspectionId, workId);
     if (!inspection) {
       return NextResponse.json({ error: "검수 대상을 찾을 수 없습니다." }, { status: 404 });
     }
+
+    const writeFailure =
+      checkInspectionWritable(inspection, ["VISION", "PRODUCT"], true) ?? (await checkWorkAcceptsInspection(supabase, workId));
+    if (writeFailure) return NextResponse.json({ error: writeFailure.error }, { status: writeFailure.status });
 
     const { data: imageRow, error: imageError } = await supabase
       .from("inspection_images")
@@ -299,12 +326,15 @@ export async function DELETE(request: NextRequest) {
       inspectionId,
       inspection.method,
       photos.length,
-      numberField(inspection.attempt_count) ?? 0
+      numberField(inspection.attempt_count) ?? 0,
+      inspection.stage
     );
     await maybeAdvanceWorkStatus(supabase, workId);
 
     return NextResponse.json({ source: "supabase", photos });
   } catch (error) {
-    return NextResponse.json({ error: errorMessage(error, "검수 사진 삭제에 실패했습니다.") }, { status: 500 });
+    const guardResponse = guardErrorResponse(error);
+    if (guardResponse) return guardResponse;
+    return NextResponse.json({ error: errorMessage(error, "검수 사진 삭제에 실패했습니다.") }, { status: 502 });
   }
 }

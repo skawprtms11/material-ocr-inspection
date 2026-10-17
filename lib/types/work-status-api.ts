@@ -1,4 +1,12 @@
-import type { InspectionMethod, InspectionStatus, Work, WorkInspectionStage, WorkStatus } from "@/lib/types/domain";
+import type { ReviewKind } from "@/lib/constants/status";
+import type {
+  InspectionMethod,
+  InspectionStatus,
+  Work,
+  WorkInspectionMethod,
+  WorkInspectionStage,
+  WorkStatus
+} from "@/lib/types/domain";
 
 export type DisplayWorkStatusDto = "waiting" | "progress" | "hold" | "cancel" | "complete";
 
@@ -16,6 +24,9 @@ export type WorkStatusRowDto = {
   // 처리 대기 중인 확인요청이 걸린 검수 단계. 있으면 작업현황 상태 라벨을 "검수확인중"(start) /
   // "완료확인중"(complete)으로 표시한다. 두 단계에 모두 걸려 있으면 더 진행된 "complete"를 쓴다.
   reviewStage?: WorkInspectionStage;
+  // admin_review_requested/inspection_failed의 원인. "photo"면 사진 승인대기("작업승인대기"/"완료승인대기")·반려, 생략 또는
+  // "request"면 현장 확인요청(기존 라벨). 확인요청이 함께 걸려 있으면 서버가 "request"로 내려준다.
+  reviewKind?: ReviewKind;
   workType: string;
   productCode: string;
   productName: string;
@@ -52,14 +63,27 @@ export type WorkDetailProductDto = {
   // 사용수량: allocatedQuantity가 있으면 그 값, 없으면 unitQuantity × 작업수량(works.quantity) 계산값.
   usedQuantity?: number;
   memo?: string;
+  // 제품 사진검수(PHOTO) 상태(단계별 1건). 사진검수 항목이 없는 제품은 생략.
+  photoReviews?: WorkDetailPhotoReviewDto[];
 };
 
 // 제품내역 출처: 실제 작업에 배분된 work_components(LOT 단위) 우선, 없으면 work_master_products(마스터 구성) 폴백.
 export type WorkDetailProductsSourceDto = "work_components" | "work_master";
 
-export type WorkDetailMaterialInspectionDto = {
-  method: Exclude<InspectionMethod, "BOTH">;
+// 사진검수(PHOTO) 항목 1건의 상세 표시용 요약. 단계(start/complete)별로 1건씩.
+export type WorkDetailPhotoReviewDto = {
+  stage: WorkInspectionStage;
   status: InspectionStatus;
+  reviewComment?: string;
+  imageUrls: string[];
+};
+
+export type WorkDetailMaterialInspectionDto = {
+  method: WorkInspectionMethod;
+  status: InspectionStatus;
+  stage?: WorkInspectionStage;
+  // 반려(rejected) 사유. 사진검수 항목에서만 의미가 있다.
+  reviewComment?: string;
 };
 
 export type WorkDetailMaterialDto = {
@@ -92,8 +116,9 @@ export type WorkDetailCompletionPhotoDto = {
   id: string;
   // "완료제품사진" 또는 부자재명.
   label: string;
-  method: "OCR" | "VISION" | "PRODUCT";
+  method: WorkInspectionMethod;
   status: InspectionStatus;
+  reviewComment?: string;
   imageUrls: string[];
 };
 
