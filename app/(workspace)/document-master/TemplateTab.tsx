@@ -13,6 +13,7 @@ import type {
   LayoutMetaDto,
   UpdateDocumentTemplateRequest
 } from "@/lib/types/document-template";
+import { templateTypeLabel } from "@/lib/documents/template-code";
 import { DataStatusBar } from "./DataStatusBar";
 import { TemplateFormModal, type TemplateFormMode, type TemplateFormValues } from "./TemplateFormModal";
 import { TemplatePreviewModal } from "./TemplatePreviewModal";
@@ -64,8 +65,6 @@ export function TemplateTab({ departmentId }: { departmentId: string }) {
   useEffect(() => {
     void load();
   }, [load]);
-
-  const layoutLabel = useMemo(() => new Map(layouts.map((layout) => [layout.key, layout.label])), [layouts]);
 
   const visibleTemplates = useMemo(() => {
     if (!latestOnly) return templates;
@@ -127,7 +126,6 @@ export function TemplateTab({ departmentId }: { departmentId: string }) {
     try {
       if (form.mode === "edit" && form.target) {
         const writeSource = await patchTemplate(form.target.id, {
-          code: values.code,
           name: values.name,
           revisionDate: values.revisionDate,
           layoutKey: values.layoutKey,
@@ -141,7 +139,6 @@ export function TemplateTab({ departmentId }: { departmentId: string }) {
               item.id === targetId
                 ? {
                     ...item,
-                    code: values.code,
                     name: values.name,
                     revision_date: values.revisionDate,
                     layout_key: values.layoutKey,
@@ -154,17 +151,17 @@ export function TemplateTab({ departmentId }: { departmentId: string }) {
         );
         toast.success("양식을 수정했습니다.");
       } else {
-        const isRevise = form.mode === "revise" && form.target;
+        const basis = values.saveMode === "revision" ? values.basis : null;
         const payload: CreateDocumentTemplateRequest = {
           departmentId,
-          code: values.code,
+          ...(basis ? { code: basis.code } : {}),
           name: values.name,
           revisionDate: values.revisionDate,
           templateType: "layout",
           layoutKey: values.layoutKey,
           settings: values.settings,
           isActive: values.isActive,
-          ...(isRevise && values.inheritMappings ? { inheritFromTemplateId: form.target!.id } : {})
+          ...(basis && values.inheritMappings ? { inheritFromTemplateId: basis.id } : {})
         };
         const created = await requestJson<{ source: "supabase" | "mock"; template: DocumentTemplateListItemDto }>(
           "/api/document-templates",
@@ -172,22 +169,22 @@ export function TemplateTab({ departmentId }: { departmentId: string }) {
           "문서양식 등록에 실패했습니다."
         );
 
-        if (isRevise && values.deactivatePrevious) {
+        if (basis && values.deactivatePrevious) {
           try {
-            await patchTemplate(form.target!.id, { isActive: false });
+            await patchTemplate(basis.id, { isActive: false });
           } catch (error) {
             toast.warning(`새 개정은 등록됐으나 이전 개정 사용중지에 실패했습니다. ${error instanceof Error ? error.message : ""}`);
           }
         }
 
-        const previousId = form.target?.id;
+        const previousId = basis?.id;
         await refreshAfterWrite(created.source, () =>
           setTemplates((current) => [
             { ...created.template, mappedShipperCount: 0 },
-            ...current.map((item) => (isRevise && values.deactivatePrevious && item.id === previousId ? { ...item, is_active: false } : item))
+            ...current.map((item) => (basis && values.deactivatePrevious && item.id === previousId ? { ...item, is_active: false } : item))
           ])
         );
-        toast.success(isRevise ? "새 개정을 등록했습니다." : "양식을 등록했습니다.");
+        toast.success(basis ? `${created.template.code} 새 개정을 등록했습니다.` : `${created.template.code} 양식을 등록했습니다.`);
       }
       setForm(null);
     } catch (error) {
@@ -221,7 +218,7 @@ export function TemplateTab({ departmentId }: { departmentId: string }) {
 
       <CuteCard>
         <DataTable
-          headers={["문서코드", "문서명", "개정일자", "레이아웃", "사용여부", "매핑 화주", "관리"]}
+          headers={["문서코드", "문서명", "개정일자", "분류·레이아웃", "사용여부", "매핑 화주", "관리"]}
           rows={visibleTemplates.map((template) => [
             <span key="code" className="font-black text-sky-700">
               {template.code}
@@ -233,7 +230,7 @@ export function TemplateTab({ departmentId }: { departmentId: string }) {
               {template.revision_date}
             </span>,
             <span key="layout" className="font-bold text-slate-600">
-              {(template.layout_key && layoutLabel.get(template.layout_key)) || template.layout_key || "-"}
+              {templateTypeLabel(template.template_type, template.layout_key)}
             </span>,
             <span
               key="active"
@@ -249,11 +246,11 @@ export function TemplateTab({ departmentId }: { departmentId: string }) {
                 <Eye className="size-3.5" />
                 미리보기
               </button>
-              <button type="button" onClick={() => setForm({ mode: "edit", target: template })} className={`${iconButton} bg-white text-slate-600 ring-slate-200 hover:bg-sky-50`}>
+              <button type="button" disabled={template.template_type !== "layout"} title={template.template_type !== "layout" ? "준비 중(추후 정의)" : undefined} onClick={() => setForm({ mode: "edit", target: template })} className={`${iconButton} bg-white text-slate-600 ring-slate-200 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-40`}>
                 <Pencil className="size-3.5" />
                 수정
               </button>
-              <button type="button" onClick={() => setForm({ mode: "revise", target: template })} className={`${iconButton} bg-white text-slate-600 ring-slate-200 hover:bg-sky-50`}>
+              <button type="button" disabled={template.template_type !== "layout"} title={template.template_type !== "layout" ? "준비 중(추후 정의)" : undefined} onClick={() => setForm({ mode: "revise", target: template })} className={`${iconButton} bg-white text-slate-600 ring-slate-200 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-40`}>
                 <GitBranchPlus className="size-3.5" />
                 개정
               </button>
@@ -281,6 +278,7 @@ export function TemplateTab({ departmentId }: { departmentId: string }) {
         <TemplateFormModal
           mode={form.mode}
           source={form.target}
+          templates={templates}
           layouts={layouts}
           isSaving={isSaving}
           onClose={() => setForm(null)}

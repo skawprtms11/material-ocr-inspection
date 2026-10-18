@@ -4,11 +4,13 @@ import { documentSettingsSchema, layoutKeySchema } from "@/lib/documents/setting
 import { errorMessage } from "@/lib/repositories/supabase-scope";
 import { guardErrorResponse } from "@/lib/server/scope-guard";
 import { RouteError, text, type DbRow, type ServerSupabase } from "@/lib/server/work-register-shared";
+import { MAX_CODE_SEQ, TEMPLATE_TYPE_META, nextTemplateCode } from "@/lib/documents/template-code";
 import type {
   DocumentLayoutSettings,
   DocumentTemplate,
   LayoutKey,
-  ShipperDocumentTemplate
+  ShipperDocumentTemplate,
+  TemplateType
 } from "@/lib/types/document-template";
 
 // 양식·화주매핑 API 공용 헬퍼. 스코프 가드(scope-guard.ts)는 그대로 쓰고, 양식 리소스 전용 대조만 여기에 둔다.
@@ -92,7 +94,7 @@ const nameSchema = z.string().trim().min(1).max(80);
 const memoSchema = z.string().max(500);
 
 export const createTemplateSchema = z.object({
-  code: codeSchema,
+  code: codeSchema.optional(),
   name: nameSchema,
   revisionDate: dateSchema,
   layoutKey: layoutKeySchema,
@@ -137,3 +139,19 @@ export function normalizeSettings(layoutKey: LayoutKey, settings: object) {
 }
 
 export const UNIQUE_TEMPLATE_MESSAGE = "같은 문서코드·개정일자의 양식이 이미 있습니다.";
+
+// 부서·분류별 기존 최대 번호+1. 접두어 패턴에 맞는 코드만 대상으로 한다(조회는 접두어 LIKE로 좁힘).
+export async function findNextTemplateCode(supabase: ServerSupabase, departmentId: string, templateType: TemplateType) {
+  const { data, error } = await supabase
+    .from("document_templates")
+    .select("code")
+    .eq("department_id", departmentId)
+    .eq("doc_kind", "work_order")
+    .like("code", `${TEMPLATE_TYPE_META[templateType].codePrefix}%`)
+    .order("code", { ascending: false })
+    .limit(500);
+  if (error) throw error;
+  const next = nextTemplateCode(templateType, ((data ?? []) as DbRow[]).map((row) => text(row.code)));
+  if (next.seq > MAX_CODE_SEQ) throw new RouteError("문서코드 일련번호가 한도(9999)를 넘었습니다.", 409);
+  return next.code;
+}
