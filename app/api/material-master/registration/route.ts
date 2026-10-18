@@ -24,8 +24,15 @@ type RegistrationPayload = {
   roi?: RoiRect;
   expectedText?: string;
   recognizedText?: string;
+  ocrRawText?: string;
+  source?: string;
+  imageWidth?: number;
+  imageHeight?: number;
   similarity?: number;
 };
+
+type Supa = NonNullable<ReturnType<typeof createServerSupabaseClient>>;
+type RegistrationMethod = "OCR" | "VISION";
 
 type RegistrationDeletePayload = {
   departmentId?: string;
@@ -35,6 +42,9 @@ type RegistrationDeletePayload = {
 };
 
 const materialImageBucket = "material-images";
+const webSource = "web-material-registration";
+const mobileSource = "mobile-material-registration";
+const maxVisionImages = 5;
 
 function text(value: unknown, fallback = "") {
   return typeof value === "string" ? value : fallback;
@@ -70,6 +80,40 @@ function toRegion(row: DbRow): MaterialInspectionRegion {
     expected_text: text(row.expected_text) || undefined,
     similarity_threshold: typeof row.similarity_threshold === "number" ? row.similarity_threshold : undefined,
     options: (row.options as Record<string, unknown>) ?? {}
+  };
+}
+
+// 허용값이 아니면 모바일로 간주한다(기존 호출 호환). 'web'/'mobile' 약칭도 받는다.
+function normalizeSource(value: unknown) {
+  return typeof value === "string" && value.trim().toLowerCase().startsWith("web") ? webSource : mobileSource;
+}
+
+function positiveNumber(value: string) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function methodChecked(inspectionMethod: string, method: RegistrationMethod) {
+  return inspectionMethod === "BOTH" || inspectionMethod === method;
+}
+
+// 내역 보기용 필드: 등록일·출처·인식 원문·수정 여부를 options에서 꺼내 평탄화한다.
+function describeRegion(row: DbRow, region: MaterialInspectionRegion) {
+  const options = region.options as Record<string, unknown>;
+  const savedAt = typeof options.savedAt === "string" ? options.savedAt : text(row.created_at);
+  const source = typeof options.source === "string" ? options.source : "";
+  const recognizedText = typeof options.recognizedText === "string" ? options.recognizedText : "";
+  const ocrRawText = typeof options.ocrRawText === "string" ? options.ocrRawText : recognizedText;
+  const similarity =
+    typeof options.similarity === "number" ? options.similarity : region.similarity_threshold ?? undefined;
+
+  return {
+    registeredAt: savedAt || undefined,
+    registrationSource: source.startsWith("web") ? "web" : source ? "mobile" : "unknown",
+    ocrRawText,
+    manualEdited: typeof options.manualEdited === "boolean" ? options.manualEdited : undefined,
+    similarity,
+    imageCount: regionImagePaths(region).length
   };
 }
 
@@ -169,48 +213,73 @@ async function parseRequest(
     // 값이 빈 문자열이어도(OCR 검증불가 등) 실제로 전송됐는지를 구분해야 검증값 저장 시 fallback 여부를 판단할 수 있다.
     recognizedText: formData.has("recognizedText") ? text(formData.get("recognizedText")) : undefined,
     recognizedTextProvided: formData.has("recognizedText"),
+    ocrRawText: formData.has("ocrRawText") ? text(formData.get("ocrRawText")) : undefined,
+    source: text(formData.get("source")) || undefined,
+    imageWidth: positiveNumber(text(formData.get("imageWidth"))),
+    imageHeight: positiveNumber(text(formData.get("imageHeight"))),
     similarity: text(formData.get("similarity")) ? Number(text(formData.get("similarity"))) : undefined,
     files
   };
 }
 
-async function saveInspectionRegion(
-  supabase: NonNullable<ReturnType<typeof createServerSupabaseClient>>,
+async function insertInspectionRegion(
+  supabase: Supa,
   body: RegistrationPayload,
+  method: RegistrationMethod,
+  materialId: string,
   uploadedPaths: string[],
   imagePath: string
 ) {
-  if (!body.materialId || !body.method) return;
-
-  const methodLabel = body.method === "OCR" ? "OCR 선택 영역" : "비전 선택 영역";
+  const manualEdited =
+    method === "OCR" && body.ocrRawText !== undefined && body.recognizedText !== undefined
+      ? body.ocrRawText.trim() !== body.recognizedText.trim()
+      : undefined;
   const options = {
-    source: "mobile-material-registration",
+    source: normalizeSource(body.source),
     recognizedText: body.recognizedText ?? "",
+    ...(method === "OCR" && body.ocrRawText !== undefined ? { ocrRawText: body.ocrRawText } : {}),
+    ...(manualEdited !== undefined ? { manualEdited } : {}),
+    ...(body.imageWidth && body.imageHeight ? { imageNaturalSize: { width: body.imageWidth, height: body.imageHeight } } : {}),
     similarity: typeof body.similarity === "number" ? body.similarity : undefined,
     imagePath,
     uploadedPaths,
     savedAt: new Date().toISOString()
   };
 
-  const { error: deleteError } = await supabase
+  const { data, error } = await supabase
     .from("material_inspection_regions")
-    .delete()
-    .eq("material_id", body.materialId)
-    .eq("method", body.method);
-
-  if (deleteError) throw deleteError;
-
-  const { error } = await supabase.from("material_inspection_regions").insert({
-    material_id: body.materialId,
-    method: body.method,
-    name: methodLabel,
-    roi: body.roi ?? defaultRoi(),
-    expected_text: body.expectedText ?? "",
-    similarity_threshold: body.method === "VISION" && typeof body.similarity === "number" ? body.similarity : null,
-    options
-  });
+    .insert({
+      material_id: materialId,
+      method,
+      name: method === "OCR" ? "OCR 선택 영역" : "비전 선택 영역",
+      roi: body.roi ?? defaultRoi(),
+      expected_text: body.expectedText ?? "",
+      similarity_threshold: method === "VISION" && typeof body.similarity === "number" ? body.similarity : null,
+      options
+    })
+    .select("id")
+    .single();
 
   if (error) throw error;
+
+  return text((data as DbRow).id);
+}
+
+// 이 부자재·방식의 업로드 폴더 안 파일만 삭제 대상으로 인정한다(다른 부자재 파일 오삭제 방지).
+function ownedStoragePaths(paths: string[], materialId: string, method: RegistrationMethod) {
+  const prefix = `mobile/${safePathSegment(materialId)}/${method.toLowerCase()}/`;
+  return Array.from(new Set(paths.map(relativeStoragePath).filter((path) => path.startsWith(prefix))));
+}
+
+async function removeStorageFiles(supabase: Supa, relativePaths: string[]) {
+  if (relativePaths.length === 0) return;
+
+  try {
+    const { error } = await supabase.storage.from(materialImageBucket).remove(relativePaths);
+    if (error) throw error;
+  } catch (cleanupError) {
+    console.error("스토리지 파일 정리에 실패했습니다.", cleanupError);
+  }
 }
 
 function deletedMethodSet(method?: "OCR" | "VISION") {
@@ -244,17 +313,12 @@ async function ensureMaterialImageBucket(supabase: NonNullable<ReturnType<typeof
   if (createError && !createError.message.toLowerCase().includes("already exists")) throw createError;
 }
 
-async function uploadFiles(
-  supabase: NonNullable<ReturnType<typeof createServerSupabaseClient>>,
-  materialId: string,
-  method: "OCR" | "VISION",
-  files: File[]
-) {
+async function uploadFiles(supabase: Supa, materialId: string, method: RegistrationMethod, files: File[]) {
   if (files.length === 0) return [];
 
   await ensureMaterialImageBucket(supabase);
 
-  return Promise.all(
+  const results = await Promise.allSettled(
     files.map(async (file, index) => {
       const path = storagePath(materialId, method, file, index);
       const { error } = await supabase.storage.from(materialImageBucket).upload(path, file, {
@@ -268,6 +332,16 @@ async function uploadFiles(
       return `${materialImageBucket}/${path}`;
     })
   );
+
+  const uploaded = results.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
+  const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+
+  if (failed) {
+    await removeStorageFiles(supabase, uploaded.map(relativeStoragePath));
+    throw failed.reason;
+  }
+
+  return uploaded;
 }
 
 function relativeStoragePath(path: string) {
@@ -320,17 +394,18 @@ export async function GET(request: NextRequest) {
   if (!supabase || process.env.NEXT_PUBLIC_USE_MOCK_DATA !== "false") {
     const regions = appRepository
       .listMaterialRegions(materialId)
-      .map((region) => ({ ...region, imageUrls: [] as string[] }));
+      .map((region) => ({ ...region, ...describeRegion({}, region), imageUrls: [] as string[] }));
     return NextResponse.json({ source: "mock", regions });
   }
 
   try {
-    await assertMaterialInScope(supabase, materialId, await resolveRequestScope(supabase, requestScope));
+    const materialRow = await assertMaterialInScope(supabase, materialId, await resolveRequestScope(supabase, requestScope));
 
     const { data, error } = await supabase
       .from("material_inspection_regions")
       .select("*")
-      .eq("material_id", materialId);
+      .eq("material_id", materialId)
+      .order("created_at", { ascending: false });
 
     if (error) throw error;
 
@@ -338,11 +413,13 @@ export async function GET(request: NextRequest) {
       ((data ?? []) as DbRow[]).map(async (row) => {
         const region = toRegion(row);
         const imageUrls = await resolveRegionImageUrls(supabase, region);
-        return { ...region, imageUrls };
+        return { ...region, ...describeRegion(row, region), imageUrls };
       })
     );
+    const [material] = await attachMissingReferences(supabase, [toMaterial(materialRow)]);
 
-    return NextResponse.json({ source: "supabase", regions });
+    // material: 검증값·기준 경로·누락 사유(missing_reference)를 내역 팝업이 한 번에 쓰도록 함께 내려준다.
+    return NextResponse.json({ source: "supabase", regions, verificationValue: material.verification_value, material });
   } catch (error) {
     const guardResponse = guardErrorResponse(error);
     if (guardResponse) return guardResponse;
@@ -386,60 +463,108 @@ export async function POST(request: NextRequest) {
   try {
     // 스코프 밖 부자재는 여기서 403/404로 끊는다(업로드·수정 이전).
     const currentRow = await assertMaterialInScope(supabase, body.materialId, await resolveRequestScope(supabase, requestScope));
+    const materialId = body.materialId;
+    const method = body.method;
     const currentReferencePath = text(currentRow.reference_image_path);
-    const uploadedPaths = await uploadFiles(supabase, body.materialId, body.method, body.files);
-    const imagePath = uploadedPaths[0] ?? fallbackPath;
 
-    // 기준 이미지 등록은 inspection_method(운영자의 검수 방식 선택)를 바꾸지 않는다.
-    const updatePayload = {
-      reference_image_path: currentReferencePath || imagePath,
-      ...(body.method === "OCR" ? { ocr_image_path: imagePath } : {}),
-      ...(body.method === "VISION" ? { vision_image_path: imagePath } : {}),
-      // 검증값은 모바일 OCR 검수·저장 시 확정된 인식값을 작업검수 기준값으로 사용한다.
-      // recognizedText가 실제로 전송된 경우(OCR 검토를 거친 경우)는 빈 값이어도 그대로 저장하고,
-      // 전송되지 않은 경우(예: 웹 관리자의 단순 이미지 등록)는 기존 검증값을 유지하고, 없을 때만 부자재코드로 폴백한다.
-      ...(body.method === "OCR"
-        ? {
-            verification_value: body.recognizedTextProvided
-              ? body.recognizedText ?? ""
-              : text(currentRow.verification_value) || body.expectedText
-          }
-        : {})
-    };
+    const { data: prevData, error: prevError } = await supabase
+      .from("material_inspection_regions")
+      .select("*")
+      .eq("material_id", materialId)
+      .eq("method", method);
 
-    let data: DbRow;
+    if (prevError) throw prevError;
+
+    const prevRows = (prevData ?? []) as DbRow[];
+    const prevRegions = prevRows.map(toRegion);
+    const currentMethodPath = text(method === "OCR" ? currentRow.ocr_image_path : currentRow.vision_image_path);
+
+    // 체크 안 된 방식은 미사용이라 신규 등록을 막는다. 이미 등록된 기준이 있으면 조회·재등록은 허용한다.
+    const alreadyRegistered = prevRegions.length > 0 || Boolean(currentMethodPath);
+    if (!methodChecked(normalizeMaterialInspectionMethod(currentRow.inspection_method), method) && !alreadyRegistered) {
+      return NextResponse.json(
+        { error: `${method === "OCR" ? "OCR" : "비전"} 검수 방식이 체크되지 않은 부자재입니다. 부자재 수정에서 방식을 체크한 뒤 등록하세요.` },
+        { status: 400 }
+      );
+    }
+
+    const isWeb = normalizeSource(body.source) === webSource;
+    const maxImages = method === "VISION" ? maxVisionImages : 1;
+
+    if (body.files.length > maxImages) {
+      return NextResponse.json(
+        { error: method === "VISION" ? `비전 기준 이미지는 최대 ${maxVisionImages}장입니다.` : "OCR 기준 이미지는 1장만 등록할 수 있습니다." },
+        { status: 400 }
+      );
+    }
+    if (isWeb && body.files.length === 0) {
+      return NextResponse.json({ error: "기준 이미지 파일이 필요합니다." }, { status: 400 });
+    }
+    if (isWeb && method === "OCR" && !body.recognizedText?.trim()) {
+      return NextResponse.json({ error: "OCR 검증값(recognizedText)이 필요합니다." }, { status: 400 });
+    }
+
+    const newPaths = await uploadFiles(supabase, materialId, method, body.files);
+    const imagePath = newPaths[0] ?? fallbackPath;
+    let newRegionId = "";
 
     try {
-      const { data: updated, error } = await supabase
+      // 새 region을 먼저 넣고 material을 갱신한 뒤에만 이전 region·파일을 지운다(부분 실패 시 경로가 깨지지 않게).
+      newRegionId = await insertInspectionRegion(supabase, body, method, materialId, newPaths, imagePath);
+
+      // 기준 이미지 등록은 inspection_method(운영자의 검수 방식 선택)를 바꾸지 않는다.
+      // OCR 검증값: recognizedText가 전송된 경우 빈 값이어도 그대로 저장하고, 미전송이면 기존 검증값 유지 후 부자재코드(expectedText)로 폴백한다.
+      const updatePayload = {
+        // 대표 경로가 이번에 교체되는 같은 방식의 이전 파일이면 새 경로로 바꾼다(삭제된 파일을 가리키지 않게).
+        reference_image_path:
+          currentReferencePath && currentReferencePath !== currentMethodPath ? currentReferencePath : imagePath,
+        ...(method === "OCR" ? { ocr_image_path: imagePath } : { vision_image_path: imagePath }),
+        ...(method === "OCR"
+          ? {
+              verification_value: body.recognizedTextProvided
+                ? body.recognizedText ?? ""
+                : text(currentRow.verification_value) || body.expectedText
+            }
+          : {})
+      };
+
+      const { data: updated, error: updateError } = await supabase
         .from("material_masters")
         .update(updatePayload)
-        .eq("id", body.materialId)
+        .eq("id", materialId)
         .select("*")
         .single();
 
-      if (error) throw error;
+      if (updateError) throw updateError;
 
-      data = updated as DbRow;
+      const prevRegionIds = prevRows.map((row) => text(row.id)).filter(Boolean);
 
-      await saveInspectionRegion(supabase, body, uploadedPaths, imagePath);
-    } catch (dbError) {
-      // 업로드 성공 후 DB 저장이 실패하면 고아 파일이 남지 않도록 스토리지를 정리한다.
-      if (uploadedPaths.length > 0) {
-        try {
-          const relativePaths = uploadedPaths.map((path) =>
-            path.startsWith(`${materialImageBucket}/`) ? path.slice(materialImageBucket.length + 1) : path
-          );
-          await supabase.storage.from(materialImageBucket).remove(relativePaths);
-        } catch (cleanupError) {
-          console.error("업로드된 파일 정리에 실패했습니다.", cleanupError);
-        }
+      if (prevRegionIds.length > 0) {
+        const { error: oldDeleteError } = await supabase.from("material_inspection_regions").delete().in("id", prevRegionIds);
+        // 실패해도 새 기준은 이미 반영됨. 소비처는 첫 행만 쓰고 다음 저장 때 정리되므로 로그만 남긴다.
+        if (oldDeleteError) console.error("이전 등록 영역 삭제에 실패했습니다.", oldDeleteError);
       }
 
+      // 새 파일이 있을 때만 이전 파일을 정리한다(새 파일이 없으면 경로 교체가 없으므로).
+      if (newPaths.length > 0) {
+        const keep = new Set(newPaths.map(relativeStoragePath));
+        const prevPaths = [...prevRegions.flatMap(regionImagePaths), currentMethodPath];
+        await removeStorageFiles(
+          supabase,
+          ownedStoragePaths(prevPaths, materialId, method).filter((path) => !keep.has(path))
+        );
+      }
+
+      const [material] = await attachMissingReferences(supabase, [toMaterial(updated as DbRow)]);
+      return NextResponse.json({ source: "supabase", material, uploadedPaths: newPaths });
+    } catch (dbError) {
+      if (newRegionId) {
+        const { error: rollbackError } = await supabase.from("material_inspection_regions").delete().eq("id", newRegionId);
+        if (rollbackError) console.error("새 등록 영역 롤백에 실패했습니다.", rollbackError);
+      }
+      await removeStorageFiles(supabase, newPaths.map(relativeStoragePath));
       throw dbError;
     }
-
-    const [material] = await attachMissingReferences(supabase, [toMaterial(data)]);
-    return NextResponse.json({ source: "supabase", material, uploadedPaths });
   } catch (error) {
     const guardResponse = guardErrorResponse(error);
     if (guardResponse) return guardResponse;
@@ -480,13 +605,11 @@ export async function DELETE(request: NextRequest) {
       ...(deleted.vision ? { vision_image_path: "" } : {})
     };
 
-    const regionDelete = supabase
-      .from("material_inspection_regions")
-      .delete()
-      .eq("material_id", body.materialId);
-    const { error: regionError } = body.method ? await regionDelete.eq("method", body.method) : await regionDelete;
-    if (regionError) throw regionError;
+    const regionSelect = supabase.from("material_inspection_regions").select("*").eq("material_id", body.materialId);
+    const { data: prevData, error: prevError } = body.method ? await regionSelect.eq("method", body.method) : await regionSelect;
+    if (prevError) throw prevError;
 
+    // material 갱신이 성공한 뒤에만 region을 지운다(갱신 실패 시 region만 사라지지 않게).
     const { data, error } = await supabase
       .from("material_masters")
       .update(updatePayload)
@@ -495,6 +618,24 @@ export async function DELETE(request: NextRequest) {
       .single();
 
     if (error) throw error;
+
+    const regionDelete = supabase
+      .from("material_inspection_regions")
+      .delete()
+      .eq("material_id", body.materialId);
+    const { error: regionError } = body.method ? await regionDelete.eq("method", body.method) : await regionDelete;
+    if (regionError) throw regionError;
+
+    for (const method of ["OCR", "VISION"] as const) {
+      if (!(method === "OCR" ? deleted.ocr : deleted.vision)) continue;
+
+      const methodPaths = ((prevData ?? []) as DbRow[])
+        .map(toRegion)
+        .filter((region) => region.method === method)
+        .flatMap(regionImagePaths);
+      const rowPath = text(method === "OCR" ? currentRow.ocr_image_path : currentRow.vision_image_path);
+      await removeStorageFiles(supabase, ownedStoragePaths([...methodPaths, rowPath], body.materialId, method));
+    }
 
     const [material] = await attachMissingReferences(supabase, [toMaterial(data as DbRow)]);
     return NextResponse.json({ source: "supabase", material });

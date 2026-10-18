@@ -8,7 +8,6 @@ import { CloudButton } from "@/components/common/CloudButton";
 import { CuteCard } from "@/components/common/CuteCard";
 import { EmptyCloudState } from "@/components/common/EmptyCloudState";
 import { PageHeader } from "@/components/common/PageHeader";
-import { InspectionRegionEditor } from "@/components/inspection/InspectionRegionEditor";
 import { inspectionMethodLabels } from "@/lib/constants/status";
 import {
   getMissingReferences,
@@ -16,8 +15,11 @@ import {
   missingReferenceHint
 } from "@/lib/inspection/material-reference";
 import { useFilterStore } from "@/lib/state/filter-store";
-import type { InspectionMethod, MaterialInspectionRegion, MaterialMaster } from "@/lib/types/domain";
+import type { InspectionMethod, MaterialInspectionRegion, MaterialMaster, RoiRect } from "@/lib/types/domain";
 import { cn } from "@/lib/utils/cn";
+import { ReferenceDetailModal } from "./ReferenceDetailModal";
+import { ReferenceRegisterModal } from "./ReferenceRegisterModal";
+import { getReferenceButtonState, hasInspectionMethod, type ReferenceButtonState, type ReferenceMethod } from "./reference-status";
 
 type MaterialInspectionRegionWithImages = MaterialInspectionRegion & { imageUrls: string[] };
 
@@ -25,16 +27,9 @@ type MaterialModalMode = "create" | "edit";
 type MaterialFormValue = Pick<
   MaterialMaster,
   "code" | "name" | "lot" | "inspection_method" | "ocr_image_path" | "vision_image_path" | "remark"
-> & {
-  ocrFile?: File;
-  visionFile?: File;
-};
+>;
 
 const tableHeaders = ["부자재코드", "부자재명", "LOT", "검증값", "검수방식", "OCR등록", "비전스캔등록", "비고"];
-
-function hasInspectionMethod(method: InspectionMethod | undefined, target: "OCR" | "VISION") {
-  return method === target || method === "BOTH";
-}
 
 // 둘 다 해제하면 NONE(사진검수 대상)으로 저장한다.
 function buildInspectionMethod(ocrChecked: boolean, visionChecked: boolean): InspectionMethod {
@@ -44,15 +39,35 @@ function buildInspectionMethod(ocrChecked: boolean, visionChecked: boolean): Ins
   return "NONE";
 }
 
-function ReadOnlyCheck({ checked, label }: { checked: boolean; label: string }) {
+const referenceButtonStyles: Record<ReferenceButtonState, { label: string; className: string; title?: string }> = {
+  register: { label: "등록", className: "bg-sky-500 text-white hover:bg-sky-600" },
+  complete: { label: "등록완료", className: "bg-emerald-100 text-emerald-700 hover:bg-emerald-200" },
+  incomplete: { label: "보완필요", className: "bg-amber-100 text-amber-800 hover:bg-amber-200" },
+  unused: { label: "미사용", className: "cursor-not-allowed bg-slate-100 text-slate-400", title: "수정에서 해당 방식을 체크하면 등록할 수 있어요" },
+  "unused-registered": { label: "등록완료(미사용)", className: "bg-white text-slate-500 ring-1 ring-slate-300 hover:bg-slate-50", title: "현재 사용하지 않는 방식이에요. 조회·재등록만 가능합니다" }
+};
+
+function ReferenceButton({ material, method, onClick }: { material: MaterialMaster; method: ReferenceMethod; onClick: () => void }) {
+  const state = getReferenceButtonState(material, method);
+  const style = referenceButtonStyles[state];
+  const isDisabled = state === "unused";
+
   return (
-    <input
-      type="checkbox"
-      checked={checked}
-      readOnly
-      aria-label={label}
-      className="size-4 rounded border-slate-300 accent-sky-500"
-    />
+    <button
+      type="button"
+      disabled={isDisabled}
+      title={style.title}
+      data-state={state}
+      data-testid={`ref-btn-${method.toLowerCase()}`}
+      aria-label={`${material.name} ${method === "OCR" ? "OCR" : "비전스캔"} ${style.label}`}
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
+      className={cn("inline-flex min-h-8 items-center justify-center rounded-full px-3.5 text-xs font-extrabold shadow-sm transition focus:outline-none focus:ring-2 focus:ring-sky-300", style.className)}
+    >
+      {style.label}
+    </button>
   );
 }
 
@@ -74,9 +89,25 @@ export default function MaterialMasterPage() {
   const [dataSource, setDataSource] = useState<"supabase" | "mock" | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [previewMaterial, setPreviewMaterial] = useState<MaterialMaster | null>(null);
+  const [detailTarget, setDetailTarget] = useState<{ materialId: string; method: ReferenceMethod } | null>(null);
+  const [registerTarget, setRegisterTarget] = useState<{ materialId: string; method: ReferenceMethod; previousRoi?: RoiRect } | null>(null);
 
   const selectedMaterial = materials.find((material) => material.id === selectedMaterialId) ?? materials[0];
   const modalMaterial = modalMode === "edit" ? selectedMaterial : undefined;
+  const detailMaterial = detailTarget ? materials.find((material) => material.id === detailTarget.materialId) : undefined;
+  const registerMaterial = registerTarget ? materials.find((material) => material.id === registerTarget.materialId) : undefined;
+
+  const openReference = (material: MaterialMaster, method: ReferenceMethod) => {
+    if (getReferenceButtonState(material, method) === "register") setRegisterTarget({ materialId: material.id, method });
+    else setDetailTarget({ materialId: material.id, method });
+  };
+
+  // mock 모드의 부분 응답에도 행이 깨지지 않도록 기존 행에 병합한다.
+  const handleReferenceSaved = (saved: MaterialMaster) => {
+    setMaterials((prevMaterials) => prevMaterials.map((material) => (material.id === saved.id ? { ...material, ...saved } : material)));
+    setRegisterTarget(null);
+    setDetailTarget(null);
+  };
 
   const loadMaterials = useCallback(async () => {
     if (!departmentId || !shipperId) return;
@@ -111,7 +142,7 @@ export default function MaterialMasterPage() {
 
     try {
       const isEdit = modalMode === "edit" && selectedMaterial;
-      const { ocrFile, visionFile, ...materialPayload } = value;
+      const materialPayload = value;
       const response = await fetch("/api/material-master", {
         method: isEdit ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
@@ -125,37 +156,11 @@ export default function MaterialMasterPage() {
       });
       const result = (await response.json()) as { source?: "supabase" | "mock"; material?: MaterialMaster; error?: string };
       if (!response.ok || !result.material) throw new Error(result.error ?? "부자재 저장에 실패했습니다.");
-      let savedMaterial = result.material;
-
-      const uploadRegistrationImage = async (method: "OCR" | "VISION", file: File) => {
-        const formData = new FormData();
-
-        formData.append("departmentId", departmentId);
-        formData.append("shipperId", shipperId);
-        formData.append("materialId", savedMaterial.id);
-        formData.append("method", method);
-        formData.append("expectedText", savedMaterial.code);
-        formData.append("images", file);
-
-        const uploadResponse = await fetch("/api/material-master/registration", {
-          method: "POST",
-          body: formData
-        });
-        const uploadResult = (await uploadResponse.json()) as { material?: MaterialMaster; error?: string };
-
-        if (!uploadResponse.ok || !uploadResult.material) {
-          throw new Error(uploadResult.error ?? `${method} 이미지 업로드에 실패했습니다.`);
-        }
-
-        savedMaterial = uploadResult.material;
-      };
-
-      if (ocrFile) await uploadRegistrationImage("OCR", ocrFile);
-      if (visionFile) await uploadRegistrationImage("VISION", visionFile);
+      const savedMaterial = result.material;
 
       if (isEdit) {
         setMaterials((prevMaterials) =>
-          prevMaterials.map((material) => (material.id === savedMaterial.id ? savedMaterial : material))
+          prevMaterials.map((material) => (material.id === savedMaterial.id ? { ...material, ...savedMaterial } : material))
         );
       } else {
         setMaterials((prevMaterials) => [savedMaterial, ...prevMaterials]);
@@ -302,17 +307,10 @@ export default function MaterialMasterPage() {
                       </div>
                     </td>
                     <td className="px-5 py-4 text-center">
-                      <div className="inline-flex items-center gap-2">
-                        {/* 등록 판정 기준: 모바일과 동일하게 이미지 실등록 여부(경로 존재)로 통일. 사용 설정(inspection_method)은 수정 모달에서 관리 */}
-                        <ReadOnlyCheck checked={Boolean(material.ocr_image_path)} label={`${material.name} OCR 등록`} />
-                        <span className="text-xs font-bold text-slate-400">{material.ocr_image_path ? "등록완료" : "대기"}</span>
-                      </div>
+                      <ReferenceButton material={material} method="OCR" onClick={() => openReference(material, "OCR")} />
                     </td>
                     <td className="px-5 py-4 text-center">
-                      <div className="inline-flex items-center gap-2">
-                        <ReadOnlyCheck checked={Boolean(material.vision_image_path)} label={`${material.name} 비전스캔 등록`} />
-                        <span className="text-xs font-bold text-slate-400">{material.vision_image_path ? "등록완료" : "대기"}</span>
-                      </div>
+                      <ReferenceButton material={material} method="VISION" onClick={() => openReference(material, "VISION")} />
                     </td>
                     <td className="px-5 py-4 text-slate-500">{material.remark || "-"}</td>
                   </tr>
@@ -329,6 +327,30 @@ export default function MaterialMasterPage() {
           material={modalMaterial}
           onSave={handleSave}
           onClose={() => setModalMode(null)}
+        />
+      )}
+
+      {detailTarget && detailMaterial && (
+        <ReferenceDetailModal
+          key={`${detailTarget.materialId}-${detailTarget.method}`}
+          material={detailMaterial}
+          method={detailTarget.method}
+          onClose={() => setDetailTarget(null)}
+          onReregister={(roi) => {
+            setRegisterTarget({ materialId: detailTarget.materialId, method: detailTarget.method, previousRoi: roi });
+            setDetailTarget(null);
+          }}
+        />
+      )}
+
+      {registerTarget && registerMaterial && (
+        <ReferenceRegisterModal
+          key={`${registerTarget.materialId}-${registerTarget.method}`}
+          material={registerMaterial}
+          method={registerTarget.method}
+          previousRoi={registerTarget.previousRoi}
+          onClose={() => setRegisterTarget(null)}
+          onSaved={handleReferenceSaved}
         />
       )}
 
@@ -350,36 +372,7 @@ function MaterialEditorModal({
   onSave: (value: MaterialFormValue) => void;
   onClose: () => void;
 }) {
-  const { departmentId, shipperId } = useFilterStore();
   const isEditMode = mode === "edit";
-  const [regions, setRegions] = useState<MaterialInspectionRegion[]>([]);
-
-  useEffect(() => {
-    if (!material) {
-      setRegions([]);
-      return;
-    }
-
-    let cancelled = false;
-
-    const loadRegions = async () => {
-      try {
-        const response = await fetch(`/api/material-master/registration?${new URLSearchParams({ material_id: material.id, department_id: departmentId, shipper_id: shipperId }).toString()}`);
-        if (!response.ok) throw new Error("등록 영역 조회에 실패했습니다.");
-        const data = (await response.json()) as { regions?: MaterialInspectionRegion[] };
-        if (!cancelled) setRegions(data.regions ?? []);
-      } catch (error) {
-        console.warn("등록 영역 미리보기를 불러오지 못했습니다.", error);
-        if (!cancelled) setRegions([]);
-      }
-    };
-
-    void loadRegions();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [material, departmentId, shipperId]);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -388,7 +381,7 @@ function MaterialEditorModal({
     const code = String(formData.get("code") ?? "").trim();
     const inspectionMethod = buildInspectionMethod(formData.get("ocr") === "on", formData.get("vision") === "on");
 
-    // 이미지 경로는 업로드 성공 후 서버가 갱신하므로 선택만으로 가짜 경로를 저장하지 않는다
+    // 이미지 경로는 기준 등록 팝업에서 서버 응답으로만 갱신하므로 기존 값을 그대로 보낸다
     onSave({
       code,
       name: String(formData.get("name") ?? "").trim(),
@@ -396,18 +389,13 @@ function MaterialEditorModal({
       inspection_method: inspectionMethod,
       ocr_image_path: material?.ocr_image_path,
       vision_image_path: material?.vision_image_path,
-      remark: String(formData.get("remark") ?? "").trim(),
-      ocrFile: formData.get("ocr_image") instanceof File && (formData.get("ocr_image") as File).name ? (formData.get("ocr_image") as File) : undefined,
-      visionFile:
-        formData.get("vision_image") instanceof File && (formData.get("vision_image") as File).name
-          ? (formData.get("vision_image") as File)
-          : undefined
+      remark: String(formData.get("remark") ?? "").trim()
     });
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/35 px-4 py-8 backdrop-blur-sm">
-      <div className="w-full max-w-6xl rounded-[1.4rem] border border-white/80 bg-[#f8fbff] p-5 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
+      <div className="w-full max-w-3xl rounded-[1.4rem] border border-white/80 bg-[#f8fbff] p-5 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
         <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xs font-black text-sky-600">{isEditMode ? "선택 부자재 수정" : "신규 부자재 등록"}</p>
@@ -454,12 +442,12 @@ function MaterialEditorModal({
               />
               {isEditMode && (
                 <div className="flex min-h-11 items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 px-3 text-sm font-bold text-slate-500 sm:col-span-2">
-                  <span>검증값(모바일 OCR 등록 기준)</span>
+                  <span>검증값(OCR 기준 등록 팝업에서 설정)</span>
                   <span className="text-slate-700">{material?.verification_value || "-"}</span>
                 </div>
               )}
               <p className="text-xs font-bold text-slate-500 sm:col-span-2">
-                둘 다 해제하면 사진검수(작업자 사진 촬영 후 관리자 승인)로 운영됩니다. 체크한 방식은 기준 이미지가 등록되어야 현장 검수가 진행됩니다.
+                둘 다 해제하면 사진검수(작업자 사진 촬영 후 관리자 승인)로 운영됩니다. 체크한 방식은 목록의 OCR등록/비전스캔등록 버튼으로 기준을 등록해야 현장 검수가 진행됩니다.
               </p>
               <FormCheck name="ocr" defaultChecked={isEditMode ? hasInspectionMethod(material?.inspection_method, "OCR") : false} label="OCR등록" />
               <FormCheck name="vision" defaultChecked={isEditMode ? hasInspectionMethod(material?.inspection_method, "VISION") : false} label="비전스캔등록" />
@@ -472,42 +460,6 @@ function MaterialEditorModal({
               />
             </div>
           </CuteCard>
-          <div className="grid gap-5 lg:grid-cols-2">
-            <ImageRegistrationPanel
-              title="OCR 이미지 등록"
-              description="OCR 기준 텍스트를 읽을 이미지와 영역을 등록합니다."
-              inputName="ocr_image"
-              enabledName="ocr"
-              enabledLabel="OCR등록"
-              defaultEnabled={isEditMode ? hasInspectionMethod(material?.inspection_method, "OCR") : false}
-              currentPath={material?.ocr_image_path}
-              storageHint="material-images/{부자재코드}/ocr-{파일명}"
-            />
-            <ImageRegistrationPanel
-              title="비전 이미지 등록"
-              description="이미지 유사도 비교에 사용할 기준 이미지를 등록합니다."
-              inputName="vision_image"
-              enabledName="vision"
-              enabledLabel="비전스캔등록"
-              defaultEnabled={isEditMode ? hasInspectionMethod(material?.inspection_method, "VISION") : false}
-              currentPath={material?.vision_image_path}
-              storageHint="material-images/{부자재코드}/vision-{파일명}"
-            />
-          </div>
-          {isEditMode && (
-            <CuteCard>
-              <div className="mb-4">
-                <h3 className="text-lg font-black text-slate-800">등록 영역 미리보기</h3>
-                <p className="mt-1 text-sm font-semibold text-slate-500">
-                  현재 저장된 OCR/비전 ROI입니다. 드래그 편집은 추후 확장하고, 지금은 팝업 안에서 등록 흐름만 유지합니다.
-                </p>
-              </div>
-              <div className="grid gap-4 lg:grid-cols-2">
-                <InspectionRegionEditor regions={regions} mode="OCR" />
-                <InspectionRegionEditor regions={regions} mode="VISION" />
-              </div>
-            </CuteCard>
-          )}
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <CloudButton type="button" tone="soft" onClick={onClose}>
               취소
@@ -520,47 +472,6 @@ function MaterialEditorModal({
         </form>
       </div>
     </div>
-  );
-}
-
-function ImageRegistrationPanel({
-  title,
-  description,
-  inputName,
-  enabledName,
-  enabledLabel,
-  defaultEnabled,
-  currentPath,
-  storageHint
-}: {
-  title: string;
-  description: string;
-  inputName: string;
-  enabledName: string;
-  enabledLabel: string;
-  defaultEnabled: boolean;
-  currentPath?: string;
-  storageHint: string;
-}) {
-  return (
-    <CuteCard>
-      <div className="mb-4 flex items-start justify-between gap-3">
-        <div>
-          <h3 className="text-lg font-black text-slate-800">{title}</h3>
-          <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">{description}</p>
-        </div>
-        <FormCheck name={enabledName} defaultChecked={defaultEnabled} label={enabledLabel} />
-      </div>
-      <label className="flex aspect-[5/3] cursor-pointer flex-col items-center justify-center rounded-[1.4rem] border border-dashed border-sky-200 bg-white/75 p-4 text-center transition hover:bg-sky-50">
-        <Camera className="mb-3 size-9 text-sky-400" />
-        <span className="font-black text-slate-700">이미지 선택</span>
-        <span className="mt-1 text-xs font-semibold leading-5 text-slate-400">{storageHint}</span>
-        <input name={inputName} type="file" accept="image/*" className="sr-only" aria-label={`${title} 이미지 선택`} />
-      </label>
-      <div className="mt-3 rounded-2xl bg-slate-50 p-3 text-xs font-bold leading-5 text-slate-500">
-        현재 경로: {currentPath || "아직 등록된 이미지가 없어요."}
-      </div>
-    </CuteCard>
   );
 }
 
