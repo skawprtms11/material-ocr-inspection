@@ -5,7 +5,15 @@ import { ArrowLeft, Camera, CheckCircle2, ImagePlus, Pencil, Plus, RotateCcw, Sa
 import { CloudButton } from "@/components/common/CloudButton";
 import { CuteCard } from "@/components/common/CuteCard";
 import { TouchRegionSelector } from "@/components/mobile/TouchRegionSelector";
-import { compareVisionRegions, constrainRect, cropImageFile, loadImage, type Rect, type VisionPairScore } from "@/lib/inspection/vision-signature";
+import { compareVisionRegions, type VisionPairScore } from "@/lib/inspection/vision-signature";
+import {
+  constrainRect as constrainRectWithLimits,
+  cropImageFile as cropImageFileWithLimits,
+  loadImage,
+  ROI_LIMITS_EDITOR,
+  type Rect
+} from "@/lib/utils/image-crop";
+import { getReferenceBlockedMessage, getReferenceButtonState, isReferenceRegistrationBlocked } from "@/lib/inspection/reference-status";
 import { useMobileMaterials, useMobileScope } from "@/lib/mobile/mobile-api";
 import type { MaterialMaster } from "@/lib/types/domain";
 import { cn } from "@/lib/utils/cn";
@@ -48,6 +56,9 @@ type RegistrationSavePayload = {
   similarity?: number;
   fileName?: string;
 };
+
+const constrainRect = (rect: Rect) => constrainRectWithLimits(rect, ROI_LIMITS_EDITOR);
+const cropImageFile = (file: File, rect: Rect) => cropImageFileWithLimits(file, rect, "ocr-roi", ROI_LIMITS_EDITOR);
 
 const defaultRect: Rect = { x: 18, y: 24, width: 56, height: 22 };
 const visionMaxPhotos = 5;
@@ -313,6 +324,8 @@ export default function MobileMaterialRegistrationPage() {
   if (selectedMaterialId && selectedMaterial) {
     const ocrRegistered = hasMethodRegistration(registrationStatus, "OCR", selectedMaterial.id);
     const visionRegistered = hasMethodRegistration(registrationStatus, "VISION", selectedMaterial.id);
+    const ocrBlocked = isReferenceRegistrationBlocked(selectedMaterial, "OCR");
+    const visionBlocked = isReferenceRegistrationBlocked(selectedMaterial, "VISION");
 
     return (
       <div className="space-y-4">
@@ -337,11 +350,21 @@ export default function MobileMaterialRegistrationPage() {
                 <p className="mt-1 text-xs font-bold text-emerald-600">검증값 {selectedMaterial.verification_value}</p>
               )}
               <div className="mt-3 flex gap-1 text-[10px] font-black">
-                <span className={cn("rounded-full px-2 py-1", ocrRegistered ? "bg-emerald-100 text-emerald-700" : "bg-sky-100 text-sky-700")}>
-                  OCR {ocrRegistered ? "등록완료" : "대기"}
+                <span
+                  className={cn(
+                    "rounded-full px-2 py-1",
+                    ocrRegistered ? "bg-emerald-100 text-emerald-700" : ocrBlocked ? "bg-slate-100 text-slate-500" : "bg-sky-100 text-sky-700"
+                  )}
+                >
+                  OCR {ocrRegistered ? "등록완료" : ocrBlocked ? "미사용" : "대기"}
                 </span>
-                <span className={cn("rounded-full px-2 py-1", visionRegistered ? "bg-emerald-100 text-emerald-700" : "bg-violet-100 text-violet-700")}>
-                  비전 {visionRegistered ? "등록완료" : "대기"}
+                <span
+                  className={cn(
+                    "rounded-full px-2 py-1",
+                    visionRegistered ? "bg-emerald-100 text-emerald-700" : visionBlocked ? "bg-slate-100 text-slate-500" : "bg-violet-100 text-violet-700"
+                  )}
+                >
+                  비전 {visionRegistered ? "등록완료" : visionBlocked ? "미사용" : "대기"}
                 </span>
               </div>
             </div>
@@ -370,15 +393,27 @@ export default function MobileMaterialRegistrationPage() {
             선택하면 목록 아래가 아니라 별도 등록 화면으로 전환됩니다.
           </p>
           <div className="mt-4 grid gap-2">
-            <CloudButton onClick={() => setMode("OCR")}>
+            <CloudButton tone={ocrBlocked ? "soft" : "primary"} disabled={ocrBlocked} onClick={() => setMode("OCR")}>
               <ScanText className="size-4" />
-              {ocrRegistered ? "OCR 수정 화면으로" : "OCR 신규등록"}
+              {ocrBlocked ? "OCR 미사용" : ocrRegistered ? "OCR 수정 화면으로" : "OCR 신규등록"}
             </CloudButton>
-            <CloudButton tone="soft" onClick={() => setMode("VISION")}>
+            <CloudButton tone="soft" disabled={visionBlocked} onClick={() => setMode("VISION")}>
               <ImagePlus className="size-4" />
-              {visionRegistered ? "비전 수정 화면으로" : "비전 신규등록"}
+              {visionBlocked ? "비전 미사용" : visionRegistered ? "비전 수정 화면으로" : "비전 신규등록"}
             </CloudButton>
           </div>
+          {(ocrBlocked || visionBlocked) && (
+            <div className="mt-3 space-y-1 rounded-2xl bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-700">
+              {ocrBlocked && visionBlocked && selectedMaterial.inspection_method === "NONE" ? (
+                <p>{getReferenceBlockedMessage(selectedMaterial, "OCR")}</p>
+              ) : (
+                <>
+                  {ocrBlocked && <p>{getReferenceBlockedMessage(selectedMaterial, "OCR")}</p>}
+                  {visionBlocked && <p>{getReferenceBlockedMessage(selectedMaterial, "VISION")}</p>}
+                </>
+              )}
+            </div>
+          )}
         </CuteCard>
       </div>
     );
@@ -526,10 +561,10 @@ export default function MobileMaterialRegistrationPage() {
                     )}
                     <div className="mt-2 flex flex-wrap gap-1 text-[10px] font-black">
                       <span className={cn("rounded-full px-2 py-0.5", ocrRegistered ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-400")}>
-                        OCR {ocrRegistered ? "완료" : "대기"}
+                        OCR {ocrRegistered ? "완료" : getReferenceButtonState(material, "OCR") === "unused" ? "미사용" : "대기"}
                       </span>
                       <span className={cn("rounded-full px-2 py-0.5", visionRegistered ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-400")}>
-                        비전 {visionRegistered ? "완료" : "대기"}
+                        비전 {visionRegistered ? "완료" : getReferenceButtonState(material, "VISION") === "unused" ? "미사용" : "대기"}
                       </span>
                     </div>
                   </button>
