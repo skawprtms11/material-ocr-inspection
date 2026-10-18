@@ -20,7 +20,8 @@
   - 조정확인 컬럼: `row.request`가 있으면 상태 배지 버튼(`adjustmentLabels`: requested/approved/rejected/retry_requested)으로 `AdjustmentReviewModal` 오픈, 없으면 "요청없음" 배지
 - **`PhotoApprovalModal`**(`app/(workspace)/work-inspection/PhotoApprovalModal.tsx`, 신규) — 작업 단위 사진 승인 팝업
   - 단계 탭(작업전(시작)/완료). 탭 전환·열릴 때마다 `GET /api/work-inspection/photo?work_id=&department_id=&shipper_id=&stage=&include_history=true`로 조회(`cancelled` 플래그로 경합 방지, 실패 시 "연결 오류" 배지 + "다시 시도")
-  - 항목 카드: 구분(제품/부자재)·항목명·코드·LOT·상태 배지(미제출/승인대기/승인/반려) + 썸네일. 썸네일 클릭 시 해당 단계 전체 사진을 좌우(버튼·방향키)로 넘기는 확대 라이트박스(Esc 닫기). 반려 항목은 `reviewComment` 표시, "이전 제출 이력 n건"을 펼치면 반려된 이전 사진·사유(`history`)를 썸네일로 확인
+  - 레이아웃: 헤더 + 작업 요약 카드(`WorkSummaryCard`: 문서번호·작업유형·완성품(코드·명)·작업수량·완성품 LOT·작업일/납기, 응답 `work`) + 단계 탭은 고정, 본문만 스크롤하고 하단 버튼 영역(작업승인/완료승인/작업 반려/선택 저장·비활성 사유)은 고정(sticky). 본문은 "제품 정보 / 사진" → "부자재 정보 / 사진" 섹션 순
+  - 항목 카드(`PhotoItemCard`): 구분 배지·항목명·상태 배지 → **기대 정보 표**(제품: 제품코드·제품명·LOT·단위수량·필요수량·할당수량·비고 / 부자재: 부자재코드·명·LOT·단위·필요·할당수량·검수방식·비고, 응답 `expected`; 없으면 코드·명·LOT만) → 그 아래 **제출 사진**(크게, 클릭 시 해당 단계 전체 사진을 좌우(버튼·방향키)로 넘기는 라이트박스, Esc 닫기) + 부자재마스터 기준 이미지가 있으면 옆에 작게 "기준"(클릭 시 확대, 응답 `referenceImageUrl`) → 반려 사유(`reviewComment`)·"이전 제출 이력 n건"(펼치면 이전 사진·사유) → 승인/반려 토글
   - 항목별 승인/반려: 승인대기(`submitted`) 항목만 토글 가능, 반려는 사유 입력 필수(비면 저장·작업승인 불가). "선택 저장"은 선택분을 모아 `photo_review` 1회 호출
   - 하단: "작업승인"(start)/"완료승인"(complete) — `readiness.canApproveWork`가 true이고 저장하지 않은 선택이 없을 때만 활성, 비활성 사유(미제출/반려 대기/OCR·비전·완료제품사진 미완료/확인요청/승인대기 없음/미저장 선택)를 문구로 표시. "작업 반려"는 사유 입력(필수) 후 해당 단계 승인대기 전부 반려(`photo_reject_work`)
   - 모든 요청에 `departmentId`/`shipperId`(`useFilterStore`) 포함. 성공 시 모달은 데이터를 재조회하고 부모는 `loadRows()`로 목록을 갱신
@@ -240,7 +241,9 @@ OCR 실제 호출 로직은 `lib/server/ocr.ts`의 `runOcr()`에 있다(Google C
 - 응답: `{ source, status:"submitted", photo:{id,url}, workStatus }` / mock: 200 간이 응답
 
 ### `GET /api/work-inspection/photo?work_id&department_id&shipper_id&stage=start|complete&include_history=true`
-- 응답 `PhotoReviewResponse`: items(제품 먼저), 항목별 현재 사진 서명URL(+history), readiness(canApproveWork, pendingPhotos, rejectedPhotos, nonPhotoIncomplete(확인요청 제외), adminRequested)
+- 응답 `PhotoReviewResponse`: `work`(작업 요약 `PhotoReviewWorkDto`), items(제품 먼저), 항목별 현재 사진 서명URL(+history)·`expected`(기대 정보)·`referenceImageUrl`(선택), readiness(canApproveWork, pendingPhotos, rejectedPhotos, nonPhotoIncomplete(확인요청 제외), adminRequested)
+
+- 기대 정보 출처·매칭(`lib/server/photo-review-expected.ts`): 작업지시서 조립 `buildWorkOrderPrintDto`를 재사용(`work_components` 우선, 구성품 없는 쪽은 작업마스터 BOM × 작업수량 폴백 — LOT "-", 할당=필요수량). 제품 항목은 `product_code`+`product_lot`로 매칭하되 같은 코드의 LOT 행이 있으면 그 행, 일치 LOT가 없으면 코드 전체 합계(LOT 나열·할당수량 합). 부자재 항목은 `material_id` → 자재코드로 구성품 행을 모으고 LOT 분할이 여럿이면 LOT·비고를 나열하고 할당수량을 합산(단위·필요수량은 첫 행). 검수방식 라벨은 부자재마스터 `inspection_method`. `referenceImageUrl`은 부자재마스터 `reference_image_path`→`ocr_image_path`→`vision_image_path` 순의 `material-images` 서명URL(1시간, 발급 실패 시 생략). 조회 오류는 502. 모든 필드는 추가(하위호환)이며 mock 응답에는 `work`가 없다.
 
 ### `PATCH /api/work-inspection` 액션
 - `photo_review {decisions:[{inspectionId, decision:"approved"|"rejected", reason?}]}`: 반려 사유 빈값 400, submitted 아니면 409, 경합 409

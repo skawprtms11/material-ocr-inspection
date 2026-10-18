@@ -9,6 +9,7 @@ import {
   removeSupersededSubmittedPhotos
 } from "@/lib/server/inspection-images";
 import { buildReadiness, loadActiveStageRows } from "@/lib/server/photo-review";
+import { loadPhotoReviewExpected } from "@/lib/server/photo-review-expected";
 import {
   assertInspectionBelongsToWork,
   assertUuid,
@@ -221,10 +222,23 @@ export async function GET(request: NextRequest) {
     const photoRows = rows.filter((row) => row.method === "PHOTO");
     const images = await loadPhotoReviewImages(supabase, photoRows.map((row) => row.id));
 
+    const { work, expectedByInspection } = await loadPhotoReviewExpected(
+      supabase,
+      workRow,
+      photoRows.map((row) => ({
+        inspectionId: row.id,
+        targetType: row.target_type === "product" ? "product" : "material",
+        code: row.target_type === "product" ? row.product_code : materialById.get(row.material_id)?.code || "",
+        lot: row.product_lot,
+        materialId: row.material_id
+      }))
+    );
+
     const items: PhotoReviewItemDto[] = photoRows.map((row) => {
       const entry = images.get(row.id);
       const isProduct = row.target_type === "product";
       const material = materialById.get(row.material_id);
+      const extra = expectedByInspection.get(row.id);
       return {
         inspectionId: row.id,
         targetType: isProduct ? "product" : "material",
@@ -237,6 +251,8 @@ export async function GET(request: NextRequest) {
         ...(row.submitted_at ? { submittedAt: row.submitted_at } : {}),
         ...(row.reviewed_at ? { reviewedAt: row.reviewed_at } : {}),
         ...(entry?.current ? { photo: { id: entry.current.id, url: entry.current.url } } : {}),
+        ...(extra?.expected ? { expected: extra.expected } : {}),
+        ...(extra?.referenceImageUrl ? { referenceImageUrl: extra.referenceImageUrl } : {}),
         ...(includeHistory && entry ? { history: entry.history } : {})
       };
     });
@@ -252,6 +268,7 @@ export async function GET(request: NextRequest) {
       workId,
       workStatus,
       stage,
+      work,
       items,
       readiness: buildReadiness(rows, workStatus)
     } satisfies PhotoReviewResponse);
