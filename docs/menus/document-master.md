@@ -18,7 +18,7 @@
   - `TemplatePreviewModal.tsx`: 목록/화주 탭 공용 미리보기(scale 0.7).
 - 탭2 `ShipperMappingTab.tsx` (화주별양식등록)
   - 좌측 화주 목록(`GET /api/shipper-master`의 `shippers`), 선택 시 `useFilterStore().setShipperId`로 전역 필터와 동기화.
-  - 우측: 매핑된 양식 목록(순번·기본 배지·사용중지 배지) + 위/아래 정렬 + 기본 지정 + 미리보기 + 해제, 상단 "추가할 양식" 셀렉트(같은 부서 활성·미매핑 양식) + 양식 추가.
+  - 우측: 매핑된 양식 목록(순번·기본 배지·사용중지 배지) + 위/아래 정렬 + 기본 지정 + 미리보기 + 해제, 상단 "양식 추가" 버튼 → `TemplatePickerModal` 팝업(같은 부서 활성·미매핑 양식 목록, 문서코드·문서명 자동완성 검색(부분일치·강조, ↑↓/Enter 선택), 목록 행 선택 후 "등록"). 기존 셀렉트 박스는 제거(2026-10-18).
   - 정렬은 인접 교환 후 1..n 재부여, 값이 바뀐 행만 PATCH.
 - `DataStatusBar.tsx`: 데이터 출처 배지(Supabase/Mock/연결 오류) + "다시 시도".
 
