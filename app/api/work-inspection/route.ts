@@ -16,7 +16,8 @@ import {
 import { countStageStatuses, isStageApprovalReady, isStageDone } from "@/lib/inspection/method-plan";
 import { getActiveInspections } from "@/lib/mobile/inspection-visibility";
 import { checkNotPhotoInspection, checkPhotoReviewable } from "@/lib/server/inspection-guard";
-import { markPhotoReviewDecision } from "@/lib/server/inspection-images";
+import { INSPECTION_IMAGE_BUCKET, markPhotoReviewDecision, relativeStoragePath } from "@/lib/server/inspection-images";
+import { getOcrPassThreshold, loadWorkOcrTexts, pickOcrExpectedText } from "@/lib/server/ocr-expected-text";
 import { loadActiveStageRows, summarizePhotoReview } from "@/lib/server/photo-review";
 import { loadInspectionSnapshot, maybeAdvanceWorkStatus } from "@/lib/server/work-auto-status";
 import type {
@@ -32,6 +33,8 @@ import type {
   AdjustmentStatusDto,
   InspectionTableRowDto,
   InspectionWithVerificationDto,
+  OcrExpectedSourceDto,
+  OcrReviewEvidenceDto,
   PendingReviewRequestDto,
   WorkInspectionAction,
   WorkInspectionActionResponse,
@@ -48,6 +51,11 @@ function text(value: unknown, fallback = "") {
 
 function numberValue(value: unknown, fallback = 0) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function numberOrUndefined(value: unknown) {
+  const parsed = typeof value === "string" ? Number(value) : value;
+  return typeof parsed === "number" && Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function jsonValue(value: unknown) {
@@ -84,6 +92,8 @@ function toInspection(row: DbRow): WorkInspection {
     // stage 컬럼(마이그레이션 이전 행/조회에는 없음)이 없으면 기존 시작검수로 취급한다.
     stage: (text(row.stage, "start") as WorkInspectionStage),
     ocr_result_text: text(row.ocr_result_text) || undefined,
+    ocr_expected_text: text(row.ocr_expected_text) || undefined,
+    ocr_match_rate: row.ocr_match_rate === null || row.ocr_match_rate === undefined ? undefined : numberOrUndefined(row.ocr_match_rate),
     vision_similarity: typeof row.vision_similarity === "number" ? row.vision_similarity : undefined,
     result_summary: text(row.result_summary),
     attempt_count: numberValue(row.attempt_count),
@@ -129,7 +139,8 @@ function buildPendingReviewRequests(
   requestRows: AdminReviewRequest[],
   workById: Map<string, { document_no: string }>,
   inspectionById: Map<string, WorkInspection>,
-  materialById: Map<string, MaterialMaster>
+  materialById: Map<string, MaterialMaster>,
+  ocrEvidenceByInspection: Map<string, OcrReviewEvidenceDto> = new Map()
 ): PendingReviewRequestDto[] {
   return requestRows
     .filter((request) => request.status === "requested")
@@ -148,19 +159,93 @@ function buildPendingReviewRequests(
         method: inspection?.method ?? "-",
         inspectionId: request.inspection_id,
         reason: request.reason,
-        requestedAt: request.created_at
+        requestedAt: request.created_at,
+        ...(ocrEvidenceByInspection.has(request.inspection_id) ? { ocr: ocrEvidenceByInspection.get(request.inspection_id) } : {})
       };
     });
 }
 
+// 판정 당시 스냅샷이 있으면 그 값, 없으면 현재 해석값(작업 지정 텍스트 → 마스터 검증값)을 기준 텍스트로 내려준다.
+function resolveOcrView(
+  inspection: WorkInspection,
+  material: MaterialMaster | undefined,
+  workOcrTexts: Map<string, string>
+): { text: string; source: OcrExpectedSourceDto } {
+  const workText = workOcrTexts.get(`${inspection.work_id}|${material?.code ?? ""}`);
+  const resolved = pickOcrExpectedText(workText, material?.verification_value);
+  const snapshot = inspection.ocr_expected_text;
+  if (!snapshot?.trim()) return resolved;
+  if (workText === snapshot) return { text: snapshot, source: "work" };
+  if (material?.verification_value === snapshot) return { text: snapshot, source: "master" };
+  return { text: snapshot, source: resolved.source === "none" ? "work" : resolved.source };
+}
+
 function withVerificationValue(
   inspections: WorkInspection[],
-  materialById: Map<string, MaterialMaster>
+  materialById: Map<string, MaterialMaster>,
+  workOcrTexts: Map<string, string> = new Map(),
+  threshold = getOcrPassThreshold()
 ): InspectionWithVerificationDto[] {
-  return inspections.map((inspection) => ({
-    ...inspection,
-    materialVerificationValue: materialById.get(inspection.material_id)?.verification_value || undefined
-  }));
+  return inspections.map((inspection) => {
+    const material = materialById.get(inspection.material_id);
+    const base = { ...inspection, materialVerificationValue: material?.verification_value || undefined };
+    if (inspection.method !== "OCR") return base;
+
+    const view = resolveOcrView(inspection, material, workOcrTexts);
+    return { ...base, ocrExpectedText: view.text || undefined, ocrExpectedSource: view.source, ocrThreshold: threshold };
+  });
+}
+
+// 미처리 OCR 확인요청 건만 최근 촬영 사진 서명 URL(1시간)을 만든다(목록 전체 서명 금지).
+async function buildOcrEvidence(
+  supabase: NonNullable<ReturnType<typeof createServerSupabaseClient>>,
+  requestRows: AdminReviewRequest[],
+  inspectionById: Map<string, WorkInspection>,
+  materialById: Map<string, MaterialMaster>,
+  workOcrTexts: Map<string, string>,
+  imageRows: DbRow[]
+): Promise<Map<string, OcrReviewEvidenceDto>> {
+  const evidence = new Map<string, OcrReviewEvidenceDto>();
+  const threshold = getOcrPassThreshold();
+  const targetIds = new Set<string>();
+
+  for (const request of requestRows) {
+    if (request.status !== "requested") continue;
+    const inspection = inspectionById.get(request.inspection_id);
+    if (inspection?.method !== "OCR") continue;
+    targetIds.add(inspection.id);
+    const view = resolveOcrView(inspection, materialById.get(inspection.material_id), workOcrTexts);
+    evidence.set(inspection.id, {
+      expectedText: view.text,
+      expectedSource: view.source,
+      recognizedText: inspection.ocr_result_text ?? "",
+      matchRate: inspection.ocr_match_rate,
+      threshold
+    });
+  }
+  if (targetIds.size === 0) return evidence;
+
+  const latestByInspection = new Map<string, DbRow>();
+  for (const row of imageRows) {
+    const inspectionId = text(row.inspection_id);
+    if (text(row.image_type) !== "ocr_capture" || !targetIds.has(inspectionId)) continue;
+    const current = latestByInspection.get(inspectionId);
+    if (!current || text(row.created_at) > text(current.created_at)) latestByInspection.set(inspectionId, row);
+  }
+  const entries = [...latestByInspection.entries()];
+  if (entries.length === 0) return evidence;
+
+  const { data: signed, error } = await supabase.storage
+    .from(INSPECTION_IMAGE_BUCKET)
+    .createSignedUrls(entries.map(([, row]) => relativeStoragePath(INSPECTION_IMAGE_BUCKET, text(row.storage_path))), 60 * 60);
+  if (error) throw error;
+
+  entries.forEach(([inspectionId], index) => {
+    const item = evidence.get(inspectionId);
+    const url = signed?.[index]?.signedUrl;
+    if (item && url) item.imageUrl = url;
+  });
+  return evidence;
 }
 
 function groupBy<T>(rows: T[], getKey: (row: T) => string) {
@@ -317,7 +402,9 @@ export async function GET(request: NextRequest) {
     const materialById = new Map(masterData.materials.map((material) => [material.id, material]));
     const inspectionById = new Map(inspectionRows.map((inspection) => [inspection.id, inspection]));
     const workById = new Map(works.map((work) => [work.id, work]));
-    const pendingReviewRequests = buildPendingReviewRequests(requestRows, workById, inspectionById, materialById);
+    const workOcrTexts = await loadWorkOcrTexts(supabase, workIds);
+    const ocrEvidence = await buildOcrEvidence(supabase, requestRows, inspectionById, materialById, workOcrTexts, (images.data ?? []) as DbRow[]);
+    const pendingReviewRequests = buildPendingReviewRequests(requestRows, workById, inspectionById, materialById, ocrEvidence);
 
     const rows = works.map((work, index): InspectionTableRowDto => {
       const workMaster = workMasterById.get(work.work_master_id);
@@ -346,7 +433,7 @@ export async function GET(request: NextRequest) {
               status: "requested" as const
             }
           : undefined);
-      const workInspections = withVerificationValue(inspectionsByWork[work.id] ?? [], materialById);
+      const workInspections = withVerificationValue(inspectionsByWork[work.id] ?? [], materialById, workOcrTexts);
       const adjustmentStatus = requestRow?.status;
       const inspectionCompleted = work.status === "passed" || work.status === "completed";
 

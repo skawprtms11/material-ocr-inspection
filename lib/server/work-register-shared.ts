@@ -1,4 +1,7 @@
 import type { createServerSupabaseClient } from "@/lib/supabase/server";
+import { normalizeMaterialInspectionMethod } from "@/lib/inspection/method-plan";
+import { appRepository } from "@/lib/repositories/app-repository";
+import { loadWorkMasterMaterialRows } from "@/lib/server/work-master-bom";
 import type { WorkMaster } from "@/lib/types/domain";
 import type {
   CreateWorkRegistrationRequest,
@@ -13,6 +16,17 @@ export type DbRow = Record<string, unknown>;
 export type EditablePendingWorkDto = PendingAssignmentWorkDto & { editLockedReason?: string };
 
 export const EDIT_LOCKED_REASON = "검수가 시작되어 수정할 수 없습니다.";
+export const EDIT_LOCKED_ATTEMPT_REASON = "검수 시도 이력(촬영·판정)이 있어 수정할 수 없습니다.";
+
+export const OCR_TEXT_MAX_LENGTH = 200;
+
+// 검수행 중 pending이 아니거나 시도 이력(attempt_count > 0)이 있으면 수정 잠금 사유를 돌려준다.
+// OCR 일치율 미달 판정은 상태를 바꾸지 않고 증거만 남기므로 status만으로는 시작 여부를 알 수 없다.
+export function inspectionEditLockReason(rows: DbRow[]) {
+  if (rows.some((row) => text(row.status) !== "pending")) return EDIT_LOCKED_REASON;
+  if (rows.some((row) => numberValue(row.attempt_count) > 0)) return EDIT_LOCKED_ATTEMPT_REASON;
+  return null;
+}
 
 // 라우트가 의도한 HTTP 상태로 응답하기 위한 오류(그 외 예외는 Supabase 실패로 보고 502 처리)
 export class RouteError extends Error {
@@ -89,7 +103,8 @@ export function componentFromRow(row: DbRow): WorkComponentRowDto {
     requiredQuantity: numberValue(row.required_quantity),
     lot: text(row.lot),
     allocatedQuantity: numberValue(row.allocated_quantity),
-    memo: text(row.memo)
+    memo: text(row.memo),
+    ...(text(row.ocr_expected_text) ? { ocrExpectedText: text(row.ocr_expected_text) } : {})
   };
 }
 
@@ -125,7 +140,8 @@ function componentToInsertRow(workId: string, row: WorkComponentRowDto) {
     required_quantity: row.requiredQuantity,
     lot: row.lot,
     allocated_quantity: row.allocatedQuantity,
-    memo: row.memo
+    memo: row.memo,
+    ocr_expected_text: row.kind === "부자재" && row.ocrExpectedText?.trim() ? row.ocrExpectedText.trim() : null
   };
 }
 
@@ -191,4 +207,55 @@ export function validateRegistrationBody(body: Partial<CreateWorkRegistrationReq
     return "제품 구성 미등록 — 작업마스터에서 사용제품코드를 먼저 등록하세요.";
   }
   return null;
+}
+
+// OCR 검수 텍스트 검증·정리. OCR 대상(부자재마스터 inspection_method OCR/BOTH) 여부는 클라이언트 행이 아니라
+// 작업마스터 부자재 매핑 × 부자재마스터에서 서버가 다시 판단한다. 대상 행만 텍스트(trim)를 남기고 나머지는 제거한다.
+// 부자재는 작업당 1행이라 텍스트 단위는 부자재 단위다(부자재 LOT 분할이 생기면 같은 코드 행의 텍스트 일치 검증이 필요).
+export async function prepareOcrComponentRows(
+  supabase: ServerSupabase | null,
+  scope: { departmentId: string; shipperId: string },
+  workMasterId: string,
+  rows: WorkComponentRowDto[]
+): Promise<WorkComponentRowDto[]> {
+  const targetCodes = new Set<string>();
+
+  if (supabase) {
+    const { mappings, materialById } = await loadWorkMasterMaterialRows(supabase, workMasterId);
+    for (const mapping of mappings) {
+      const material = materialById.get(text(mapping.material_id));
+      const method = normalizeMaterialInspectionMethod(material?.inspection_method);
+      if (material && (method === "OCR" || method === "BOTH")) targetCodes.add(text(material.code));
+    }
+  } else {
+    const materials = appRepository.listMaterials(scope);
+    for (const mapping of appRepository.listWorkMasterMaterials(workMasterId)) {
+      const material = materials.find((item) => item.id === mapping.material_id);
+      if (material && (material.inspection_method === "OCR" || material.inspection_method === "BOTH")) {
+        targetCodes.add(material.code);
+      }
+    }
+  }
+
+  const missing: string[] = [];
+  const tooLong: string[] = [];
+  const sanitized = rows.map((row) => {
+    const isTarget = row.kind === "부자재" && targetCodes.has(row.code);
+    const value = typeof row.ocrExpectedText === "string" ? row.ocrExpectedText.trim() : "";
+    const rest = { ...row };
+    delete rest.ocrExpectedText;
+    if (!isTarget) return rest;
+    if (!value) missing.push(row.code);
+    else if (Array.from(value).length > OCR_TEXT_MAX_LENGTH) tooLong.push(row.code);
+    return { ...rest, ocrExpectedText: value };
+  });
+
+  const submittedCodes = new Set(rows.filter((row) => row.kind === "부자재").map((row) => row.code));
+  for (const code of targetCodes) if (!submittedCodes.has(code)) missing.push(code);
+
+  if (missing.length > 0) throw new RouteError(`OCR 검수 텍스트를 입력하세요: ${missing.join(", ")}`, 400);
+  if (tooLong.length > 0) {
+    throw new RouteError(`OCR 검수 텍스트는 ${OCR_TEXT_MAX_LENGTH}자 이하여야 합니다: ${tooLong.join(", ")}`, 400);
+  }
+  return sanitized;
 }

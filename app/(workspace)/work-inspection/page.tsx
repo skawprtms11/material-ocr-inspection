@@ -7,6 +7,7 @@ import { CloudButton } from "@/components/common/CloudButton";
 import { CuteCard } from "@/components/common/CuteCard";
 import { EmptyCloudState } from "@/components/common/EmptyCloudState";
 import { PageHeader } from "@/components/common/PageHeader";
+import { OcrTextCompare } from "@/components/inspection/OcrTextCompare";
 import { getWorkStatusLabel, inspectionStatusLabels, photoApprovalStageLabels, workInspectionMethodLabels } from "@/lib/constants/status";
 import { useFilterStore } from "@/lib/state/filter-store";
 import type { WorkInspectionStage } from "@/lib/types/domain";
@@ -56,6 +57,7 @@ export default function WorkInspectionPage() {
   const [tableRows, setTableRows] = useState<InspectionTableRow[]>([]);
   const [pendingReviewRequests, setPendingReviewRequests] = useState<PendingReviewRequestDto[]>([]);
   const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
+  const [compareItem, setCompareItem] = useState<PendingReviewRequestDto | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [dataSource, setDataSource] = useState<"supabase" | "mock" | null>(null);
   const [loadError, setLoadError] = useState(false);
@@ -97,7 +99,7 @@ export default function WorkInspectionPage() {
     })
   );
 
-  const handlePendingReviewProcess = async (item: PendingReviewRequestDto, status: "approved" | "retry_requested") => {
+  const handlePendingReviewProcess = async (item: PendingReviewRequestDto, status: "approved" | "retry_requested" | "rejected") => {
     setProcessingRequestId(item.requestId);
 
     try {
@@ -116,6 +118,8 @@ export default function WorkInspectionPage() {
 
       if (status === "approved") toast.success("검수승인 처리되었습니다.");
       if (status === "retry_requested") toast.warning("재검수 대상으로 되돌렸습니다.");
+      if (status === "rejected") toast.error("반려 처리되었습니다. 현장에서 재검수를 진행해야 합니다.");
+      setCompareItem(null);
       await loadRows();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "확인요청 처리에 실패했습니다.");
@@ -186,7 +190,7 @@ export default function WorkInspectionPage() {
             <table className="w-full min-w-[960px] text-left text-sm">
               <thead className="bg-amber-50/40 text-xs font-black text-amber-700">
                 <tr>
-                  {["문서번호", "부자재/제품명", "검수방식", "요청사유", "요청시각", "처리"].map((header) => (
+                  {["문서번호", "부자재/제품명", "검수방식", "일치율", "요청사유", "요청시각", "처리"].map((header) => (
                     <th key={header} className="px-4 py-3">
                       {header}
                     </th>
@@ -199,12 +203,31 @@ export default function WorkInspectionPage() {
                     <td className="px-4 py-3 font-black text-sky-700">{item.documentNo}</td>
                     <td className="px-4 py-3 font-bold text-slate-700">{item.materialName}</td>
                     <td className="px-4 py-3 font-bold">{item.method}</td>
+                    <td className="px-4 py-3 text-right">
+                      {typeof item.ocr?.matchRate === "number" ? (
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-xs font-black ${
+                            item.ocr.matchRate >= item.ocr.threshold ? "bg-emerald-100 text-emerald-700" : "bg-orange-100 text-orange-700"
+                          }`}
+                        >
+                          {item.ocr.matchRate}%
+                        </span>
+                      ) : (
+                        "-"
+                      )}
+                    </td>
                     <td className="px-4 py-3 font-semibold text-slate-600">{item.reason}</td>
                     <td className="px-4 py-3 font-semibold text-slate-500">
                       {item.requestedAt ? formatDate(item.requestedAt, "yyyy.MM.dd HH:mm") : "-"}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-2">
+                        {item.ocr && (
+                          <CloudButton type="button" tone="soft" onClick={() => setCompareItem(item)}>
+                            <Eye className="size-4" />
+                            비교
+                          </CloudButton>
+                        )}
                         <CloudButton
                           type="button"
                           tone="success"
@@ -231,6 +254,15 @@ export default function WorkInspectionPage() {
             </table>
           </div>
         </CuteCard>
+      )}
+
+      {compareItem?.ocr && (
+        <OcrCompareModal
+          item={compareItem}
+          processing={processingRequestId === compareItem.requestId}
+          onClose={() => setCompareItem(null)}
+          onProcess={(status) => void handlePendingReviewProcess(compareItem, status)}
+        />
       )}
 
       {photoApprovalQueue.length > 0 && (
@@ -392,6 +424,7 @@ export default function WorkInspectionPage() {
       {selectedRow?.request && (
         <AdjustmentReviewModal
           row={selectedRow}
+          ocrEvidence={pendingReviewRequests.filter((item) => item.workId === selectedRow.work.id && item.ocr)}
           onClose={() => setSelectedRow(null)}
           onApprove={() => handleAdjustment(selectedRow, "approved")}
           onReject={() => handleAdjustment(selectedRow, "rejected")}
@@ -402,14 +435,92 @@ export default function WorkInspectionPage() {
   );
 }
 
+function OcrCompareModal({
+  item,
+  processing,
+  onClose,
+  onProcess
+}: {
+  item: PendingReviewRequestDto;
+  processing: boolean;
+  onClose: () => void;
+  onProcess: (status: "approved" | "retry_requested" | "rejected") => void;
+}) {
+  const ocr = item.ocr!;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/35 px-4 py-8 backdrop-blur-sm">
+      <div className="w-full max-w-4xl rounded-[1.5rem] border border-white/80 bg-[#f8fbff] p-5 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
+        <div className="mb-4 flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-black text-amber-600">OCR 확인요청 비교</p>
+            <h2 className="mt-1 text-xl font-black text-slate-800">
+              {item.documentNo} · {item.materialName}
+            </h2>
+            <p className="mt-1 text-sm font-semibold text-slate-500">{item.reason}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="OCR 비교 팝업 닫기"
+            className="inline-flex size-10 items-center justify-center rounded-full bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:bg-sky-50"
+          >
+            <X className="size-5" />
+          </button>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="rounded-[1.2rem] bg-white/75 p-4">
+            <p className="text-xs font-black text-slate-500">촬영 사진</p>
+            {ocr.imageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={ocr.imageUrl} alt="OCR 촬영 사진" className="mt-3 w-full rounded-2xl border border-sky-100" />
+            ) : (
+              <div className="mt-3 flex aspect-[4/3] items-center justify-center rounded-2xl bg-slate-50 text-sm font-black text-slate-400">
+                저장된 촬영 사진 없음
+              </div>
+            )}
+          </div>
+          <div className="rounded-[1.2rem] bg-white/75 p-4">
+            <OcrTextCompare
+              expectedText={ocr.expectedText}
+              expectedSource={ocr.expectedSource}
+              recognizedText={ocr.recognizedText}
+              matchRate={ocr.matchRate}
+              threshold={ocr.threshold}
+            />
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-2 sm:grid-cols-3">
+          <CloudButton type="button" tone="success" disabled={processing} onClick={() => onProcess("approved")}>
+            <CheckCircle2 className="size-4" />
+            승인
+          </CloudButton>
+          <CloudButton type="button" tone="warning" disabled={processing} onClick={() => onProcess("retry_requested")}>
+            <RotateCcw className="size-4" />
+            재검수
+          </CloudButton>
+          <CloudButton type="button" tone="danger" disabled={processing} onClick={() => onProcess("rejected")}>
+            <XCircle className="size-4" />
+            반려
+          </CloudButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AdjustmentReviewModal({
   row,
+  ocrEvidence,
   onClose,
   onApprove,
   onReject,
   onRetry
 }: {
   row: InspectionTableRow;
+  ocrEvidence: PendingReviewRequestDto[];
   onClose: () => void;
   onApprove: () => void;
   onReject: () => void;
@@ -417,6 +528,7 @@ function AdjustmentReviewModal({
 }) {
   const request = row.request!;
   const image = row.images[0];
+  const evidenceImageUrl = ocrEvidence.find((item) => item.ocr?.imageUrl)?.ocr?.imageUrl;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/35 px-4 py-8 backdrop-blur-sm">
@@ -453,6 +565,19 @@ function AdjustmentReviewModal({
               <p className="mt-2 text-sm font-bold leading-6 text-slate-700">{request.reason}</p>
             </div>
 
+            {ocrEvidence.map((item) => (
+              <div key={item.requestId} className="rounded-[1.2rem] bg-white/75 p-4">
+                <p className="mb-2 text-xs font-black text-slate-500">OCR 비교 · {item.materialName}</p>
+                <OcrTextCompare
+                  expectedText={item.ocr!.expectedText}
+                  expectedSource={item.ocr!.expectedSource}
+                  recognizedText={item.ocr!.recognizedText}
+                  matchRate={item.ocr!.matchRate}
+                  threshold={item.ocr!.threshold}
+                />
+              </div>
+            ))}
+
             <div className="overflow-hidden rounded-[1.2rem] border border-white/80 bg-white/75">
               <table className="w-full text-left text-xs">
                 <thead className="bg-sky-50/80 font-black text-sky-700">
@@ -460,7 +585,8 @@ function AdjustmentReviewModal({
                     <th className="px-4 py-3">검수방식</th>
                     <th className="px-4 py-3">판정상태</th>
                     <th className="px-4 py-3">OCR/비전 결과</th>
-                    <th className="px-4 py-3">검증값(기대값)</th>
+                    <th className="px-4 py-3">기준 텍스트</th>
+                    <th className="px-4 py-3 text-right">일치율</th>
                     <th className="px-4 py-3">요약</th>
                   </tr>
                 </thead>
@@ -476,7 +602,17 @@ function AdjustmentReviewModal({
                             ? `${Math.round((inspection.vision_similarity ?? 0) * 100)}%`
                             : "-"}
                       </td>
-                      <td className="px-4 py-3 font-bold text-sky-700">{inspection.materialVerificationValue || "-"}</td>
+                      <td className="px-4 py-3 font-bold text-sky-700">
+                        {inspection.method === "OCR"
+                          ? (inspection.ocrExpectedText ?? "-") +
+                            (inspection.ocrExpectedSource && inspection.ocrExpectedSource !== "none"
+                              ? ` (${inspection.ocrExpectedSource === "work" ? "작업등록" : "마스터"})`
+                              : "")
+                          : inspection.materialVerificationValue || "-"}
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold">
+                        {inspection.method === "OCR" && typeof inspection.ocr_match_rate === "number" ? `${inspection.ocr_match_rate}%` : "-"}
+                      </td>
                       <td className="px-4 py-3">{inspection.result_summary}</td>
                     </tr>
                   ))}
@@ -487,14 +623,21 @@ function AdjustmentReviewModal({
 
           <div className="rounded-[1.2rem] bg-white/75 p-4">
             <p className="text-xs font-black text-slate-500">검수 이미지</p>
-            <div className="mt-3 flex aspect-[4/3] items-center justify-center rounded-2xl bg-gradient-to-br from-sky-50 to-amber-50 p-4 text-center text-sm font-black text-slate-400">
-              이미지 미리보기 영역
-            </div>
-            <div className="mt-3 rounded-2xl bg-slate-50 p-3 text-xs font-semibold leading-5 text-slate-500">
-              Storage path:
-              <br />
-              {image?.storage_path ?? `inspection-images/${row.work.id}/${row.work.document_no}.jpg`}
-            </div>
+            {evidenceImageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={evidenceImageUrl} alt="OCR 촬영 사진" className="mt-3 w-full rounded-2xl border border-sky-100" />
+            ) : (
+              <>
+                <div className="mt-3 flex aspect-[4/3] items-center justify-center rounded-2xl bg-gradient-to-br from-sky-50 to-amber-50 p-4 text-center text-sm font-black text-slate-400">
+                  이미지 미리보기 영역
+                </div>
+                <div className="mt-3 rounded-2xl bg-slate-50 p-3 text-xs font-semibold leading-5 text-slate-500">
+                  Storage path:
+                  <br />
+                  {image?.storage_path ?? `inspection-images/${row.work.id}/${row.work.document_no}.jpg`}
+                </div>
+              </>
+            )}
           </div>
         </div>
 

@@ -8,14 +8,16 @@ import {
   RouteError,
   fetchComponentsByWorkIds,
   fetchScopedWorkMaster,
+  inspectionEditLockReason,
   makePendingWork,
+  prepareOcrComponentRows,
   replaceWorkComponents,
   text,
   validateRegistrationBody,
   type DbRow
 } from "@/lib/server/work-register-shared";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import type { CreateWorkRegistrationRequest, CreateWorkRegistrationResponse } from "@/lib/types/work-register-api";
+import type { CreateWorkRegistrationRequest, CreateWorkRegistrationResponse, WorkComponentRowDto } from "@/lib/types/work-register-api";
 
 type RouteContext = {
   params: Promise<{
@@ -34,6 +36,12 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   if (validationError) return NextResponse.json({ error: validationError }, { status: 400 });
 
   if (!supabase || isMock) {
+    let mockComponentRows: WorkComponentRowDto[];
+    try {
+      mockComponentRows = await prepareOcrComponentRows(null, body, body.workMasterId, body.componentRows);
+    } catch (error) {
+      return NextResponse.json({ error: errorMessage(error, "OCR 검수 텍스트 검증에 실패했습니다.") }, { status: error instanceof RouteError ? error.status : 400 });
+    }
     const workMaster = appRepository.listWorkMasters({ departmentId: body.departmentId, shipperId: body.shipperId }).find((item) => item.id === body.workMasterId);
     const response: CreateWorkRegistrationResponse = {
       source: "mock",
@@ -49,7 +57,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         quantity: body.quantity,
         dueDate: body.dueDate,
         memo: body.memo,
-        componentRows: body.componentRows
+        componentRows: mockComponentRows
       }
     };
     return NextResponse.json(response);
@@ -64,18 +72,19 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
     const { data: inspectionData, error: inspectionError } = await supabase
       .from("work_inspections")
-      .select("status, stage")
+      .select("status, stage, attempt_count")
       .eq("work_id", workId);
     if (inspectionError) throw inspectionError;
 
     const inspections = (inspectionData ?? []) as DbRow[];
-    if (text(current.status) !== "registered" || inspections.some((row) => text(row.status) !== "pending")) {
-      throw new RouteError(EDIT_LOCKED_REASON, 409);
-    }
+    if (text(current.status) !== "registered") throw new RouteError(EDIT_LOCKED_REASON, 409);
+    const lockReason = inspectionEditLockReason(inspections);
+    if (lockReason) throw new RouteError(lockReason, 409);
 
     const workMaster = await fetchScopedWorkMaster(supabase, body.workMasterId, scope);
+    const componentRows = await prepareOcrComponentRows(supabase, scope, body.workMasterId, body.componentRows);
 
-    const replaced = await replaceWorkComponents(supabase, workId, body.componentRows);
+    const replaced = await replaceWorkComponents(supabase, workId, componentRows);
     restoreComponents = replaced?.restore ?? null;
 
     // status=registered 조건을 함께 걸어 그 사이 상태가 바뀐 작업은 갱신되지 않게 한다

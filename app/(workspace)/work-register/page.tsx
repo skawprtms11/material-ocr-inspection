@@ -511,8 +511,27 @@ function WorkRegisterModal({
 
   const missingProducts = isRealDbMode && !componentRows.some((row) => row.kind === "제품");
 
+  // OCR 대상 여부는 부자재마스터 검수방식(OCR/BOTH) 기준이며 서버가 저장 시 같은 규칙으로 다시 검증한다
+  const findOcrMaterial = (row: ComponentRow) =>
+    row.kind === "부자재"
+      ? materials.find((item) => item.code === row.code && (item.inspection_method === "OCR" || item.inspection_method === "BOTH"))
+      : undefined;
+  const [showOcrErrors, setShowOcrErrors] = useState(false);
+
   const updateComponentRow = (rowId: string, patch: Partial<ComponentRow>) => {
     setComponentRows((current) => current.map((row) => (row.rowId === rowId ? { ...row, ...patch } : row)));
+  };
+
+  // 자동 채움 없음: 사용자가 버튼을 눌렀을 때만 마스터 검증값을 입력란에 넣는다
+  const importMasterOcrText = (row: ComponentRow, material: MaterialMaster) => {
+    const masterValue = material.verification_value?.trim() ?? "";
+    if (!masterValue) {
+      toast.error("마스터에 등록된 검증값이 없습니다.");
+      return;
+    }
+    const current = row.ocrExpectedText?.trim() ?? "";
+    if (current && current !== masterValue && !window.confirm("입력된 OCR 검수 텍스트를 마스터값으로 덮어쓸까요?")) return;
+    updateComponentRow(row.rowId, { ocrExpectedText: masterValue });
   };
 
   const addProductLotSplit = (target: ComponentRow) => {
@@ -568,6 +587,13 @@ function WorkRegisterModal({
 
     if (productAllocationErrors.length > 0) {
       toast.error(`제품 LOT 분할 수량을 확인해주세요. ${productAllocationErrors[0]}`);
+      return;
+    }
+
+    const emptyOcrRows = componentRows.filter((row) => findOcrMaterial(row) && !row.ocrExpectedText?.trim());
+    if (emptyOcrRows.length > 0) {
+      setShowOcrErrors(true);
+      toast.error(`OCR 검수 텍스트를 입력하세요(${emptyOcrRows.length}건): ${emptyOcrRows.map((row) => row.code).join(", ")}`);
       return;
     }
 
@@ -733,10 +759,10 @@ function WorkRegisterModal({
               )}
             </div>
             <div className="overflow-x-auto rounded-[1.2rem] border border-white/80 bg-white/75">
-              <table className="w-full min-w-[1320px] text-left text-xs">
+              <table className="w-full min-w-[1560px] text-left text-xs">
                 <thead className="bg-violet-50/80 font-black text-violet-700">
                   <tr>
-                    {["구분", "제품코드", "제품명", "단위수량", "필요수량", "LOT", "할당수량", "비고", "LOT분할"].map((header) => (
+                    {["구분", "제품코드", "제품명", "단위수량", "필요수량", "LOT", "할당수량", "OCR 검수 텍스트", "비고", "LOT분할"].map((header) => (
                       <th key={header} className="px-3 py-3">
                         {header}
                       </th>
@@ -748,6 +774,8 @@ function WorkRegisterModal({
                     const productGroupRows = componentRows.filter((item) => item.kind === "제품" && item.groupId === row.groupId);
                     const allocatedSum = productGroupRows.reduce((sum, item) => sum + Number(item.allocatedQuantity || 0), 0);
                     const invalidProductAllocation = row.kind === "제품" && allocatedSum !== row.requiredQuantity;
+                    const ocrMaterial = findOcrMaterial(row);
+                    const ocrTextMissing = Boolean(ocrMaterial) && !row.ocrExpectedText?.trim();
 
                     return (
                       <tr key={row.rowId} className={invalidProductAllocation ? "bg-rose-50/60 text-slate-600" : "text-slate-600"}>
@@ -755,6 +783,9 @@ function WorkRegisterModal({
                           <span className={row.kind === "제품" ? "rounded-full bg-sky-100 px-2 py-1 font-black text-sky-700" : "rounded-full bg-violet-100 px-2 py-1 font-black text-violet-700"}>
                             {row.kind}
                           </span>
+                          {ocrMaterial && (
+                            <span className="ml-1 rounded-full bg-amber-100 px-2 py-1 font-black text-amber-700">OCR</span>
+                          )}
                         </td>
                         <td className="px-3 py-3 font-black text-slate-800">{row.code}</td>
                         <td className="px-3 py-3 font-bold">{row.name}</td>
@@ -780,6 +811,38 @@ function WorkRegisterModal({
                             <p className={invalidProductAllocation ? "mt-1 text-[10px] font-black text-rose-600" : "mt-1 text-[10px] font-black text-emerald-600"}>
                               합계 {allocatedSum.toLocaleString()}
                             </p>
+                          )}
+                        </td>
+                        <td className="px-3 py-3">
+                          {ocrMaterial ? (
+                            <div className="w-72 space-y-1">
+                              <textarea
+                                value={row.ocrExpectedText ?? ""}
+                                onChange={(event) => updateComponentRow(row.rowId, { ocrExpectedText: event.target.value })}
+                                maxLength={200}
+                                rows={2}
+                                aria-label={`${row.code} OCR 검수 텍스트`}
+                                aria-invalid={showOcrErrors && ocrTextMissing}
+                                className={`w-full resize-y rounded-xl border bg-white px-3 py-2 text-xs outline-none focus:ring-2 ${
+                                  showOcrErrors && ocrTextMissing ? "border-rose-400 focus:ring-rose-200" : "border-sky-100 focus:ring-sky-200"
+                                }`}
+                                placeholder="OCR로 확인할 LOT·유효일자 등 (필수)"
+                              />
+                              <div className="flex items-center justify-between gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => importMasterOcrText(row, ocrMaterial)}
+                                  className="rounded-full bg-amber-100 px-3 py-1 text-[11px] font-black text-amber-700"
+                                >
+                                  마스터값 가져오기
+                                </button>
+                                {showOcrErrors && ocrTextMissing && (
+                                  <span className="text-[10px] font-black text-rose-600">필수 입력</span>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-slate-300">-</span>
                           )}
                         </td>
                         <td className="px-3 py-3">
@@ -819,7 +882,7 @@ function WorkRegisterModal({
                   })}
                   {componentRows.length === 0 && (
                     <tr>
-                      <td colSpan={9} className="px-4 py-8 text-center text-sm font-bold text-slate-400">
+                      <td colSpan={10} className="px-4 py-8 text-center text-sm font-bold text-slate-400">
                         작업마스터에 등록된 구성품이 없습니다.
                       </td>
                     </tr>
@@ -952,7 +1015,7 @@ function WorkDetailModal({
               <table className="w-full min-w-[1120px] text-left text-xs">
                 <thead className="bg-violet-50/80 font-black text-violet-700">
                   <tr>
-                    {["구분", "제품코드", "제품명", "단위수량", "필요수량", "LOT", "할당수량", "비고"].map((header) => (
+                    {["구분", "제품코드", "제품명", "단위수량", "필요수량", "LOT", "할당수량", "OCR 검수 텍스트", "비고"].map((header) => (
                       <th key={header} className="px-3 py-3">
                         {header}
                       </th>
@@ -973,6 +1036,7 @@ function WorkDetailModal({
                       <td className="px-3 py-3 font-black text-slate-800">{row.requiredQuantity.toLocaleString()}</td>
                       <td className="px-3 py-3 font-bold text-violet-700">{row.lot || "-"}</td>
                       <td className="px-3 py-3 font-bold">{row.allocatedQuantity.toLocaleString()}</td>
+                      <td className="max-w-[260px] whitespace-pre-wrap break-all px-3 py-3 font-bold text-amber-700">{row.ocrExpectedText || "-"}</td>
                       <td className="px-3 py-3 text-slate-500">{row.memo || "-"}</td>
                     </tr>
                   ))}

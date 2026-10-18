@@ -10,7 +10,15 @@ import type {
 export type AdjustmentStatusDto = "requested" | "approved" | "rejected" | "retry_requested";
 
 // material_masters.verification_value(모바일 OCR 검수 확정값)를 검수 항목별 참고 기준값으로 함께 내려준다.
-export type InspectionWithVerificationDto = WorkInspection & { materialVerificationValue?: string };
+// OCR 항목은 서버가 해석한 기준 텍스트(작업 지정 → 마스터)와 출처, 합격 기준(%)을 함께 내려준다(모바일 카드 표시와 판정값 일치용).
+export type OcrExpectedSourceDto = "work" | "master" | "none";
+
+export type InspectionWithVerificationDto = WorkInspection & {
+  materialVerificationValue?: string;
+  ocrExpectedText?: string;
+  ocrExpectedSource?: OcrExpectedSourceDto;
+  ocrThreshold?: number;
+};
 
 export type InspectionTableRowDto = {
   work: Work & {
@@ -55,6 +63,17 @@ export type PendingReviewRequestDto = {
   inspectionId: string;
   reason: string;
   requestedAt?: string;
+  // OCR 항목 확인요청의 판정 증거(기준·스캔 텍스트, 일치율, 최근 촬영 사진 서명 URL).
+  ocr?: OcrReviewEvidenceDto;
+};
+
+export type OcrReviewEvidenceDto = {
+  expectedText: string;
+  expectedSource: OcrExpectedSourceDto;
+  recognizedText: string;
+  matchRate?: number;
+  threshold: number;
+  imageUrl?: string;
 };
 
 export type WorkInspectionDataResponse = {

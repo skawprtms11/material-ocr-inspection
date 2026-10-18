@@ -10,7 +10,9 @@ import {
   resolveRequestScope,
   scopeFromFormData
 } from "@/lib/server/scope-guard";
+import { matchOcrText } from "@/lib/inspection/ocr-match";
 import { runOcr, type RoiRect } from "@/lib/server/ocr";
+import { getOcrPassThreshold, resolveOcrExpectedText } from "@/lib/server/ocr-expected-text";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { maybeAdvanceWorkStatus } from "@/lib/server/work-auto-status";
 
@@ -23,10 +25,6 @@ const fullRoi: RoiRect = { x: 0, y: 0, width: 100, height: 100 };
 
 function text(value: unknown, fallback = "") {
   return typeof value === "string" ? value : fallback;
-}
-
-function normalize(value: string) {
-  return value.trim().toLowerCase();
 }
 
 function numberField(value: unknown) {
@@ -72,9 +70,14 @@ function buildMockResponse(inspectionId: string, workId: string) {
     status: canVerify ? "passed" : inspection?.status ?? "pending",
     recognizedText: canVerify ? expectedValue : "",
     expectedValue,
+    expectedSource: canVerify ? ("master" as const) : ("none" as const),
     matched: canVerify,
+    matchRate: canVerify ? 100 : 0,
+    threshold: getOcrPassThreshold(),
+    judgement: canVerify ? ("passed" as const) : ("below_threshold" as const),
     canVerify,
-    saved: canVerify
+    saved: canVerify,
+    evidenceSaved: false
   };
 }
 
@@ -135,20 +138,16 @@ export async function POST(request: NextRequest) {
     if (writeFailure) return NextResponse.json({ error: writeFailure.error }, { status: writeFailure.status });
 
     const materialId = text(inspection.material_id);
+    const { text: expectedValue, source: expectedSource } = await resolveOcrExpectedText(supabase, workId, materialId);
+    const threshold = getOcrPassThreshold();
 
-    const { data: materialRow, error: materialError } = await supabase
-      .from("material_masters")
-      .select("verification_value")
-      .eq("id", materialId)
-      .maybeSingle();
-
-    if (materialError) throw materialError;
-    const expectedValue = text((materialRow as DbRow | null)?.verification_value);
-
-    // 검증값 미등록 부자재는 빈값-빈값 매칭으로 합격 처리되는 것을 막기 위해 판정 자체를 거부한다
+    // 기준 텍스트 미등록은 빈값-빈값 매칭으로 합격 처리되는 것을 막기 위해 판정 자체를 거부한다
     if (!expectedValue.trim()) {
       return NextResponse.json(
-        { error: "이 부자재는 검증값이 등록되지 않아 OCR 검수를 진행할 수 없습니다. 부자재등록에서 OCR 등록을 먼저 해주세요." },
+        {
+          error:
+            "이 부자재는 OCR 기준 텍스트가 없어 검수를 진행할 수 없습니다. 작업등록에서 OCR 검수 텍스트를 지정하거나 부자재등록에서 OCR 검증값을 등록해주세요. 현장에서는 관리자 확인요청을 눌러주세요."
+        },
         { status: 409 }
       );
     }
@@ -166,31 +165,25 @@ export async function POST(request: NextRequest) {
         status: text(inspection.status, "pending"),
         recognizedText: "",
         expectedValue,
+        expectedSource,
+        threshold,
         matched: false,
         canVerify: false,
-        saved: false
+        saved: false,
+        evidenceSaved: false
       });
     }
 
     const recognizedText = ocrResult.extractedText;
-    const matched = normalize(recognizedText) === normalize(expectedValue);
+    const { rate: matchRate, passed: matched } = matchOcrText(expectedValue, recognizedText, threshold);
+    const sourceLabel = expectedSource === "work" ? "작업등록 텍스트" : "부자재마스터 검증값";
 
-    // 불합격 판정은 재검수가 전제이므로 스토리지 업로드·DB 갱신 없이 판정 결과만 응답한다.
-    if (!matched) {
-      return NextResponse.json({
-        source: "supabase",
-        status: text(inspection.status, "pending"),
-        recognizedText,
-        expectedValue,
-        matched: false,
-        canVerify: true,
-        saved: false
-      });
-    }
-
-    const nextStatus = "passed";
+    // 기준 미만은 합격 처리하지 않고(상태 불변) 증거(사진·텍스트·일치율)만 저장한다. 현장이 재촬영/확인요청을 고른다.
+    const nextStatus = matched ? "passed" : text(inspection.status, "pending");
     const attemptCount = (numberField(inspection.attempt_count) ?? 0) + 1;
-    const resultSummary = `OCR 일치 (기대값: ${expectedValue || "-"})`;
+    const resultSummary = matched
+      ? `OCR 일치 ${matchRate}% (기준 ${threshold}%, ${sourceLabel})`
+      : `OCR 일치율 미달 ${matchRate}% (기준 ${threshold}%, ${sourceLabel})`;
 
     await ensureInspectionImageBucket(supabase);
     const storagePath = `${workId}/${inspectionId}/${Date.now()}-ocr.jpg`;
@@ -216,8 +209,12 @@ export async function POST(request: NextRequest) {
           metadata: {
             roi,
             expectedValue,
+            expectedSource,
             recognizedText,
             matched,
+            matchRate,
+            threshold,
+            judgement: matched ? "passed" : "below_threshold",
             savedAt: new Date().toISOString()
           }
         })
@@ -231,6 +228,8 @@ export async function POST(request: NextRequest) {
         .update({
           status: nextStatus,
           ocr_result_text: recognizedText,
+          ocr_expected_text: expectedValue,
+          ocr_match_rate: matchRate,
           result_summary: resultSummary,
           attempt_count: attemptCount,
           updated_at: new Date().toISOString()
@@ -242,7 +241,7 @@ export async function POST(request: NextRequest) {
         throw updateError;
       }
 
-      // 검증을 통과한 사진 1장만 유지한다(재검수로 이전에 저장된 사진이 있으면 정리).
+      // 최근 판정 사진 1장만 유지한다(재검수·재촬영으로 이전에 저장된 사진이 있으면 정리).
       await pruneStaleInspectionImages(supabase, inspectionImageBucket, inspectionId, insertedImageId);
     } catch (dbError) {
       // 업로드 성공 후 DB 저장이 실패하면 고아 파일이 남지 않도록 스토리지를 정리한다.
@@ -255,16 +254,25 @@ export async function POST(request: NextRequest) {
     }
 
     // 이 검수로 시작검수(또는 완료검수) 전 항목이 합격/승인되면 작업상태를 자동으로 다음 단계로 전이한다.
-    await maybeAdvanceWorkStatus(supabase, workId);
+    if (matched) {
+      const advanced = await maybeAdvanceWorkStatus(supabase, workId);
+      // 합격 저장은 완료됐으므로 응답은 유지하고, 상태 전이 판정 실패는 로그로 남긴다.
+      if (advanced === null) console.error("OCR 합격 후 작업상태 자동 전이 판정에 실패했습니다.", { workId, inspectionId });
+    }
 
     return NextResponse.json({
       source: "supabase",
       status: nextStatus,
       recognizedText,
       expectedValue,
+      expectedSource,
       matched,
+      matchRate,
+      threshold,
+      judgement: matched ? "passed" : "below_threshold",
       canVerify: true,
-      saved: true
+      saved: matched,
+      evidenceSaved: !matched
     });
   } catch (error) {
     const guardResponse = guardErrorResponse(error);

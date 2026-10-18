@@ -4,6 +4,7 @@ import { ChangeEvent, useEffect, useState } from "react";
 import { AlertTriangle, Camera, CheckCircle2, RotateCcw, ScanText, XCircle } from "lucide-react";
 import { CloudButton } from "@/components/common/CloudButton";
 import { CuteCard } from "@/components/common/CuteCard";
+import { OcrTextCompare } from "@/components/inspection/OcrTextCompare";
 import { TouchRegionSelector } from "@/components/mobile/TouchRegionSelector";
 import { useMobileScope } from "@/lib/mobile/mobile-api";
 import { cropImageFile, loadImage } from "@/lib/utils/image-crop";
@@ -23,9 +24,14 @@ type OcrSubmitResponse = {
   status?: string;
   recognizedText?: string;
   expectedValue?: string;
+  expectedSource?: "work" | "master" | "none";
   matched?: boolean;
+  matchRate?: number;
+  threshold?: number;
+  judgement?: "passed" | "below_threshold";
   canVerify?: boolean;
   saved?: boolean;
+  evidenceSaved?: boolean;
   error?: string;
 };
 
@@ -133,7 +139,10 @@ export function OcrInspectionCard({
     };
   }, [previewUrl]);
 
-  const expectedValue = material?.verification_value || region?.expected_text || "";
+  // 판정 기준 텍스트는 서버가 해석한 값(작업 지정 → 마스터)만 표시한다(표시값과 판정값 일치).
+  const expectedValue = inspection.ocrExpectedText ?? "";
+  const expectedSource = inspection.ocrExpectedSource;
+  const noText = expectedSource === "none";
   const guideImageUrl = region?.imageUrls[0];
 
   const resetAll = () => {
@@ -220,8 +229,8 @@ export function OcrInspectionCard({
       if (!response.ok) throw new Error(payload.error ?? "OCR 검수 저장에 실패했습니다.");
 
       setResult(payload);
-      // 불합격(saved:false)은 서버 데이터가 바뀌지 않으므로 재조회 없이 로컬 결과만 보여준다.
-      if (payload.saved !== false) {
+      // 합격 저장 또는 기준 미달 증거 저장 시 서버 데이터가 바뀌므로 재조회한다(판정 불가는 변경 없음).
+      if (payload.saved || payload.evidenceSaved) {
         await onSubmitted();
       }
     } catch (error) {
@@ -233,12 +242,12 @@ export function OcrInspectionCard({
 
   // 검수 취소(실패 후)와 확인요청(진행 중 특이사항)은 모두 request_review 액션을 공유한다. label로 저장 사유의
   // 접두어만 구분한다.
-  const submitReviewRequest = async (label: string, confirmText: string, promptLabel: string) => {
+  const submitReviewRequest = async (label: string, confirmText: string, promptLabel: string, autoReason?: string) => {
     const confirmed = window.confirm(confirmText);
     if (!confirmed) return;
 
     const memo = window.prompt(promptLabel, "");
-    const trimmedMemo = memo && memo.trim() ? memo.trim() : undefined;
+    const trimmedMemo = [autoReason, memo && memo.trim() ? memo.trim() : undefined].filter(Boolean).join(" / ") || undefined;
 
     setCancelLoading(true);
     setCancelError("");
@@ -281,18 +290,41 @@ export function OcrInspectionCard({
 
   const requestNoGuideReview = () =>
     submitReviewRequest(
-      "기준 미등록 확인요청",
-      "기준 사진이 없어 OCR 검수를 진행할 수 없습니다. 관리자에게 확인을 요청하시겠습니까?",
+      noText ? "기준 텍스트 미등록 확인요청" : "기준 미등록 확인요청",
+      noText
+        ? "OCR 기준 텍스트가 없어 검수를 진행할 수 없습니다. 관리자에게 확인을 요청하시겠습니까?"
+        : "기준 사진이 없어 OCR 검수를 진행할 수 없습니다. 관리자에게 확인을 요청하시겠습니까?",
       "확인요청 사유를 입력하세요 (선택, 비워두면 기본 사유로 저장됩니다)"
     );
 
-  // 불합격(saved:false)은 서버 상태가 바뀌지 않으므로 로컬 결과로도 재검수/취소 버튼을 노출한다.
-  const localUnsavedFailure = result != null && result.canVerify !== false && result.matched === false && result.saved === false;
-  // 기준 사진이 없으면(미등록·조회 실패) 촬영 UI가 열리지 않아 재검수로는 진행할 수 없다. 이때는 상태와 관계없이
+  // 판정 결과: 방금 판정한 값이 있으면 그것, 없으면 서버에 남은 최근 판정(새로고침 후에도 유지).
+  const persistedRate =
+    inspection.ocr_match_rate != null && ["pending", "retrying", "failed", "passed"].includes(inspection.status)
+      ? inspection.ocr_match_rate
+      : undefined;
+  const judged = result != null && result.canVerify !== false && typeof result.matchRate === "number";
+  const shownRate = judged ? result.matchRate : persistedRate;
+  const shownThreshold = (judged ? result.threshold : undefined) ?? inspection.ocrThreshold;
+  const shownRecognized = judged ? result.recognizedText : inspection.ocr_result_text;
+  const shownExpected = (judged ? result.expectedValue : undefined) || expectedValue;
+  const belowThreshold = judged ? result.judgement === "below_threshold" : persistedRate !== undefined && inspection.status !== "passed";
+  const matchedNow = judged && result.judgement === "passed";
+
+  const requestBelowThreshold = () => {
+    const rateNote = `일치율 ${shownRate}% (기준 ${shownThreshold ?? 90}%)`;
+    return submitReviewRequest(
+      "OCR 일치율 미달 확인요청",
+      `${rateNote}로 기준에 미달했습니다. 관리자에게 확인을 요청하시겠습니까?`,
+      "추가 사유를 입력하세요 (선택, 일치율은 자동으로 포함됩니다)",
+      rateNote
+    );
+  };
+
+  // 기준 사진/텍스트가 없으면 촬영 UI가 열리지 않아 재검수로는 진행할 수 없다. 이때는 상태와 관계없이
   // 관리자 확인요청 버튼을 항상 노출해 관리자 조정승인으로 진행할 수 있게 한다.
-  const noGuide = !guideLoading && (Boolean(guideError) || !guideImageUrl);
+  const noGuide = !guideLoading && (Boolean(guideError) || !guideImageUrl || noText);
   const showFailureActions =
-    !noGuide && (localUnsavedFailure || inspection.status === "failed" || inspection.status === "retrying");
+    !noGuide && (belowThreshold || inspection.status === "failed" || inspection.status === "retrying");
   const canRequestReview = inspection.status !== "admin_requested" && !showFailureActions;
 
   return (
@@ -326,18 +358,32 @@ export function OcrInspectionCard({
         </div>
       )}
 
-      {!guideLoading && (guideError || !guideImageUrl) && (
+      {noText && (
+        <div className="flex items-start gap-2 rounded-2xl bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-700">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          <span>기준 텍스트 미등록 — 작업등록 또는 부자재등록에서 OCR 텍스트를 등록하세요. 현장에서는 관리자 확인요청을 눌러주세요.</span>
+        </div>
+      )}
+
+      {!noText && !guideLoading && (guideError || !guideImageUrl) && (
         <div className="flex items-start gap-2 rounded-2xl bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-700">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" />
           <span>{guideError || "기준 사진 미등록 — 부자재등록에서 먼저 등록하세요."}</span>
         </div>
       )}
 
-      {!guideLoading && guideImageUrl && region && (
+      {!guideLoading && guideImageUrl && region && !noText && (
         <>
           <p className="mb-2 text-xs font-black text-slate-500">표시된 위치가 보이도록 촬영하세요</p>
           <GuideRoiOverlay imageUrl={guideImageUrl} roi={region.roi} />
-          <p className="mt-2 text-xs font-bold text-emerald-600">검증값 {expectedValue || "-"}</p>
+          <p className="mt-2 text-xs font-bold text-emerald-600">
+            등록 텍스트 {expectedValue || "-"}
+            {expectedSource && (
+              <span className="ml-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-black text-emerald-700">
+                {expectedSource === "work" ? "작업지정" : "마스터"}
+              </span>
+            )}
+          </p>
 
           {/* 1단계: 촬영 */}
           {!rawFile && (
@@ -412,40 +458,43 @@ export function OcrInspectionCard({
         <div className="mt-3 rounded-2xl bg-rose-50 p-3 text-sm font-bold leading-6 text-rose-700">{submitError}</div>
       )}
 
-      {result && (
+      {result && result.canVerify === false && (
+        <div className="mt-3 rounded-2xl bg-amber-50 p-3 text-xs font-black text-amber-700">
+          <p className="flex items-center gap-2">
+            <AlertTriangle className="size-4" />
+            OCR 서버 미설정 — 판정 불가
+          </p>
+        </div>
+      )}
+
+      {shownRate !== undefined && (
         <div
           className={cn(
             "mt-3 rounded-2xl p-3 text-sm font-bold leading-6",
-            result.canVerify === false
-              ? "bg-amber-50 text-amber-700"
-              : result.matched
-                ? "bg-emerald-50 text-emerald-700"
-                : "bg-rose-50 text-rose-700"
+            belowThreshold ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"
           )}
         >
           <p className="flex items-center gap-2 text-xs font-black">
-            {result.canVerify === false ? (
+            {belowThreshold ? (
               <>
-                <AlertTriangle className="size-4" />
-                OCR 서버 미설정 — 판정 불가
-              </>
-            ) : result.matched ? (
-              <>
-                <CheckCircle2 className="size-4" />
-                합격 · 저장 완료
+                <XCircle className="size-4" />
+                {judged ? "일치율 미달 — 재촬영하거나 관리자 확인을 요청하세요" : "최근 판정 미달 — 재촬영하거나 관리자 확인을 요청하세요"}
               </>
             ) : (
               <>
-                <XCircle className="size-4" />
-                불합격 (서버 저장 안 됨)
+                <CheckCircle2 className="size-4" />
+                {matchedNow ? "합격 · 저장 완료" : "합격"}
               </>
             )}
           </p>
-          <p className="mt-1 text-xs">인식값: {result.recognizedText || "-"}</p>
-          <p className="mt-1 text-xs">기대값: {result.expectedValue || "-"}</p>
-          {result.canVerify !== false && result.matched === false && (
-            <p className="mt-1 text-xs">사진과 판정 결과는 저장되지 않았습니다. 재검수하거나 확인요청을 눌러주세요.</p>
-          )}
+          <OcrTextCompare
+            className="mt-2 text-slate-700"
+            expectedText={shownExpected}
+            expectedSource={expectedSource}
+            recognizedText={shownRecognized}
+            matchRate={shownRate}
+            threshold={shownThreshold}
+          />
         </div>
       )}
 
@@ -453,11 +502,15 @@ export function OcrInspectionCard({
         <div className="mt-3 grid grid-cols-2 gap-2">
           <CloudButton tone="soft" disabled={cancelLoading} onClick={resetAll}>
             <RotateCcw className="size-4" />
-            재검수(재촬영)
+            {belowThreshold ? "재촬영" : "재검수(재촬영)"}
           </CloudButton>
-          <CloudButton tone="danger" disabled={cancelLoading} onClick={requestCancel}>
-            <XCircle className="size-4" />
-            {cancelLoading ? "요청 중..." : "검수 취소"}
+          <CloudButton
+            tone={belowThreshold ? "warning" : "danger"}
+            disabled={cancelLoading}
+            onClick={() => void (belowThreshold ? requestBelowThreshold() : requestCancel())}
+          >
+            {belowThreshold ? <AlertTriangle className="size-4" /> : <XCircle className="size-4" />}
+            {cancelLoading ? "요청 중..." : belowThreshold ? "관리자 확인요청" : "검수 취소"}
           </CloudButton>
         </div>
       )}

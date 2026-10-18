@@ -149,6 +149,9 @@ export type WorkInspection = {
   submitted_at?: string;
   reviewed_at?: string;
   ocr_result_text?: string;
+  // OCR 판정 당시 기준 텍스트 스냅샷과 최근 일치율(%, 0~100). 기존 행은 없음.
+  ocr_expected_text?: string;
+  ocr_match_rate?: number;
   vision_similarity?: number;
   result_summary: string;
   attempt_count: number;
