@@ -22,6 +22,7 @@ import type {
   CreateWorkRegistrationRequest,
   CreateWorkRegistrationResponse,
   PendingAssignmentWorkDto,
+  WorkOrderSummaryDto,
   WorkRegisterDataResponse
 } from "@/lib/types/work-register-api";
 import type { WorkMasterDataResponse } from "@/lib/types/work-master-api";
@@ -51,7 +52,9 @@ function mockPendingWorks(departmentId: string, shipperId: string) {
         finishedProductLot: `LOT-${work.work_date.replaceAll("-", "").slice(2)}-${String(index + 1).padStart(2, "0")}`,
         quantity: 80 + index * 25,
         dueDate: addDays(work.work_date, 2 + index),
-        memo: work.memo
+        memo: work.memo,
+        assignedAt: null,
+        workOrder: null
       };
     });
 }
@@ -100,6 +103,30 @@ async function fetchUsers(supabase: NonNullable<ReturnType<typeof createServerSu
   return ((data ?? []) as DbRow[]).map(userFromRow).filter((user) => user.is_active);
 }
 
+async function fetchWorkOrderSummaries(supabase: NonNullable<ReturnType<typeof createServerSupabaseClient>>, workIds: string[]) {
+  const summaries = new Map<string, WorkOrderSummaryDto>();
+  if (workIds.length === 0) return summaries;
+
+  const { data, error } = await supabase
+    .from("work_order_issues")
+    .select("work_id, template_name, issued_at")
+    .in("work_id", workIds)
+    .order("issued_at", { ascending: false });
+  if (error) throw error;
+
+  // issued_at 내림차순이라 work_id별 첫 행이 최근 출력이다
+  for (const row of (data ?? []) as DbRow[]) {
+    const workId = text(row.work_id);
+    const existing = summaries.get(workId);
+    if (existing) {
+      existing.issueCount += 1;
+    } else {
+      summaries.set(workId, { issueCount: 1, lastIssuedAt: text(row.issued_at), lastTemplateName: text(row.template_name) });
+    }
+  }
+  return summaries;
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const departmentId = searchParams.get("department_id");
@@ -127,16 +154,17 @@ export async function GET(request: NextRequest) {
 
     if (error) throw error;
 
-    const unassignedRows = ((workRows ?? []) as DbRow[]).filter((row) => !row.assigned_to && !row.assigned_at);
+    // 출력(=자동배정) 후에도 검수 시작 전 작업은 재출력할 수 있도록 배정 여부로 거르지 않는다.
+    const registeredRows = (workRows ?? []) as DbRow[];
     const startStatusesByWorkId = new Map<string, InspectionStatus[]>();
     const startedWorkIds = new Set<string>();
-    const unassignedWorkIds = unassignedRows.map((row) => text(row.id));
+    const registeredWorkIds = registeredRows.map((row) => text(row.id));
 
-    if (unassignedWorkIds.length > 0) {
+    if (registeredWorkIds.length > 0) {
       const { data: inspectionRows, error: inspectionError } = await supabase
         .from("work_inspections")
         .select("work_id, status, stage")
-        .in("work_id", unassignedWorkIds);
+        .in("work_id", registeredWorkIds);
 
       if (inspectionError) throw inspectionError;
 
@@ -155,22 +183,26 @@ export async function GET(request: NextRequest) {
     }
 
     // 검수완료 작업은 등록 목록에서 제외하고 작업현황에서만 조회한다(대표님 스펙)
-    const rows = unassignedRows.filter(
+    const rows = registeredRows.filter(
       (row) => getInspectionAggregateStatus(startStatusesByWorkId.get(text(row.id)) ?? []) !== "completed"
     );
-    const componentsByWork = await fetchComponentsByWorkIds(supabase, rows.map((row) => text(row.id)));
+    const rowIds = rows.map((row) => text(row.id));
+    const componentsByWork = await fetchComponentsByWorkIds(supabase, rowIds);
+    const workOrderByWorkId = await fetchWorkOrderSummaries(supabase, rowIds);
     const workMasterById = new Map(masterData.workMasters.map((workMaster) => [workMaster.id, workMaster]));
 
     return NextResponse.json({
       source: "supabase",
-      pendingWorks: rows.map((row) =>
-        makePendingWork(
+      pendingWorks: rows.map((row) => ({
+        ...makePendingWork(
           row,
           workMasterById.get(text(row.work_master_id)),
           componentsByWork[text(row.id)],
           startedWorkIds.has(text(row.id)) ? EDIT_LOCKED_REASON : undefined
-        )
-      ),
+        ),
+        assignedAt: typeof row.assigned_at === "string" ? row.assigned_at : null,
+        workOrder: workOrderByWorkId.get(text(row.id)) ?? null
+      })),
       workMasters: masterData.workMasters,
       materials: masterData.materials,
       users: await fetchUsers(supabase),

@@ -4,6 +4,7 @@ import { errorMessage } from "@/lib/repositories/supabase-scope";
 import { assertWorkInScope, guardErrorResponse, missingScopeResponse, resolveRequestScope, scopeFromSearchParams } from "@/lib/server/scope-guard";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getInspectionTargetType, normalizeMaterialInspectionMethod, productKey } from "@/lib/inspection/method-plan";
+import { loadWorkMasterMaterialRows, loadWorkMasterProductRows } from "@/lib/server/work-master-bom";
 import { loadPhotoReviewImages } from "@/lib/server/inspection-images";
 import type { InspectionStatus, WorkInspectionMethod, WorkInspectionStage } from "@/lib/types/domain";
 import type {
@@ -168,14 +169,7 @@ export async function GET(request: NextRequest) {
       });
     } else {
       productsSource = "work_master";
-      const { data: productRows, error: productError } = await supabase
-        .from("work_master_products")
-        .select("product_code, product_name, unit_quantity, product_type, sort_order")
-        .eq("work_master_id", workMasterId)
-        .order("sort_order", { ascending: true });
-      if (productError) throw productError;
-
-      products = ((productRows ?? []) as DbRow[]).map((row, index) => {
+      products = (await loadWorkMasterProductRows(supabase, workMasterId)).map((row, index) => {
         const productType = text(row.product_type, "정상품");
         const unitQuantity = numberValue(row.unit_quantity, 1);
         return {
@@ -190,23 +184,7 @@ export async function GET(request: NextRequest) {
     }
 
     // 2) 부자재 내역: work_master_materials + material_masters 조합.
-    const { data: materialMappingRows, error: materialMappingError } = await supabase
-      .from("work_master_materials")
-      .select("*")
-      .eq("work_master_id", workMasterId)
-      .order("inspection_order", { ascending: true });
-    if (materialMappingError) throw materialMappingError;
-
-    const materialMappings = (materialMappingRows ?? []) as DbRow[];
-    const materialIds = materialMappings.map((row) => text(row.material_id)).filter(Boolean);
-
-    const { data: materialRows, error: materialError } =
-      materialIds.length > 0
-        ? await supabase.from("material_masters").select("*").in("id", materialIds)
-        : { data: [] as DbRow[], error: null };
-    if (materialError) throw materialError;
-
-    const materialById = new Map(((materialRows ?? []) as DbRow[]).map((row) => [text(row.id), row]));
+    const { mappings: materialMappings, materialById } = await loadWorkMasterMaterialRows(supabase, workMasterId);
 
     // 정책: 부자재 내역 표의 검수상태/검수사진은 시작검수(stage="start")만 표시한다(기존 동작 보존).
     // 완료검수(stage="complete") 결과는 아래 "작업완료사진" 구역에서 별도로 보여주고, 제품 사진검수(PHOTO)는 제품내역에 단계별로 붙인다.

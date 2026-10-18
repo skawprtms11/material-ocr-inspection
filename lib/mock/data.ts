@@ -1,3 +1,5 @@
+import { getDefaultSettings } from "@/lib/documents/layout-meta";
+import type { DocumentTemplate, ShipperDocumentTemplate } from "@/lib/types/document-template";
 import type {
   AdminReviewRequest,
   AppUser,
@@ -367,5 +369,80 @@ export const workerSignatures: WorkerSignature[] = [
     worker_id: "user-worker",
     signature_path: "signatures/work-1003/worker-signature.png",
     signed_at: "2026-07-02T09:25:00.000Z"
+  }
+];
+
+export const documentTemplates: DocumentTemplate[] = [
+  {
+    id: "doctpl-standard",
+    department_id: "dept-fulfillment",
+    doc_kind: "work_order",
+    code: "WO-STD",
+    name: "표준 작업지시서",
+    revision_date: "2026-01-01",
+    template_type: "layout",
+    layout_key: "standard",
+    settings: getDefaultSettings("standard"),
+    schema_version: 1,
+    is_active: true,
+    memo: null,
+    created_by: null,
+    created_at: now,
+    updated_at: now
+  },
+  {
+    id: "doctpl-bom",
+    department_id: "dept-fulfillment",
+    doc_kind: "work_order",
+    code: "WO-BOM",
+    name: "BOM 상세 작업지시서",
+    revision_date: "2026-01-01",
+    template_type: "layout",
+    layout_key: "bom-detail",
+    settings: getDefaultSettings("bom-detail"),
+    schema_version: 1,
+    is_active: true,
+    memo: null,
+    created_by: null,
+    created_at: now,
+    updated_at: now
+  },
+  {
+    id: "doctpl-lot",
+    department_id: "dept-fulfillment",
+    doc_kind: "work_order",
+    code: "WO-LOT",
+    name: "LOT 분할 작업지시서",
+    revision_date: "2026-01-01",
+    template_type: "layout",
+    layout_key: "lot-split",
+    settings: getDefaultSettings("lot-split"),
+    schema_version: 1,
+    is_active: true,
+    memo: null,
+    created_by: null,
+    created_at: now,
+    updated_at: now
+  }
+];
+
+export const shipperDocumentTemplates: ShipperDocumentTemplate[] = [
+  {
+    id: "shipdoc-mint-standard",
+    shipper_id: "shipper-mint",
+    template_id: "doctpl-standard",
+    is_default: true,
+    sort_order: 1,
+    created_at: now,
+    updated_at: now
+  },
+  {
+    id: "shipdoc-mint-bom",
+    shipper_id: "shipper-mint",
+    template_id: "doctpl-bom",
+    is_default: false,
+    sort_order: 2,
+    created_at: now,
+    updated_at: now
   }
 ];

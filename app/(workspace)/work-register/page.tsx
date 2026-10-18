@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { Eye, Pencil, Plus, Save, UserPlus, X } from "lucide-react";
+import { Eye, FileText, Pencil, Plus, Save, X } from "lucide-react";
 import { toast } from "sonner";
 import { CloudButton } from "@/components/common/CloudButton";
 import { CuteCard } from "@/components/common/CuteCard";
@@ -9,8 +9,8 @@ import { EmptyCloudState } from "@/components/common/EmptyCloudState";
 import { PageHeader } from "@/components/common/PageHeader";
 import type { EditablePendingWorkDto } from "@/lib/server/work-register-shared";
 import { useFilterStore } from "@/lib/state/filter-store";
-import { assignWorkToInspection } from "@/lib/state/work-flow-store";
-import type { AppUser, MaterialMaster, WorkMaster } from "@/lib/types/domain";
+import type { IssueWorkOrderResponse } from "@/lib/types/document-template";
+import type { MaterialMaster, WorkMaster } from "@/lib/types/domain";
 import type {
   CreateWorkRegistrationRequest,
   CreateWorkRegistrationResponse,
@@ -19,8 +19,24 @@ import type {
 } from "@/lib/types/work-register-api";
 import type { ProductUsageRowDto, WorkMaterialRowDto } from "@/lib/types/work-master-api";
 import { formatDate } from "@/lib/utils/format";
+import { WorkOrderModal } from "./WorkOrderModal";
 
 type PendingAssignmentWork = EditablePendingWorkDto;
+
+type IssueFilter = "unissued" | "issued" | "all";
+
+const issueFilterOptions: { value: IssueFilter; label: string }[] = [
+  { value: "unissued", label: "미출력" },
+  { value: "issued", label: "출력완료" },
+  { value: "all", label: "전체" }
+];
+
+function formatIssuedAt(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 // 실DB 모드에서는 가짜 제품 폴백을 쓰지 않는다
 const isRealDbMode = process.env.NEXT_PUBLIC_USE_MOCK_DATA === "false";
@@ -115,11 +131,11 @@ export default function WorkRegisterPage() {
   const { departmentId, shipperId } = useFilterStore();
   const [workMasters, setWorkMasters] = useState<WorkMaster[]>([]);
   const [materials, setMaterials] = useState<MaterialMaster[]>([]);
-  const [assignableUsers, setAssignableUsers] = useState<AppUser[]>([]);
   const [materialRowsByWork, setMaterialRowsByWork] = useState<Record<string, WorkMaterialRowDto[]>>({});
   const [productRowsByWork, setProductRowsByWork] = useState<Record<string, ProductUsageRowDto[]>>({});
   const [pendingWorks, setPendingWorks] = useState<PendingAssignmentWork[]>([]);
-  const [assignTarget, setAssignTarget] = useState<PendingAssignmentWork | null>(null);
+  const [workOrderTarget, setWorkOrderTarget] = useState<PendingAssignmentWork | null>(null);
+  const [issueFilter, setIssueFilter] = useState<IssueFilter>("unissued");
   const [detailTarget, setDetailTarget] = useState<PendingAssignmentWork | null>(null);
   const [editTarget, setEditTarget] = useState<PendingAssignmentWork | null>(null);
   const [isRegisterOpen, setIsRegisterOpen] = useState(false);
@@ -131,11 +147,10 @@ export default function WorkRegisterPage() {
     setPendingWorks(data.pendingWorks);
     setWorkMasters(data.workMasters);
     setMaterials(data.materials);
-    setAssignableUsers(data.users);
     setMaterialRowsByWork(data.materialRowsByWork);
     setProductRowsByWork(data.productRowsByWork);
     setDataSource(data.source);
-    setAssignTarget(null);
+    setWorkOrderTarget(null);
     setDetailTarget(null);
     setEditTarget(null);
     setIsRegisterOpen(false);
@@ -174,6 +189,15 @@ export default function WorkRegisterPage() {
     return () => controller.abort();
   }, [departmentId, loadWorkRegister, shipperId]);
 
+  const visibleWorks = useMemo(
+    () =>
+      pendingWorks.filter((work) => {
+        const issued = (work.workOrder?.issueCount ?? 0) > 0;
+        return issueFilter === "all" || (issueFilter === "issued" ? issued : !issued);
+      }),
+    [issueFilter, pendingWorks]
+  );
+
   if (!departmentId || !shipperId) {
     return <EmptyCloudState />;
   }
@@ -193,7 +217,7 @@ export default function WorkRegisterPage() {
       setPendingWorks((current) => [result.work, ...current]);
       setDataSource(result.source);
       setIsRegisterOpen(false);
-      toast.success("작업이 DB에 저장되고 할당대기 목록에 등록되었습니다.");
+      toast.success("작업이 저장되고 작업지시 대기 목록에 등록되었습니다.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "작업등록 저장에 실패했습니다.");
     }
@@ -215,7 +239,12 @@ export default function WorkRegisterPage() {
         throw new Error(result.error ?? "작업 수정 저장에 실패했습니다.");
       }
 
-      setPendingWorks((current) => current.map((work) => (work.id === workId ? result.work : work)));
+      // 수정 응답에는 배정·출력 이력 요약이 없어 기존 값을 유지한다
+      setPendingWorks((current) =>
+        current.map((work) =>
+          work.id === workId ? { ...result.work, assignedAt: work.assignedAt, workOrder: work.workOrder } : work
+        )
+      );
       setDataSource(result.source);
       setEditTarget(null);
       toast.success("작업이 수정되었습니다.");
@@ -224,35 +253,31 @@ export default function WorkRegisterPage() {
     }
   };
 
-  const handleAssign = async (workId: string, assignee: AppUser) => {
-    if (!departmentId || !shipperId) return;
-
-    const targetWork = pendingWorks.find((work) => work.id === workId);
-    if (!targetWork) return;
-
-    try {
-      const response = await fetch(`/api/work-register/${workId}/assign`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ departmentId, shipperId, assigneeId: assignee.id, assigneeName: assignee.name })
-      });
-      const result = (await response.json()) as { error?: string };
-      if (!response.ok) throw new Error(result.error ?? "작업 할당 저장에 실패했습니다.");
-
-      assignWorkToInspection(targetWork, assignee, { departmentId, shipperId });
-      setPendingWorks((current) => current.filter((work) => work.id !== workId));
-      setAssignTarget(null);
-      toast.success(`${assignee.name} 담당자로 할당되었습니다. DB에 할당 정보가 저장되었습니다.`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "작업 할당 저장에 실패했습니다.");
-    }
+  // 출력 성공 시 행의 배정·출력 이력 요약만 갱신한다(모달은 열린 채 재출력 가능)
+  const handleIssued = (workId: string, result: IssueWorkOrderResponse, templateName: string) => {
+    setPendingWorks((current) =>
+      current.map((work) =>
+        work.id === workId
+          ? {
+              ...work,
+              assignedAt: result.assignedAt,
+              workOrder: {
+                issueCount: Math.max((work.workOrder?.issueCount ?? 0) + 1, result.issue.seq),
+                lastIssuedAt: result.issue.issuedAt,
+                lastTemplateName: templateName
+              }
+            }
+          : work
+      )
+    );
+    setDataSource(result.source);
   };
 
   return (
     <>
       <PageHeader
         title="작업등록"
-        description="작업을 등록하면 할당대기 목록에 표시되고, 담당자 할당 시 목록에서 제외됩니다."
+        description="작업을 등록한 뒤 작업지시서를 출력하면 작업이 자동 배정되고, 검수 시작 전까지 재출력할 수 있습니다."
         action={
           <CloudButton type="button" onClick={() => setIsRegisterOpen(true)}>
             <Plus className="size-4" />
@@ -263,7 +288,7 @@ export default function WorkRegisterPage() {
 
       <div className="space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white/60 px-4 py-2 text-xs font-black text-slate-500 ring-1 ring-white/80">
-          <span>{isLoading ? "작업등록 데이터를 불러오는 중이에요." : "선택된 부서/화주 기준으로 할당대기 작업을 조회합니다."}</span>
+          <span>{isLoading ? "작업등록 데이터를 불러오는 중이에요." : "선택된 부서/화주 기준으로 검수 시작 전 작업을 조회합니다."}</span>
           <div className="flex items-center gap-2">
             <span className={`rounded-full px-3 py-1 ring-1 ${loadError ? "bg-rose-50 text-rose-700 ring-rose-100" : "bg-sky-50 text-sky-700 ring-sky-100"}`}>
               데이터: {loadError ? "연결 오류" : dataSource === "supabase" ? "Supabase" : dataSource === "mock" ? "Mock/Fallback" : "연결 확인 중"}
@@ -279,18 +304,35 @@ export default function WorkRegisterPage() {
         <CuteCard className="p-0">
           <div className="flex flex-col gap-2 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="text-lg font-black text-slate-800">할당 대기중인 작업 목록</h2>
-              <p className="mt-1 text-sm font-semibold text-slate-500">담당자 할당 전 작업만 표시됩니다.</p>
+              <h2 className="text-lg font-black text-slate-800">작업지시 대기 작업 목록</h2>
+              <p className="mt-1 text-sm font-semibold text-slate-500">검수 시작 전 작업을 출력 여부와 관계없이 표시합니다.</p>
             </div>
-            <span className="w-fit rounded-full bg-sky-50 px-3 py-1 text-xs font-black text-sky-700">
-              {pendingWorks.length}건 대기
-            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex rounded-full bg-slate-100 p-1" role="group" aria-label="출력 여부 필터">
+                {issueFilterOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setIssueFilter(option.value)}
+                    aria-pressed={issueFilter === option.value}
+                    className={`rounded-full px-3 py-1 text-xs font-black transition ${
+                      issueFilter === option.value ? "bg-white text-sky-700 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              <span className="w-fit rounded-full bg-sky-50 px-3 py-1 text-xs font-black text-sky-700">
+                {visibleWorks.length}건
+              </span>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1440px] text-left text-sm">
               <thead className="bg-sky-50/80 text-xs font-black text-sky-700">
                 <tr>
-                  {["등록일자", "작업구분", "문서번호", "완성품코드", "완성품명", "LOT", "작업수량", "완료요청일", "비고", "수정", "작업할당"].map((header) => (
+                  {["등록일자", "작업구분", "문서번호", "완성품코드", "완성품명", "LOT", "작업수량", "완료요청일", "비고", "수정", "작업지시"].map((header) => (
                     <th key={header} className="px-4 py-3">
                       {header}
                     </th>
@@ -298,7 +340,7 @@ export default function WorkRegisterPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white/70">
-                {pendingWorks.map((work) => (
+                {visibleWorks.map((work) => (
                   <tr key={work.id} className="text-slate-600 transition hover:bg-sky-50/70">
                     <td className="px-4 py-3 font-bold">{formatDate(work.registeredAt)}</td>
                     <td className="px-4 py-3">
@@ -329,17 +371,24 @@ export default function WorkRegisterPage() {
                       {work.editLockedReason && <p className="mt-1 text-[10px] font-black text-rose-600">{work.editLockedReason}</p>}
                     </td>
                     <td className="px-4 py-3">
-                      <CloudButton type="button" tone="soft" onClick={() => setAssignTarget(work)}>
-                        <UserPlus className="size-4" />
-                        할당
+                      <CloudButton type="button" tone="soft" onClick={() => setWorkOrderTarget(work)}>
+                        <FileText className="size-4" />
+                        작업지시서
                       </CloudButton>
+                      {work.workOrder ? (
+                        <p className="mt-1 text-[10px] font-black text-emerald-700">
+                          출력 {work.workOrder.issueCount}회 · 최근 {formatIssuedAt(work.workOrder.lastIssuedAt)}
+                        </p>
+                      ) : (
+                        <p className="mt-1 text-[10px] font-bold text-slate-400">미출력</p>
+                      )}
                     </td>
                   </tr>
                 ))}
                 {pendingWorks.length === 0 && (
                   <tr>
                     <td colSpan={11} className="px-4 py-10 text-center text-sm font-bold text-slate-400">
-                      할당 대기중인 작업이 없습니다. 상단의 작업 등록 버튼으로 새 작업을 등록해주세요.
+                      {issueFilter === "issued" ? "출력 완료된 작업이 없습니다." : issueFilter === "unissued" ? "작업지시서를 출력하지 않은 작업이 없습니다." : "표시할 작업이 없습니다."} 상단의 작업 등록 버튼으로 새 작업을 등록해주세요.
                     </td>
                   </tr>
                 )}
@@ -373,12 +422,13 @@ export default function WorkRegisterPage() {
         />
       )}
 
-      {assignTarget && (
-        <AssignmentModal
-          work={assignTarget}
-          users={assignableUsers}
-          onClose={() => setAssignTarget(null)}
-          onAssign={handleAssign}
+      {workOrderTarget && (
+        <WorkOrderModal
+          work={workOrderTarget}
+          departmentId={departmentId}
+          shipperId={shipperId}
+          onClose={() => setWorkOrderTarget(null)}
+          onIssued={handleIssued}
         />
       )}
 
@@ -552,7 +602,7 @@ function WorkRegisterModal({
             <p className="text-xs font-black text-sky-600">작업등록</p>
             <h2 className="mt-1 text-2xl font-black text-slate-800">{isEdit ? "작업 수정" : "새 작업 등록"}</h2>
             <p className="mt-2 text-sm font-semibold text-slate-500">
-              {isEdit ? "검수 시작 전 작업만 수정할 수 있습니다. 저장하면 목록에 반영됩니다." : "저장하면 할당대기 목록에 추가됩니다."}
+              {isEdit ? "검수 시작 전 작업만 수정할 수 있습니다. 이미 출력된 지시서가 있으면 수정 후 재출력하세요." : "저장하면 작업지시 대기 목록에 추가됩니다."}
             </p>
           </div>
           <button
@@ -797,86 +847,7 @@ function WorkRegisterModal({
             </CloudButton>
             <CloudButton type="submit" disabled={missingProducts}>
               <Save className="size-4" />
-              {isEdit ? "수정 저장" : "할당대기 목록에 등록"}
-            </CloudButton>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-function AssignmentModal({
-  work,
-  users,
-  onClose,
-  onAssign
-}: {
-  work: PendingAssignmentWork;
-  users: AppUser[];
-  onClose: () => void;
-  onAssign: (workId: string, assignee: AppUser) => void;
-}) {
-  const [assigneeId, setAssigneeId] = useState(users[0]?.id ?? "");
-  const selectedUser = users.find((user) => user.id === assigneeId);
-
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!selectedUser) {
-      toast.error("담당자를 선택해주세요.");
-      return;
-    }
-    onAssign(work.id, selectedUser);
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 px-4 py-8 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-[1.5rem] border border-white/80 bg-[#f8fbff] p-5 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
-        <div className="mb-5 flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-black text-sky-600">작업할당</p>
-            <h2 className="mt-1 text-2xl font-black text-slate-800">{work.documentNo}</h2>
-            <p className="mt-2 text-sm font-semibold text-slate-500">{work.workType} · {work.finishedProductCode}</p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="할당 팝업 닫기"
-            className="inline-flex size-10 items-center justify-center rounded-full bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:bg-sky-50"
-          >
-            <X className="size-5" />
-          </button>
-        </div>
-        <form className="space-y-4" onSubmit={submit}>
-          <label className="block">
-            <span className="mb-1 block text-xs font-black text-slate-500">담당자</span>
-            <select
-              value={assigneeId}
-              onChange={(event) => setAssigneeId(event.target.value)}
-              className="h-11 w-full rounded-2xl border border-sky-100 bg-white px-3 text-sm font-bold outline-none focus:ring-2 focus:ring-sky-200"
-              required
-            >
-              {users.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.name} ({user.role})
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-black text-slate-500">할당 메모</span>
-            <textarea
-              className="min-h-24 w-full rounded-2xl border border-sky-100 bg-white p-3 text-sm outline-none focus:ring-2 focus:ring-sky-200"
-              placeholder="작업자에게 전달할 메모"
-            />
-          </label>
-          <div className="grid grid-cols-2 gap-2">
-            <CloudButton type="button" tone="soft" onClick={onClose}>
-              취소
-            </CloudButton>
-            <CloudButton type="submit">
-              <UserPlus className="size-4" />
-              할당완료
+              {isEdit ? "수정 저장" : "작업지시 대기 목록에 등록"}
             </CloudButton>
           </div>
         </form>

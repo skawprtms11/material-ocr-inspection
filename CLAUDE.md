@@ -15,7 +15,7 @@
 - **Supabase 서버 접근**은 반드시 `lib/supabase/server.ts`의 `createServerSupabaseClient()`만 사용한다(서비스롤 키 + 타임아웃/재시도 내장). 새로 `createClient`를 만들지 않는다.
 - API 라우트는 서비스롤 키로 **RLS를 우회**하므로, 권한·스코프 검증을 라우트 레벨에서 반드시 수행한다.
 - 모든 목록/조회는 `FilterScope`(departmentId / shipperId) 스코프 필터를 통과해야 한다. 스코프 없는 전체 조회를 새로 만들지 않는다.
-- 상태 관리는 zustand `lib/state/filter-store.ts`(부서/화주 필터 — 워크스페이스·모바일 공용, 모바일은 `MobileScopeInitializer`가 초기화). `lib/state/work-flow-store.ts`는 관리자 페이지(work-register의 `assignWorkToInspection`, work-status의 `dashboardWorkStatusOptions`)에서만 쓰이고 **모바일에서는 사용되지 않는다**(2026-08 기준).
+- 상태 관리는 zustand `lib/state/filter-store.ts`(부서/화주 필터 — 워크스페이스·모바일 공용, 모바일은 `MobileScopeInitializer`가 초기화). `lib/state/work-flow-store.ts`는 관리자 페이지(work-status의 `dashboardWorkStatusOptions`)에서만 쓰이고(work-register의 `assignWorkToInspection` 호출은 제거돼 현재 호출처 0건·미사용) **모바일에서는 사용되지 않는다**(2026-08 기준).
 - **검수 방식 판정 = 부자재마스터 `inspection_method`(BOTH→OCR+VISION, NONE→PHOTO), 제품은 항상 PHOTO**: OCR·비전 단독은 해당 방식, 사진검수(PHOTO)는 작업자 촬영 후 관리자 승인이 필요하다(`lib/inspection/method-plan.ts`, 상세: `docs/menus/work-inspection.md`).
 
 ### 기본 프로세스 (업무 흐름)
@@ -48,6 +48,7 @@
 | 자재 마스터 | `app/(workspace)/material-master` | `docs/menus/material-master.md` |
 | 부서 마스터 | `app/(workspace)/department-master` | `docs/menus/department-master.md` |
 | 화주 마스터 | `app/(workspace)/shipper-master` | `docs/menus/shipper-master.md` |
+| 문서마스터 | `app/(workspace)/document-master` | `docs/menus/document-master.md` |
 | 사용자 관리 | `app/(workspace)/users` | `docs/menus/users.md` |
 | 모바일 현장 검수(8화면 통합) | `app/mobile` | `docs/menus/mobile.md` |
 

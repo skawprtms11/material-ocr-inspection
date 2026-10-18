@@ -17,6 +17,13 @@ export type WorkComponentRowDto = {
   memo: string;
 };
 
+// 작업지시서 출력 이력 집계(GET 목록 전용). 이력이 없으면 null.
+export type WorkOrderSummaryDto = {
+  issueCount: number;
+  lastIssuedAt: string;
+  lastTemplateName: string;
+};
+
 export type PendingAssignmentWorkDto = {
   id: string;
   registeredAt: string;
@@ -30,6 +37,8 @@ export type PendingAssignmentWorkDto = {
   dueDate: string;
   memo: string;
   componentRows?: WorkComponentRowDto[];
+  assignedAt?: string | null;
+  workOrder?: WorkOrderSummaryDto | null;
 };
 
 export type WorkRegisterDataResponse = {
