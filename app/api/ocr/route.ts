@@ -1,5 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runOcr, type RoiRect } from "@/lib/server/ocr";
+import {
+  assertMaterialInScope,
+  assertWorkInScope,
+  guardErrorResponse,
+  missingScopeResponse,
+  resolveRequestScope,
+  scopeFromFormData
+} from "@/lib/server/scope-guard";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
@@ -41,7 +50,29 @@ function parseRoi(raw: FormDataEntryValue | null, field: string, fallback: RoiRe
 }
 
 export async function POST(request: NextRequest) {
-  const formData = await request.formData();
+  const formData = await request.formData().catch(() => null);
+  if (!formData) return NextResponse.json({ error: "multipart/form-data 요청이 필요합니다." }, { status: 400 });
+
+  // OCR 호출 비용 남용을 막기 위해 스코프(departmentId/shipperId)를 필수로 받고, materialId/workId가 오면 소속을 확인한다.
+  const requestScope = scopeFromFormData(formData);
+  if (!requestScope) return missingScopeResponse();
+
+  const materialId = String(formData.get("materialId") ?? "").trim();
+  const workId = String(formData.get("workId") ?? "").trim();
+  const supabase = createServerSupabaseClient();
+
+  if (supabase && process.env.NEXT_PUBLIC_USE_MOCK_DATA === "false") {
+    try {
+      const scope = await resolveRequestScope(supabase, requestScope);
+      if (materialId) await assertMaterialInScope(supabase, materialId, scope);
+      if (workId) await assertWorkInScope(supabase, workId, scope);
+    } catch (error) {
+      const guardResponse = guardErrorResponse(error);
+      if (guardResponse) return guardResponse;
+      return NextResponse.json({ error: "스코프 확인에 실패했습니다." }, { status: 502 });
+    }
+  }
+
   const image = formData.get("image");
   const expectedText = String(formData.get("expectedText") ?? "").trim();
   const isCropped = String(formData.get("isCropped") ?? "") === "true";

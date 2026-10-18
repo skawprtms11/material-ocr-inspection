@@ -5,6 +5,7 @@ import { ArrowLeft, Camera, CheckCircle2, ImagePlus, Pencil, Plus, RotateCcw, Sa
 import { CloudButton } from "@/components/common/CloudButton";
 import { CuteCard } from "@/components/common/CuteCard";
 import { TouchRegionSelector } from "@/components/mobile/TouchRegionSelector";
+import { compareVisionRegions, constrainRect, cropImageFile, loadImage, type Rect, type VisionPairScore } from "@/lib/inspection/vision-signature";
 import { useMobileMaterials, useMobileScope } from "@/lib/mobile/mobile-api";
 import type { MaterialMaster } from "@/lib/types/domain";
 import { cn } from "@/lib/utils/cn";
@@ -12,7 +13,6 @@ import { cn } from "@/lib/utils/cn";
 type RegisterMode = "OCR" | "VISION" | null;
 type RegistrationMethod = Exclude<RegisterMode, null>;
 type StatusFilter = "all" | "registered" | "unregistered";
-type Rect = { x: number; y: number; width: number; height: number };
 type OcrApiResult = {
   extractedText?: string;
   matched?: boolean;
@@ -33,11 +33,6 @@ type VisionPhoto = {
   rect: Rect;
   regionConfirmed: boolean;
 };
-type VisionPairScore = {
-  a: number;
-  b: number;
-  similarity: number;
-};
 type VisionSimilarityState =
   | { status: "idle"; message: string }
   | { status: "processing"; message: string }
@@ -49,13 +44,13 @@ type RegistrationSavePayload = {
   roi?: Rect;
   expectedText?: string;
   recognizedText?: string;
+  ocrRawText?: string;
   similarity?: number;
   fileName?: string;
 };
 
 const defaultRect: Rect = { x: 18, y: 24, width: 56, height: 22 };
 const visionMaxPhotos = 5;
-const visionSampleSize = 24;
 const statusFilters: { value: StatusFilter; label: string }[] = [
   { value: "all", label: "전체" },
   { value: "registered", label: "등록" },
@@ -77,57 +72,6 @@ function hasMethodRegistration(status: Record<RegistrationMethod, Set<string>>, 
   return status[method].has(materialId);
 }
 
-function clamp(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), max);
-}
-
-function loadImage(url: string) {
-  return new Promise<HTMLImageElement>((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error("이미지를 불러오지 못했습니다."));
-    image.src = url;
-  });
-}
-
-async function cropImageFile(file: File, rect: Rect, filePrefix = "ocr-roi") {
-  const url = URL.createObjectURL(file);
-
-  try {
-    const image = await loadImage(url);
-    const safeRect = constrainRect(rect);
-    const sourceX = clamp(Math.round((safeRect.x / 100) * image.naturalWidth), 0, Math.max(0, image.naturalWidth - 1));
-    const sourceY = clamp(Math.round((safeRect.y / 100) * image.naturalHeight), 0, Math.max(0, image.naturalHeight - 1));
-    const sourceWidth = Math.max(1, Math.min(image.naturalWidth - sourceX, Math.round((safeRect.width / 100) * image.naturalWidth)));
-    const sourceHeight = Math.max(1, Math.min(image.naturalHeight - sourceY, Math.round((safeRect.height / 100) * image.naturalHeight)));
-    const canvas = document.createElement("canvas");
-    canvas.width = sourceWidth;
-    canvas.height = sourceHeight;
-
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("선택 영역 이미지를 만들지 못했습니다.");
-
-    context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, sourceWidth, sourceHeight);
-
-    const blob = await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob((nextBlob) => {
-        if (nextBlob) resolve(nextBlob);
-        else reject(new Error("선택 영역 이미지를 변환하지 못했습니다."));
-      }, "image/jpeg", 0.92);
-    });
-
-    return {
-      file: new File([blob], `${filePrefix}-${file.name.replace(/\.[^.]+$/, "")}.jpg`, { type: "image/jpeg" }),
-      width: sourceWidth,
-      height: sourceHeight,
-      sourceRect: { x: sourceX, y: sourceY, width: sourceWidth, height: sourceHeight },
-      originalSize: { width: image.naturalWidth, height: image.naturalHeight }
-    };
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-
 async function compressVisionFile(file: File) {
   const { default: imageCompression } = await import("browser-image-compression");
   const compressed = await imageCompression(file, {
@@ -138,6 +82,21 @@ async function compressVisionFile(file: File) {
     initialQuality: 0.82
   });
   const name = `vision-${file.name.replace(/\.[^.]+$/, "")}.jpg`;
+
+  return new File([compressed], name, { type: "image/jpeg", lastModified: Date.now() });
+}
+
+// OCR 기준 이미지는 크롭본이 아니라 원본(압축본)을 저장한다. 비율이 유지되므로 원본 기준 ROI(%)가 그대로 유효하다.
+async function compressOcrReferenceFile(file: File) {
+  const { default: imageCompression } = await import("browser-image-compression");
+  const compressed = await imageCompression(file, {
+    maxSizeMB: 2,
+    maxWidthOrHeight: 2400,
+    useWebWorker: false,
+    fileType: "image/jpeg",
+    initialQuality: 0.9
+  });
+  const name = `ocr-${file.name.replace(/\.[^.]+$/, "")}.jpg`;
 
   return new File([compressed], name, { type: "image/jpeg", lastModified: Date.now() });
 }
@@ -162,65 +121,10 @@ function buildMobileMaterialImagePath(material: MaterialMaster, method: Registra
   return `material-images/mobile/${safeCode}/${method.toLowerCase()}-${Date.now()}-${safeFileName}`;
 }
 
-async function getVisionSignature(file: File, rect: Rect) {
-  const cropped = await cropImageFile(file, rect, "vision-roi");
-  const url = URL.createObjectURL(cropped.file);
-
-  try {
-    const image = await loadImage(url);
-    const canvas = document.createElement("canvas");
-    canvas.width = visionSampleSize;
-    canvas.height = visionSampleSize;
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("비전 일치율 샘플을 만들지 못했습니다.");
-
-    context.drawImage(image, 0, 0, visionSampleSize, visionSampleSize);
-    const pixels = context.getImageData(0, 0, visionSampleSize, visionSampleSize).data;
-    const signature = new Uint8Array(visionSampleSize * visionSampleSize);
-
-    for (let index = 0; index < signature.length; index += 1) {
-      const pixelIndex = index * 4;
-      signature[index] = Math.round(
-        pixels[pixelIndex] * 0.299 +
-          pixels[pixelIndex + 1] * 0.587 +
-          pixels[pixelIndex + 2] * 0.114
-      );
-    }
-
-    return signature;
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-
-function compareVisionSignatures(a: Uint8Array, b: Uint8Array) {
-  const length = Math.min(a.length, b.length);
-  if (length === 0) return 0;
-
-  let diff = 0;
-  for (let index = 0; index < length; index += 1) {
-    diff += Math.abs(a[index] - b[index]);
-  }
-
-  return clamp(1 - diff / length / 255, 0, 1);
-}
-
 async function compareVisionPhotos(
   photos: VisionPhoto[]
 ): Promise<Omit<Extract<VisionSimilarityState, { status: "ready" }>, "status" | "comparisonKey">> {
-  const signatures = await Promise.all(photos.map((photo) => getVisionSignature(photo.file, photo.rect)));
-  const pairScores: VisionPairScore[] = [];
-
-  for (let a = 0; a < signatures.length; a += 1) {
-    for (let b = a + 1; b < signatures.length; b += 1) {
-      pairScores.push({ a, b, similarity: compareVisionSignatures(signatures[a], signatures[b]) });
-    }
-  }
-
-  const average = pairScores.reduce((sum, pair) => sum + pair.similarity, 0) / Math.max(1, pairScores.length);
-  const minimum = pairScores.reduce((min, pair) => Math.min(min, pair.similarity), 1);
-
-  return { average, minimum, pairScores };
+  return compareVisionRegions(photos.map((photo) => ({ file: photo.file, rect: photo.rect })));
 }
 
 function buildVisionComparisonKey(photos: VisionPhoto[]) {
@@ -234,15 +138,6 @@ function buildVisionComparisonKey(photos: VisionPhoto[]) {
       return `${photo.id}:${photo.regionConfirmed ? "1" : "0"}:${rectKey}`;
     })
     .join("|");
-}
-
-function constrainRect(rect: Rect): Rect {
-  const width = clamp(rect.width, 0.8, 96);
-  const height = clamp(rect.height, 0.8, 96);
-  const x = clamp(rect.x, 0, 100 - width);
-  const y = clamp(rect.y, 0, 100 - height);
-
-  return { x, y, width, height };
 }
 
 export default function MobileMaterialRegistrationPage() {
@@ -335,6 +230,8 @@ export default function MobileMaterialRegistrationPage() {
     if (payload.expectedText) formData.append("expectedText", payload.expectedText);
     // OCR 검토를 거친 경우 인식값이 빈 문자열이어도(canVerify=false 등) 그대로 전송해야 서버가 검증값을 빈 값으로 저장한다.
     if (payload.recognizedText !== undefined) formData.append("recognizedText", payload.recognizedText);
+    if (payload.ocrRawText !== undefined) formData.append("ocrRawText", payload.ocrRawText);
+    formData.append("source", "mobile-material-registration");
     if (typeof payload.similarity === "number") formData.append("similarity", String(payload.similarity));
     files.forEach((file) => formData.append("images", file));
 
@@ -684,7 +581,7 @@ function OcrRegistration({
 }) {
   const [previewUrl, setPreviewUrl] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [ocrCroppedFile, setOcrCroppedFile] = useState<File | null>(null);
+  const scope = useMobileScope();
   const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
   const [rect, setRect] = useState(defaultRect);
   const [recognizedText, setRecognizedText] = useState("");
@@ -718,7 +615,6 @@ function OcrRegistration({
     setOcrProvider("");
     setOcrError("");
     setSaveError("");
-    setOcrCroppedFile(null);
     setSaved(false);
   };
 
@@ -763,7 +659,6 @@ function OcrRegistration({
     setOcrReviewed(false);
     setOcrMatched(false);
     setOcrCanVerify(true);
-    setOcrCroppedFile(null);
     setSaved(false);
 
     try {
@@ -771,7 +666,6 @@ function OcrRegistration({
       setRect(reviewRect);
 
       const croppedImage = await cropImageFile(selectedFile, reviewRect);
-      setOcrCroppedFile(croppedImage.file);
       const formData = new FormData();
       formData.append("image", croppedImage.file);
       formData.append("expectedText", expectedText);
@@ -784,6 +678,8 @@ function OcrRegistration({
       formData.append("sourceRect", JSON.stringify(croppedImage.sourceRect));
       formData.append("isCropped", "true");
       formData.append("materialId", material.id);
+      formData.append("departmentId", scope.departmentId);
+      formData.append("shipperId", scope.shipperId);
 
       const response = await fetch("/api/ocr", {
         method: "POST",
@@ -928,12 +824,15 @@ function OcrRegistration({
             setSaveError("");
 
             try {
+              // 저장 이미지는 원본, roi도 원본 기준이라야 현장 가이드·웹 미리보기 오버레이가 어긋나지 않는다.
+              const referenceFile = await compressOcrReferenceFile(selectedFile);
               await onSaved({
-                file: ocrCroppedFile ?? selectedFile,
+                file: referenceFile,
                 roi: constrainRect(rect),
                 expectedText,
                 recognizedText,
-                fileName: (ocrCroppedFile ?? selectedFile).name
+                ocrRawText: recognizedText,
+                fileName: referenceFile.name
               });
               setSaved(true);
             } catch (error) {

@@ -77,7 +77,19 @@ function inspectionMethodErrorResponse() {
   return NextResponse.json({ error: "inspection_method는 OCR, VISION, BOTH, NONE 중 하나여야 합니다." }, { status: 400 });
 }
 
-function payloadToDb(payload: MaterialPayload, departmentId?: string, shipperId?: string) {
+/** 요청 payload를 DB 컬럼으로 변환한다. 수정(isUpdate)일 때 전송되지 않은 이미지 경로는 기존 값을 유지하도록 제외한다. */
+function payloadToDb(payload: MaterialPayload, departmentId?: string, shipperId?: string, isUpdate = false) {
+  const imagePaths = isUpdate
+    ? {
+        ...(payload.reference_image_path !== undefined ? { reference_image_path: payload.reference_image_path ?? "" } : {}),
+        ...(payload.ocr_image_path !== undefined ? { ocr_image_path: payload.ocr_image_path ?? "" } : {}),
+        ...(payload.vision_image_path !== undefined ? { vision_image_path: payload.vision_image_path ?? "" } : {})
+      }
+    : {
+        reference_image_path: payload.reference_image_path ?? payload.ocr_image_path ?? payload.vision_image_path ?? "",
+        ocr_image_path: payload.ocr_image_path ?? "",
+        vision_image_path: payload.vision_image_path ?? ""
+      };
   return {
     ...(departmentId ? { department_id: departmentId } : {}),
     ...(shipperId ? { shipper_id: shipperId } : {}),
@@ -85,9 +97,7 @@ function payloadToDb(payload: MaterialPayload, departmentId?: string, shipperId?
     name: payload.name,
     lot: payload.lot ?? "",
     inspection_method: payload.inspection_method,
-    reference_image_path: payload.reference_image_path ?? payload.ocr_image_path ?? payload.vision_image_path ?? "",
-    ocr_image_path: payload.ocr_image_path ?? "",
-    vision_image_path: payload.vision_image_path ?? "",
+    ...imagePaths,
     remark: payload.remark ?? "",
     is_active: true
   };
@@ -194,7 +204,7 @@ export async function PATCH(request: NextRequest) {
 
     const { data, error } = await supabase
       .from("material_masters")
-      .update(payloadToDb(body))
+      .update(payloadToDb(body, undefined, undefined, true))
       .eq("id", body.id)
       .select("*")
       .single();
