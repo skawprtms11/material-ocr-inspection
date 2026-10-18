@@ -120,6 +120,30 @@ export type WorkInspectionActionResponse = {
 
 export type PhotoReviewItemStatus = "pending" | "submitted" | "admin_approved" | "rejected";
 
+// 사진 확인 팝업 상단 작업 요약
+export type PhotoReviewWorkDto = {
+  documentNo: string;
+  workType: string;
+  finishedProductCode: string;
+  finishedProductName: string;
+  quantity: number;
+  finishedProductLot: string;
+  workDate: string;
+  dueDate: string;
+};
+
+// 항목별 기대 정보(구성품 → 없으면 작업마스터 BOM). LOT 분할이 여럿이고 항목 LOT와 일치하는 행이 없으면 합계·LOT 나열.
+export type PhotoReviewExpectedDto = {
+  code: string;
+  name: string;
+  lot: string;
+  unitQuantity: number;
+  requiredQuantity: number;
+  allocatedQuantity: number;
+  memo: string;
+  inspectionMethodLabel?: string;
+};
+
 export type PhotoReviewItemDto = {
   inspectionId: string;
   targetType: "product" | "material";
@@ -132,6 +156,9 @@ export type PhotoReviewItemDto = {
   submittedAt?: string;
   reviewedAt?: string;
   photo?: { id: string; url: string };
+  expected?: PhotoReviewExpectedDto;
+  // 부자재마스터 기준 이미지 서명 URL(등록된 경우만)
+  referenceImageUrl?: string;
   history?: { id: string; url: string; submissionNo: number; reviewStatus: string; reason?: string; savedAt: string }[];
 };
 
@@ -150,6 +177,7 @@ export type PhotoReviewResponse = {
   workId: string;
   workStatus: WorkStatus;
   stage: WorkInspectionStage;
+  work?: PhotoReviewWorkDto;
   items: PhotoReviewItemDto[];
   readiness: PhotoReviewReadinessDto;
 };
