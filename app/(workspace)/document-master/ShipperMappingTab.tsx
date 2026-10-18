@@ -13,6 +13,7 @@ import type {
   ShipperDocumentTemplateListResponse
 } from "@/lib/types/document-template";
 import { DataStatusBar } from "./DataStatusBar";
+import { TemplatePickerModal } from "./TemplatePickerModal";
 import { TemplatePreviewModal } from "./TemplatePreviewModal";
 
 type Source = "supabase" | "mock";
@@ -35,7 +36,7 @@ export function ShipperMappingTab({ departmentId }: { departmentId: string }) {
   const [shippers, setShippers] = useState<Shipper[]>([]);
   const [mappings, setMappings] = useState<ShipperDocumentMappingDto[]>([]);
   const [candidates, setCandidates] = useState<DocumentTemplate[]>([]);
-  const [selectedCandidate, setSelectedCandidate] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [source, setSource] = useState<Source | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
@@ -73,7 +74,6 @@ export function ShipperMappingTab({ departmentId }: { departmentId: string }) {
       const data = await requestJson<ShipperDocumentTemplateListResponse>(`/api/shipper-document-templates?${params}`, {}, "화주별 양식 조회에 실패했습니다.");
       setMappings(data.mappings);
       setCandidates(data.candidates);
-      setSelectedCandidate("");
       setSource(data.source);
       setLoadError(false);
       if (data.warning) toast.warning(`Supabase 대신 mock 데이터로 표시합니다. ${data.warning}`);
@@ -108,10 +108,8 @@ export function ShipperMappingTab({ departmentId }: { departmentId: string }) {
     }
   };
 
-  const addMapping = () =>
+  const addMapping = (template: DocumentTemplate) =>
     run(async () => {
-      const template = candidates.find((item) => item.id === selectedCandidate);
-      if (!template) return;
       const result = await requestJson<{ source: Source; mapping: ShipperDocumentMappingDto }>(
         "/api/shipper-document-templates",
         jsonInit("POST", { ...scopeBody, templateId: template.id }),
@@ -125,9 +123,9 @@ export function ShipperMappingTab({ departmentId }: { departmentId: string }) {
           { ...result.mapping, template, is_default: first, sort_order: current.reduce((max, item) => Math.max(max, item.sort_order), 0) + 1 }
         ]);
         setCandidates((current) => current.filter((item) => item.id !== template.id));
-        setSelectedCandidate("");
         setSource("mock");
       }
+      setPickerOpen(false);
       toast.success("화주에 양식을 추가했습니다.");
     }, "양식 추가에 실패했습니다.");
 
@@ -237,20 +235,7 @@ export function ShipperMappingTab({ departmentId }: { departmentId: string }) {
                   <h2 className="text-xl font-black text-slate-800">{selectedShipper.name}</h2>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <select
-                    aria-label="추가할 양식"
-                    value={selectedCandidate}
-                    onChange={(event) => setSelectedCandidate(event.target.value)}
-                    className="min-h-10 max-w-xs rounded-full border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-sky-300"
-                  >
-                    <option value="">추가할 양식 선택</option>
-                    {candidates.map((template) => (
-                      <option key={template.id} value={template.id}>
-                        {template.code} · {template.name} ({template.revision_date})
-                      </option>
-                    ))}
-                  </select>
-                  <CloudButton type="button" disabled={!selectedCandidate || isBusy} onClick={() => void addMapping()}>
+                  <CloudButton type="button" disabled={isBusy} onClick={() => setPickerOpen(true)}>
                     <Plus className="size-4" />
                     양식 추가
                   </CloudButton>
@@ -305,6 +290,15 @@ export function ShipperMappingTab({ departmentId }: { departmentId: string }) {
       </div>
 
       {preview && <TemplatePreviewModal template={preview} onClose={() => setPreview(null)} />}
+      {pickerOpen && selectedShipper && (
+        <TemplatePickerModal
+          shipperName={selectedShipper.name}
+          candidates={candidates}
+          isBusy={isBusy}
+          onSubmit={(template) => void addMapping(template)}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
     </>
   );
 }
