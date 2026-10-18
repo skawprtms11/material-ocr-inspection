@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { LAYOUT_META } from "@/lib/documents/layout-meta";
+import { nextTemplateCode } from "@/lib/documents/template-code";
 import { appRepository } from "@/lib/repositories/app-repository";
 import { toMockScopeIds } from "@/lib/repositories/supabase-scope";
 import {
@@ -7,6 +8,7 @@ import {
   assertLayoutType,
   createTemplateSchema,
   fetchTemplateInDepartment,
+  findNextTemplateCode,
   isForeignKeyViolation,
   isMockMode,
   isUniqueViolation,
@@ -124,6 +126,29 @@ async function inheritMappings(supabase: ServerSupabase, sourceTemplateId: strin
   }
 }
 
+const MAX_NUMBERING_ATTEMPTS = 6;
+
+/** 동시 채번 재시도 간격(시도 횟수에 비례 + 무작위 지터)만큼 대기한다. */
+function numberingBackoff(attempt: number) {
+  return new Promise((resolve) => setTimeout(resolve, attempt * 40 + Math.floor(Math.random() * 60)));
+}
+const NUMBERING_CONFLICT_MESSAGE = "문서코드 자동채번이 동시 등록과 충돌했습니다. 잠시 후 다시 시도해 주세요.";
+
+async function isEarliestWithCode(supabase: ServerSupabase, departmentId: string, code: string, id: string) {
+  const { data, error } = await supabase
+    .from("document_templates")
+    .select("id")
+    .eq("department_id", departmentId)
+    .eq("doc_kind", "work_order")
+    .eq("code", code)
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true })
+    .limit(1);
+  if (error) throw error;
+  const first = (data as DbRow[] | null)?.[0];
+  return !first || text(first.id) === id;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await readJsonBody<Partial<CreateDocumentTemplateRequest> & { templateType?: unknown }>(request);
@@ -140,6 +165,12 @@ export async function POST(request: NextRequest) {
 
     if (isMockMode(supabase)) {
       const now = new Date().toISOString();
+      const mockCode =
+        input.code ??
+        nextTemplateCode(
+          "layout",
+          appRepository.listDocumentTemplates({ departmentId: toMockScopeIds(departmentId, "").departmentId }).map((template) => template.code)
+        ).code;
       return NextResponse.json(
         {
           source: "mock",
@@ -147,7 +178,7 @@ export async function POST(request: NextRequest) {
             id: `doctpl-mock-${Date.now()}`,
             department_id: departmentId,
             doc_kind: "work_order",
-            code: input.code,
+            code: mockCode,
             name: input.name,
             revision_date: input.revisionDate,
             template_type: "layout",
@@ -172,30 +203,63 @@ export async function POST(request: NextRequest) {
       await fetchTemplateInDepartment(supabase!, input.inheritFromTemplateId, scope.departmentId);
     }
 
-    const { data, error } = await supabase!
-      .from("document_templates")
-      .insert({
-        department_id: scope.departmentId,
-        doc_kind: "work_order",
-        code: input.code,
-        name: input.name,
-        revision_date: input.revisionDate,
-        template_type: "layout",
-        layout_key: input.layoutKey,
-        settings,
-        schema_version: 1,
-        is_active: input.isActive ?? true,
-        memo: input.memo?.trim() || null
-      })
-      .select("*")
-      .single();
-    if (error) {
-      if (isUniqueViolation(error)) throw new RouteError(UNIQUE_TEMPLATE_MESSAGE, 409);
-      if (isForeignKeyViolation(error)) throw new RouteError("부서를 찾을 수 없습니다.", 400);
-      throw error;
+    // code가 없으면 새 문서로 보고 자동채번한다. 동시 등록 충돌은 23505 또는 사후 선착순 판정으로 재채번(최대 6회, 지터 대기).
+    const autoNumber = !input.code;
+    let created: DbRow | null = null;
+    for (let attempt = 1; attempt <= MAX_NUMBERING_ATTEMPTS && !created; attempt += 1) {
+      const code = input.code ?? (await findNextTemplateCode(supabase!, scope.departmentId, "layout"));
+      const { data, error } = await supabase!
+        .from("document_templates")
+        .insert({
+          department_id: scope.departmentId,
+          doc_kind: "work_order",
+          code,
+          name: input.name,
+          revision_date: input.revisionDate,
+          template_type: "layout",
+          layout_key: input.layoutKey,
+          settings,
+          schema_version: 1,
+          is_active: input.isActive ?? true,
+          memo: input.memo?.trim() || null
+        })
+        .select("*")
+        .single();
+      if (error) {
+        if (isUniqueViolation(error)) {
+          if (autoNumber && attempt < MAX_NUMBERING_ATTEMPTS) {
+            await numberingBackoff(attempt);
+            continue;
+          }
+          throw new RouteError(autoNumber ? NUMBERING_CONFLICT_MESSAGE : UNIQUE_TEMPLATE_MESSAGE, 409);
+        }
+        if (isForeignKeyViolation(error)) throw new RouteError("부서를 찾을 수 없습니다.", 400);
+        throw error;
+      }
+      const row = data as DbRow;
+      // 개정일자가 달라 유니크를 피한 동시 채번은 먼저 만들어진 행만 남긴다.
+      if (autoNumber) {
+        let earliest: boolean;
+        try {
+          earliest = await isEarliestWithCode(supabase!, scope.departmentId, code, text(row.id));
+        } catch (checkError) {
+          // 선착순 판정 조회가 실패하면 방금 만든 행을 남기지 않는다.
+          await supabase!.from("document_templates").delete().eq("id", text(row.id));
+          throw checkError;
+        }
+        if (!earliest) {
+          const { error: deleteError } = await supabase!.from("document_templates").delete().eq("id", text(row.id));
+          if (deleteError) throw deleteError;
+          if (attempt >= MAX_NUMBERING_ATTEMPTS) throw new RouteError(NUMBERING_CONFLICT_MESSAGE, 409);
+          await numberingBackoff(attempt);
+          continue;
+        }
+      }
+      created = row;
     }
+    if (!created) throw new RouteError(NUMBERING_CONFLICT_MESSAGE, 409);
 
-    const template = toTemplate(data as DbRow);
+    const template = toTemplate(created);
 
     if (input.inheritFromTemplateId) {
       try {

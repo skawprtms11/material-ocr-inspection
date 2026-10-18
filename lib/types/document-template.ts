@@ -179,7 +179,8 @@ export type DocumentTemplateListResponse = {
 
 export type CreateDocumentTemplateRequest = {
   departmentId: string;
-  code: string;
+  // 없으면 서버가 분류별 접두어 + 4자리로 자동채번(새 문서), 있으면 해당 코드의 새 개정
+  code?: string;
   name: string;
   revisionDate: string;
   templateType: "layout";
