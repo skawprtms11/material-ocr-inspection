@@ -10,7 +10,7 @@
 - 사용 컴포넌트: `PageHeader`, `CloudButton`, `CuteCard`, `EmptyCloudState`, `TouchRegionSelector`(`components/mobile/`, 수정 없이 재사용). 신규 하위 파일(같은 폴더): `ReferenceRegisterModal.tsx`(등록/재등록 팝업), `ReferenceDetailModal.tsx`(등록 내역 팝업), `PasteImageInput.tsx`(붙여넣기·드롭·파일선택 입력), `reference-status.ts`(버튼 상태 판정)
 - `departmentId`/`shipperId`가 없으면 `EmptyCloudState`를 렌더링.
 - 부자재 테이블: 부자재코드, 부자재명, LOT, **검증값**, 검수방식, OCR등록, 비전스캔등록, 비고. 행 클릭으로 `selectedMaterialId` 지정.
-  - **OCR등록/비전스캔등록 컬럼 = 상태 버튼**(`ReferenceButton`, 클릭 시 `stopPropagation`으로 행 선택과 분리). 판정은 `reference-status.ts`의 `getReferenceButtonState`이며 "검수방식" 열의 `기준 미등록` 경고(`getMissingReferences`)와 같은 기준이다.
+  - **OCR등록/비전스캔등록 컬럼 = 상태 버튼**(`ReferenceButton`, 클릭 시 `stopPropagation`으로 행 선택과 분리). 판정은 `reference-status.ts`(실체는 `lib/inspection/reference-status.ts`, 모바일 부자재등록과 공용이며 이 파일은 re-export)의 `getReferenceButtonState`이며 "검수방식" 열의 `기준 미등록` 경고(`getMissingReferences`)와 같은 기준이다.
     - 등록(파랑): 방식 체크됨 + 이미지 경로 없음 → 등록 팝업
     - 등록완료(초록): 경로 있음 + 누락 없음 → 내역 팝업
     - 보완필요(주황): 체크됨 + 경로 있음 + 영역/검증값 누락 → 내역 팝업(누락 사유 강조)
