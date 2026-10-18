@@ -1,6 +1,29 @@
 # 작업등록 (`app/(workspace)/work-register`)
 
+> 변경 이력(2026-10-18, dev-D): "작업할당"을 **"작업지시"(작업지시서 출력 + 자동 배정)** 로 전환함. 화면은 더 이상 `assign` API를 호출하지 않으며(하위호환용으로 라우트만 유지), 목록은 검수 시작 전(`registered`) 작업을 출력 여부와 무관하게 노출하고 `미출력(기본)/출력완료/전체` 필터를 제공함. 아래 "작업지시서 출력" 절이 최신 기준이고, 본문의 "할당대기/담당자 할당/`AssignmentModal`" 서술은 이력으로 남긴 구버전임.
+
 > 변경 이력(2026-10-18, 문서관리팀): 검수 행 생성 규칙(OCR/VISION/PHOTO + 제품 PHOTO)·생성 실패 시 롤백·assign의 status 비변경·작업 수정 PATCH의 reconcile 동작을 코드 기준으로 정리하고 구버전 서술(BOTH 분기, 폴백 payload)을 정정함.
+
+## 작업지시서 출력 (2026-10-18, 최신 기준)
+- 목록 컬럼 "작업할당" → **"작업지시"**, 버튼 "할당" → **"작업지시서"**. 행에는 출력 이력 요약(`출력 N회 · 최근 일시` / `미출력`)을 표시
+- 클릭 → `WorkOrderModal`(`app/(workspace)/work-register/WorkOrderModal.tsx`): 작업 화주에 매핑된 **활성 양식만** 라디오 목록(기본 양식 선택 상태) + 선택 양식 미리보기(`DocumentPreviewFrame` + 실제 작업 데이터) + 출력 이력(순번·일시·양식·구분) + **출력**(미배정이면 "출력(자동배정)", 배정됨이면 "재출력") 버튼. 양식이 없으면 "문서마스터 > 화주별양식등록에서 양식을 등록하세요" 안내와 출력 비활성
+- 팝업 차단 대응: 출력 클릭 시 `window.open("about:blank")`로 빈 탭을 먼저 열고(차단되면 API 호출 없이 안내), POST 성공 후 그 탭을 `printUrl`로 이동. 실패하면 탭을 닫고 오류 토스트
+- 인쇄 라우트 `app/print/work-order/[workId]/page.tsx`(`app/print/layout.tsx`, 워크스페이스 레이아웃 밖 — 사이드바·필터바 없음): 쿼리 `department_id`·`shipper_id`·`issue_id`(또는 `template_id`)·`autoprint=1`. `issue_id`가 있으면 출력 당시 양식 스냅샷(`settings_snapshot`)으로 렌더. `DocumentRenderer mode="print"`, 툴바(인쇄/닫기)는 `print:hidden`, `autoprint=1`이면 QR 준비(`[data-code-ready="false"]` 0건, 최대 5초) 후 `window.print()`. 페이지 GET은 부작용이 없다(새로고침해도 이력 중복 없음)
+- 목록 노출: 필터 `status="registered"` + 검수완료 제외만 유지하고 `assigned_to/assigned_at` 조건은 제거. 필터 `미출력(이력 0건, 기본)/출력완료(이력 1건 이상)/전체`는 클라이언트에서 `workOrder.issueCount`로 분리. 수정 버튼·잠금 규칙(검수 시작 시 수정 불가)은 그대로이며, 수정 PATCH 응답에는 출력 요약이 없어 화면이 기존 `assignedAt`/`workOrder`를 유지함
+- GET 응답 `pendingWorks[]`에 `assignedAt`, `workOrder: { issueCount, lastIssuedAt, lastTemplateName } | null`(`work_order_issues` 1쿼리 집계) 추가
+
+### API (`app/api/work-register/[workId]/work-order/**`, 공통 규칙: 스코프 누락 400 / 비UUID 400 / 없음 404 / 스코프·부서 불일치 403 / 충돌 409 / 실DB 오류 502, mock 폴백 없음)
+| # | 경로 | 요청 | 응답·오류 |
+|---|---|---|---|
+| 9 | GET `.../work-order` | `department_id`, `shipper_id` | `{source, work:{id, documentNo, status, assignedAt}, templates[](화주 매핑·활성·레이아웃형, 기본 우선→sort_order), issues[](최근 10건, seq=작업별 출력 순번)}` |
+| 10 | GET `.../work-order/print-data` | 스코프 + `template_id` 또는 `issue_id` | `{source, template:{id, templateType, layoutKey, settings}, data: WorkOrderPrintDto}`. `issue_id`: 출력 당시 스냅샷 settings, 다른 작업의 이력이면 404. `template_id`: 화주 미매핑·비활성 409. `data.codeValue` = `works.document_no` 그대로(모바일 문서번호 매칭 키) |
+| 11 | POST `.../work-order` | `{departmentId, shipperId, templateId}` | `{source, workId, assigned, assignedAt, inspectionSetup?, issue:{id, issuedAt, issueKind, seq}, printUrl}` |
+
+POST #11 처리 순서(실DB): 스코프 해석·`assertWorkInScope` → `canceled` 409 → 양식 검증(없음 404, 타 부서 403, 비레이아웃 400, 화주 미매핑 409, 비활성 409) → `assigned_at IS NULL`이면 **작업자 없이 자동 배정**(`assigned_at=now()`만 기록, `assigned_to`/`assigned_to_name`/`worker_name`/`status` 불변, `.is("assigned_at", null)` 조건부 update로 동시 클릭 중 1건만 배정) → 배정했으면 `setupWorkInspections`(멱등, `failed`면 배정 원복 + 502) → `work_order_issues` INSERT(양식 code·name·revision_date·template_type·layout_key·`settings_snapshot` 스냅샷, `assigned_on_issue`) → 실패 시 배정 원복 + 502. 이미 배정된 작업은 works를 변경하지 않고 이력만 추가한다. `issue_kind`는 이번 호출에서 배정했거나 해당 작업의 첫 출력이면 `initial`, 그 외는 `reprint`(구 assign API로 배정된 작업의 첫 출력도 `initial`). 출력은 "출력 요청 이력"이며 인쇄 완료 여부는 브라우저가 알려주지 않아 기록하지 않는다. 출력자(`issued_by`)는 인증 미구현으로 NULL.
+- 서버 헬퍼는 `lib/server/work-order.ts`(양식 매핑 검증, 이력 조회, 출력 DTO 조립). mock 모드는 `appRepository`의 문서양식/매핑을 읽어 옵션·미리보기만 제공하고 POST는 DB 변경 없이 echo한다. mock POST는 작업 상태가 `registered`(미배정)이면 `assigned:true`·`initial`, 그 외(이미 진행 중)는 `assigned:false`·`reprint`로 응답한다(mock에는 `assigned_at`이 없어 상태로 근사, 작업 없음 404/스코프 불일치 403).
+- **출력 DTO BOM 폴백**: `buildWorkOrderPrintDto`는 `work_components`가 있으면 기존대로 사용하고, 제품/부자재 구성품이 0건이면 작업현황 상세(`/api/work-status/detail`)와 같은 규칙으로 작업마스터 BOM(`work_master_products`/`work_master_materials` × 작업수량)으로 폴백한다. 제품: 필요=할당=단위수량×작업수량, LOT `-`. 부자재: 필요=할당=단위수량×작업수량, LOT `-`, 검수방식 라벨은 `normalizeMaterialInspectionMethod` 기준. 조회는 공용 `lib/server/work-master-bom.ts`(`loadWorkMasterProductRows`/`loadWorkMasterMaterialRows`)를 detail 라우트와 공유하며, 미리보기·인쇄가 같은 DTO라 함께 적용된다.
+- 인쇄 페이지(`/print/work-order/[workId]`)는 `issue_id`가 있어도 `template_id`를 함께 전송한다(실DB는 issue_id 우선, mock print-data는 template_id로만 양식을 찾음).
+- **기존 `PATCH /api/work-register/[workId]/assign`은 하위호환으로 라우트만 남겨두었고 화면에서는 호출하지 않는다.** 화면의 `assignWorkToInspection`(work-flow-store) 호출도 제거됨(DB가 기준). `lib/state/work-flow-store.ts`의 `assignWorkToInspection`은 호출처 0건인 **미사용** 함수(삭제하지 않고 유지, 후속 정리 시 삭제 후보). 아래 본문의 해당 호출 서술은 구버전 이력임.
 
 ## 개요
 작업등록 화면은 완성품/구성품 정보를 입력해 새 작업을 등록하고, 등록된 작업 중 담당자가 아직 할당되지 않은 건("할당대기")을 목록으로 관리한다. 목록에서 담당자를 지정하면 해당 작업은 할당대기 목록에서 사라지고 검수 단계로 넘어간다. **검수완료(작업에 연결된 `work_inspections`가 1건 이상이고 전부 `passed`/`admin_approved`)로 판정된 작업은 이 화면의 할당대기 목록에 노출되지 않고 작업현황(`docs/menus/work-status.md`) 화면에서만 조회된다.**

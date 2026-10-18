@@ -7,6 +7,7 @@ import {
   ClipboardList,
   Cloud,
   Factory,
+  FileText,
   Home,
   LayoutDashboard,
   PackageCheck,
@@ -25,6 +26,7 @@ const menuItems = [
   { href: "/material-master", label: "부자재마스터", icon: PackageSearch },
   { href: "/department-master", label: "부서마스터", icon: Factory },
   { href: "/shipper-master", label: "화주마스터", icon: Truck },
+  { href: "/document-master", label: "문서마스터", icon: FileText },
   { href: "/users", label: "사용자관리", icon: Users }
 ];
 

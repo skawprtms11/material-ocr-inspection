@@ -2,9 +2,11 @@ import {
   adminReviewRequests,
   currentUser,
   departments,
+  documentTemplates,
   inspectionImages,
   materialInspectionRegions,
   materialMasters,
+  shipperDocumentTemplates,
   shippers,
   users,
   workInspections,
@@ -50,6 +52,12 @@ export const appRepository = {
   },
   listUsers() {
     return users;
+  },
+  listDocumentTemplates(scope: Pick<FilterScope, "departmentId">) {
+    return documentTemplates.filter((template) => !scope.departmentId || template.department_id === scope.departmentId);
+  },
+  listShipperDocumentTemplates(shipperId?: string) {
+    return shipperDocumentTemplates.filter((mapping) => !shipperId || mapping.shipper_id === shipperId);
   },
   listMaterials(scope: FilterScope) {
     return materialMasters.filter((material) => inScope(material, scope));
