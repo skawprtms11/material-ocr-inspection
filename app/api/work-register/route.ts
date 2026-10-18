@@ -6,13 +6,14 @@ import { setupWorkInspections } from "@/lib/server/inspection-setup";
 import { getInspectionAggregateStatus } from "@/lib/server/inspection-status";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import {
-  EDIT_LOCKED_REASON,
   RouteError,
   addDays,
   fetchComponentsByWorkIds,
   fetchScopedWorkMaster,
   insertWorkComponents,
+  inspectionEditLockReason,
   makePendingWork,
+  prepareOcrComponentRows,
   text,
   validateRegistrationBody,
   type DbRow
@@ -22,6 +23,7 @@ import type {
   CreateWorkRegistrationRequest,
   CreateWorkRegistrationResponse,
   PendingAssignmentWorkDto,
+  WorkComponentRowDto,
   WorkOrderSummaryDto,
   WorkRegisterDataResponse
 } from "@/lib/types/work-register-api";
@@ -157,13 +159,13 @@ export async function GET(request: NextRequest) {
     // 출력(=자동배정) 후에도 검수 시작 전 작업은 재출력할 수 있도록 배정 여부로 거르지 않는다.
     const registeredRows = (workRows ?? []) as DbRow[];
     const startStatusesByWorkId = new Map<string, InspectionStatus[]>();
-    const startedWorkIds = new Set<string>();
+    const editLockReasonByWorkId = new Map<string, string>();
     const registeredWorkIds = registeredRows.map((row) => text(row.id));
 
     if (registeredWorkIds.length > 0) {
       const { data: inspectionRows, error: inspectionError } = await supabase
         .from("work_inspections")
-        .select("work_id, status, stage")
+        .select("work_id, status, stage, attempt_count")
         .in("work_id", registeredWorkIds);
 
       if (inspectionError) throw inspectionError;
@@ -171,8 +173,9 @@ export async function GET(request: NextRequest) {
       for (const inspectionRow of (inspectionRows ?? []) as DbRow[]) {
         const workId = text(inspectionRow.work_id);
         const status = text(inspectionRow.status) as InspectionStatus;
-        // 수정 잠금은 모든 stage 기준(pending이 아닌 행이 하나라도 있으면 검수 시작으로 본다)
-        if (status !== "pending") startedWorkIds.add(workId);
+        // 수정 잠금은 모든 stage 기준(pending이 아닌 행 또는 검수 시도 이력(attempt_count > 0)이 있으면 검수 시작으로 본다)
+        const lockReason = inspectionEditLockReason([inspectionRow]);
+        if (lockReason && !editLockReasonByWorkId.has(workId)) editLockReasonByWorkId.set(workId, lockReason);
         // 검수완료 제외 판정은 시작검수(stage="start") 기준이다(완료검수는 배정 이후 단계라 여기서는 무관).
         if (text(inspectionRow.stage) === "start") {
           const list = startStatusesByWorkId.get(workId) ?? [];
@@ -198,7 +201,7 @@ export async function GET(request: NextRequest) {
           row,
           workMasterById.get(text(row.work_master_id)),
           componentsByWork[text(row.id)],
-          startedWorkIds.has(text(row.id)) ? EDIT_LOCKED_REASON : undefined
+          editLockReasonByWorkId.get(text(row.id))
         ),
         assignedAt: typeof row.assigned_at === "string" ? row.assigned_at : null,
         workOrder: workOrderByWorkId.get(text(row.id)) ?? null
@@ -226,6 +229,12 @@ export async function POST(request: NextRequest) {
   const registeredAt = new Date().toISOString().slice(0, 10);
 
   if (!supabase || isMock) {
+    let mockComponentRows: WorkComponentRowDto[];
+    try {
+      mockComponentRows = await prepareOcrComponentRows(null, body, body.workMasterId, body.componentRows);
+    } catch (error) {
+      return NextResponse.json({ error: errorMessage(error, "OCR 검수 텍스트 검증에 실패했습니다.") }, { status: error instanceof RouteError ? error.status : 400 });
+    }
     const workMaster = appRepository.listWorkMasters({ departmentId: body.departmentId, shipperId: body.shipperId }).find((item) => item.id === body.workMasterId);
     const response: CreateWorkRegistrationResponse = {
       source: "mock",
@@ -241,7 +250,7 @@ export async function POST(request: NextRequest) {
         quantity: body.quantity,
         dueDate: body.dueDate,
         memo: body.memo,
-        componentRows: body.componentRows
+        componentRows: mockComponentRows
       }
     };
     return NextResponse.json(response);
@@ -252,6 +261,7 @@ export async function POST(request: NextRequest) {
   try {
     const scope = await resolveScopeIds(supabase, body.departmentId, body.shipperId);
     const workMaster = await fetchScopedWorkMaster(supabase, body.workMasterId, scope);
+    const componentRows = await prepareOcrComponentRows(supabase, scope, body.workMasterId, body.componentRows);
 
     const { data: workData, error: workError } = await supabase
       .from("works")
@@ -277,7 +287,7 @@ export async function POST(request: NextRequest) {
     const workId = text(workRow.id);
     createdWorkId = workId;
 
-    await insertWorkComponents(supabase, workId, body.componentRows);
+    await insertWorkComponents(supabase, workId, componentRows);
 
     // 작업 등록 직후 검수 대상 행을 생성한다. 실패(failed)는 성공으로 보지 않고 아래 catch에서 등록 전체를 롤백한다.
     const inspectionSetup = await setupWorkInspections(supabase, workId, body.workMasterId);
@@ -286,7 +296,7 @@ export async function POST(request: NextRequest) {
     const response: CreateWorkRegistrationResponse = {
       source: "supabase",
       inspectionSetup,
-      work: makePendingWork(workRow, workMaster, body.componentRows)
+      work: makePendingWork(workRow, workMaster, componentRows)
     };
 
     return NextResponse.json(response);

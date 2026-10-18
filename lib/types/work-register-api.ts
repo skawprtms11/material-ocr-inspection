@@ -15,6 +15,8 @@ export type WorkComponentRowDto = {
   lot: string;
   allocatedQuantity: number;
   memo: string;
+  // 부자재 행 전용 OCR 검수 텍스트(OCR 대상 부자재는 필수, 그 외는 서버가 무시). 기존 호출 호환을 위해 선택 필드.
+  ocrExpectedText?: string;
 };
 
 // 작업지시서 출력 이력 집계(GET 목록 전용). 이력이 없으면 null.
