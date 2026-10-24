@@ -62,17 +62,44 @@ export type OcrDiffChar = { char: string; diff: boolean };
 const MAX_ALIGN_CELLS = 250_000;
 
 // 정규화된 두 문자열을 편집거리 역추적으로 정렬해 서로 다른 글자에 diff 표시를 붙인다(관리자 화면 강조용).
+// 앞뒤 공통 구간은 먼저 잘라 일치로 표시하고, 가운데 구간만 정렬한다. 가운데 구간이 상한을 넘으면 그 구간 전체를 diff로 표시한다.
 export function diffOcrText(expected: string, recognized: string): { expected: OcrDiffChar[]; recognized: OcrDiffChar[] } {
   const a = Array.from(normalizeOcrText(expected));
   const b = Array.from(normalizeOcrText(recognized));
 
-  if ((a.length + 1) * (b.length + 1) > MAX_ALIGN_CELLS) {
-    return {
-      expected: a.map((char) => ({ char, diff: false })),
-      recognized: b.map((char) => ({ char, diff: false }))
-    };
+  let prefix = 0;
+  while (prefix < a.length && prefix < b.length && a[prefix] === b[prefix]) prefix += 1;
+  let suffix = 0;
+  while (
+    suffix < a.length - prefix &&
+    suffix < b.length - prefix &&
+    a[a.length - 1 - suffix] === b[b.length - 1 - suffix]
+  ) {
+    suffix += 1;
   }
 
+  const same = (chars: string[]) => chars.map((char) => ({ char, diff: false }));
+  const head = { a: same(a.slice(0, prefix)), b: same(b.slice(0, prefix)) };
+  const tail = { a: same(a.slice(a.length - suffix)), b: same(b.slice(b.length - suffix)) };
+  const midA = a.slice(prefix, a.length - suffix);
+  const midB = b.slice(prefix, b.length - suffix);
+
+  const middle =
+    (midA.length + 1) * (midB.length + 1) > MAX_ALIGN_CELLS
+      ? {
+          expected: midA.map((char) => ({ char, diff: true })),
+          recognized: midB.map((char) => ({ char, diff: true }))
+        }
+      : alignOcrChars(midA, midB);
+
+  return {
+    expected: [...head.a, ...middle.expected, ...tail.a],
+    recognized: [...head.b, ...middle.recognized, ...tail.b]
+  };
+}
+
+// 편집거리 표를 만들고 역추적해 두 글자 배열을 정렬한다.
+function alignOcrChars(a: string[], b: string[]): { expected: OcrDiffChar[]; recognized: OcrDiffChar[] } {
   const dp: number[][] = Array.from({ length: a.length + 1 }, (_, i) => {
     const row = new Array<number>(b.length + 1).fill(0);
     row[0] = i;
