@@ -36,6 +36,12 @@ export default function MobileInspectionEntryPage() {
       return;
     }
 
+    // 스캐너의 Enter 입력은 비활성 버튼을 거치지 않으므로, 동기화 전 빈 목록으로 "찾지 못함"을 띄우지 않게 막는다.
+    if (isLoading || routing) {
+      setScanError(isLoading ? "데이터 동기화 중이에요. 잠시 후 다시 스캔해주세요." : "");
+      return;
+    }
+
     const matched = rows.find((row) => row.work.document_no.toLowerCase() === keyword);
 
     if (!matched) {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errorMessage } from "@/lib/repositories/supabase-scope";
+import { checkImageFile } from "@/lib/server/image-upload";
 import { checkInspectionWritable, checkWorkAcceptsInspection } from "@/lib/server/inspection-guard";
 import { ensureInspectionImageBucket, pruneStaleInspectionImages, relativeStoragePath } from "@/lib/server/inspection-images";
 import {
@@ -159,6 +160,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "검수 촬영 이미지가 필요합니다." }, { status: 400 });
   }
 
+  const imageFailure = checkImageFile(image);
+  if (imageFailure) return NextResponse.json({ error: imageFailure.error }, { status: imageFailure.status });
+
   const supabase = createServerSupabaseClient();
 
   if (!supabase || process.env.NEXT_PUBLIC_USE_MOCK_DATA !== "false") {
@@ -200,7 +204,7 @@ export async function POST(request: NextRequest) {
     const storagePath = `${workId}/${inspectionId}/${Date.now()}-completion.jpg`;
     const { error: uploadError } = await supabase.storage.from(inspectionImageBucket).upload(storagePath, image, {
       cacheControl: "3600",
-      contentType: image.type || "image/jpeg",
+      contentType: image.type,
       upsert: true
     });
     if (uploadError) throw uploadError;
@@ -216,7 +220,7 @@ export async function POST(request: NextRequest) {
           image_type: "completion_photo",
           storage_path: `${inspectionImageBucket}/${storagePath}`,
           original_file_name: image.name,
-          mime_type: image.type || "image/jpeg",
+          mime_type: image.type,
           is_compressed: true,
           metadata: { savedAt: new Date().toISOString() }
         })

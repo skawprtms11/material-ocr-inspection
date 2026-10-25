@@ -54,7 +54,9 @@ export async function loadActiveStageRows(supabase: ServerSupabase, workId: stri
     .from("work_inspections")
     .select("*")
     .eq("work_id", workId)
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: true })
+    // 같은 insert로 생긴 행은 created_at이 같아 순서가 흔들리므로 id로 한 번 더 고정한다.
+    .order("id", { ascending: true });
   if (error) throw error;
 
   const rows = ((data ?? []) as Record<string, unknown>[]).map(toPhotoStageRow);

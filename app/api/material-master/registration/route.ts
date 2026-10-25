@@ -9,7 +9,13 @@ import {
   scopeFromBody,
   scopeFromSearchParams,
 } from "@/lib/server/scope-guard";
-import { attachMissingReferences } from "@/lib/server/material-reference";
+import { checkImageFile, imageExtension } from "@/lib/server/image-upload";
+import {
+  attachMissingReferences,
+  materialImageFolder,
+  ownedMaterialImagePath,
+  safePathSegment
+} from "@/lib/server/material-reference";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { MaterialInspectionRegion, MaterialMaster, RoiRect } from "@/lib/types/domain";
 
@@ -123,24 +129,12 @@ function errorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
-function safePathSegment(value: string) {
-  return value.trim().toLowerCase().replace(/[^a-z0-9가-힣._-]+/g, "-");
-}
-
-function fileExtension(file: File) {
-  const nameExtension = file.name.split(".").pop();
-  if (nameExtension && nameExtension !== file.name) return nameExtension.toLowerCase();
-  if (file.type === "image/png") return "png";
-  if (file.type === "image/webp") return "webp";
-  return "jpg";
-}
-
 function storagePath(materialId: string, method: "OCR" | "VISION", file: File, index: number) {
   const safeMaterialId = safePathSegment(materialId);
   const safeFileName = safePathSegment(file.name.replace(/\.[^.]+$/, ""));
   const stamp = `${Date.now()}-${index + 1}`;
 
-  return `mobile/${safeMaterialId}/${method.toLowerCase()}/${stamp}-${safeFileName}.${fileExtension(file)}`;
+  return `${materialImageFolder(safeMaterialId, method)}${stamp}-${safeFileName}.${imageExtension(file.type)}`;
 }
 
 function defaultRoi(): RoiRect {
@@ -267,8 +261,8 @@ async function insertInspectionRegion(
 
 // 이 부자재·방식의 업로드 폴더 안 파일만 삭제 대상으로 인정한다(다른 부자재 파일 오삭제 방지).
 function ownedStoragePaths(paths: string[], materialId: string, method: RegistrationMethod) {
-  const prefix = `mobile/${safePathSegment(materialId)}/${method.toLowerCase()}/`;
-  return Array.from(new Set(paths.map(relativeStoragePath).filter((path) => path.startsWith(prefix))));
+  const owned = paths.flatMap((path) => ownedMaterialImagePath(path, materialId, method) ?? []);
+  return Array.from(new Set(owned));
 }
 
 async function removeStorageFiles(supabase: Supa, relativePaths: string[]) {
@@ -323,7 +317,7 @@ async function uploadFiles(supabase: Supa, materialId: string, method: Registrat
       const path = storagePath(materialId, method, file, index);
       const { error } = await supabase.storage.from(materialImageBucket).upload(path, file, {
         cacheControl: "3600",
-        contentType: file.type || "image/jpeg",
+        contentType: file.type,
         upsert: true
       });
 
@@ -362,7 +356,12 @@ async function resolveRegionImageUrls(
   supabase: NonNullable<ReturnType<typeof createServerSupabaseClient>>,
   region: MaterialInspectionRegion
 ) {
-  const relativePaths = regionImagePaths(region).map(relativeStoragePath);
+  // 소유 폴더 밖 경로(조작된 imagePath 등)는 서명하지 않는다.
+  const allPaths = regionImagePaths(region);
+  const relativePaths = allPaths.flatMap((path) => ownedMaterialImagePath(path, region.material_id, region.method) ?? []);
+  if (relativePaths.length < allPaths.length) {
+    console.warn("소유 폴더 밖 기준이미지 경로를 서명에서 제외했습니다.", { regionId: region.id, materialId: region.material_id });
+  }
   if (relativePaths.length === 0) return [];
 
   try {
@@ -445,17 +444,21 @@ export async function POST(request: NextRequest) {
   if (!body.materialId || !body.method) {
     return NextResponse.json({ error: "부자재 ID와 등록 방식이 필요합니다." }, { status: 400 });
   }
+  if (body.method !== "OCR" && body.method !== "VISION") {
+    return NextResponse.json({ error: "등록 방식은 OCR 또는 VISION이어야 합니다." }, { status: 400 });
+  }
 
   const supabase = createServerSupabaseClient();
-  const fallbackPath = body.imagePath || `${materialImageBucket}/mobile/${body.materialId}/${body.method.toLowerCase()}-${Date.now()}.jpg`;
+  const defaultFallbackPath = `${materialImageBucket}/mobile/${body.materialId}/${body.method.toLowerCase()}-${Date.now()}.jpg`;
 
   if (!supabase || process.env.NEXT_PUBLIC_USE_MOCK_DATA !== "false") {
+    const mockPath = body.imagePath || defaultFallbackPath;
     return NextResponse.json({
       source: "mock",
       material: {
         id: body.materialId,
-        reference_image_path: fallbackPath,
-        ...(body.method === "OCR" ? { ocr_image_path: fallbackPath } : { vision_image_path: fallbackPath })
+        reference_image_path: mockPath,
+        ...(body.method === "OCR" ? { ocr_image_path: mockPath } : { vision_image_path: mockPath })
       }
     });
   }
@@ -497,6 +500,21 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    for (const file of body.files) {
+      const imageFailure = checkImageFile(file);
+      if (imageFailure) return NextResponse.json({ error: imageFailure.error }, { status: imageFailure.status });
+    }
+
+    // 파일 없이 온 클라이언트 imagePath는 이 부자재·방식 폴더 안일 때만 저장한다(다른 부자재 파일 참조 차단).
+    let fallbackPath = defaultFallbackPath;
+    if (body.files.length === 0 && body.imagePath) {
+      const ownedPath = ownedMaterialImagePath(body.imagePath, materialId, method);
+      if (!ownedPath) {
+        return NextResponse.json({ error: "imagePath가 해당 부자재의 업로드 경로가 아닙니다." }, { status: 400 });
+      }
+      fallbackPath = `${materialImageBucket}/${ownedPath}`;
+    }
+
     if (isWeb && body.files.length === 0) {
       return NextResponse.json({ error: "기준 이미지 파일이 필요합니다." }, { status: 400 });
     }

@@ -371,7 +371,13 @@ export async function GET(request: NextRequest) {
     const works = ((workRows ?? []) as DbRow[]).map(toWork);
     const workIds = works.map((work) => work.id);
     const inspections = workIds.length > 0
-      ? await supabase.from("work_inspections").select("*").in("work_id", workIds)
+      ? // 정렬이 없으면 상태가 바뀐 행의 순서가 달라져 모바일 카드 번호(제품 1/2 등)가 뒤바뀌므로 생성순으로 고정한다.
+        await supabase
+          .from("work_inspections")
+          .select("*")
+          .in("work_id", workIds)
+          .order("created_at", { ascending: true })
+          .order("id", { ascending: true })
       : { data: [], error: null };
     if (inspections.error) throw inspections.error;
 
@@ -561,6 +567,11 @@ export async function PATCH(request: NextRequest) {
       const { inspectionId } = action;
       if (!inspectionId) {
         return NextResponse.json({ error: "inspectionId가 필요합니다." }, { status: 400 });
+      }
+
+      // 종료(완료·취소·보류)된 작업이 확인요청으로 되살아나 상태가 어긋나는 것을 막는다.
+      if (workClosed) {
+        return NextResponse.json({ error: "취소/보류/완료된 작업은 확인요청할 수 없습니다." }, { status: 409 });
       }
 
       const label = action.label?.trim() || "현장 검수 취소 요청";

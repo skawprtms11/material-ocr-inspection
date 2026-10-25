@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { checkImageFile } from "@/lib/server/image-upload";
 import { runOcr, type RoiRect } from "@/lib/server/ocr";
 import {
   assertMaterialInScope,
@@ -74,6 +75,14 @@ export async function POST(request: NextRequest) {
   }
 
   const image = formData.get("image");
+
+  if (!(image instanceof File)) {
+    return NextResponse.json({ error: "OCR 이미지 파일이 필요합니다." }, { status: 400 });
+  }
+
+  const imageFailure = checkImageFile(image);
+  if (imageFailure) return NextResponse.json({ error: imageFailure.error }, { status: imageFailure.status });
+
   const expectedText = String(formData.get("expectedText") ?? "").trim();
   const isCropped = String(formData.get("isCropped") ?? "") === "true";
   const parsedRoi = parseRoi(formData.get("roi"), "roi", fullImageRoi);
@@ -90,10 +99,6 @@ export async function POST(request: NextRequest) {
   const originalRoi = parsedOriginalRoi.roi;
   const imageWidth = Number(formData.get("imageWidth") ?? 0);
   const imageHeight = Number(formData.get("imageHeight") ?? 0);
-
-  if (!(image instanceof File)) {
-    return NextResponse.json({ error: "OCR 이미지 파일이 필요합니다." }, { status: 400 });
-  }
 
   if (!isCropped && (!Number.isFinite(imageWidth) || imageWidth <= 0 || !Number.isFinite(imageHeight) || imageHeight <= 0)) {
     return NextResponse.json({ error: "OCR 원본 이미지 크기가 필요합니다." }, { status: 400 });
