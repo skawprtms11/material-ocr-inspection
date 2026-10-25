@@ -8,23 +8,6 @@ type Scope = {
   shipperId?: string | null;
 };
 
-export type WorkAssignmentDraft = {
-  id: string;
-  registeredAt: string;
-  workMasterId: string;
-  workType: string;
-  documentNo: string;
-  finishedProductLot: string;
-  quantity: number;
-  dueDate: string;
-  memo: string;
-};
-
-export type AssignedUserDraft = {
-  id: string;
-  name: string;
-};
-
 export type ManagedWork = Work & {
   work_type?: string;
   quantity?: number;
@@ -160,49 +143,6 @@ export function isWorkAssigned(workId: string, state: WorkFlowState) {
 
 export function isInspectionCompleted(workId: string, state: WorkFlowState) {
   return state.inspectionCompletedWorkIds.includes(workId);
-}
-
-export function assignWorkToInspection(work: WorkAssignmentDraft, assignee: AssignedUserDraft, scope: { departmentId: string; shipperId: string }) {
-  const now = new Date().toISOString();
-  const workId = work.id.startsWith("pending-") ? `work-${work.id.slice("pending-".length)}` : work.id;
-
-  updateWorkFlowState((state) => {
-    const nextWork: ManagedWork = {
-      id: workId,
-      department_id: scope.departmentId,
-      shipper_id: scope.shipperId,
-      work_master_id: work.workMasterId,
-      document_no: work.documentNo,
-      work_date: work.registeredAt,
-      status: "registered",
-      worker_name: assignee.name,
-      memo: work.memo,
-      latest_inspected_at: undefined,
-      work_type: work.workType,
-      quantity: work.quantity,
-      due_date: work.dueDate,
-      finished_product_lot: work.finishedProductLot,
-      assigned_to: assignee.id,
-      assigned_to_name: assignee.name,
-      assigned_at: now
-    };
-
-    const works = state.works.some((item) => item.id === workId)
-      ? state.works.map((item) => (item.id === workId ? { ...item, ...nextWork } : item))
-      : [nextWork, ...state.works];
-
-    return {
-      ...state,
-      works,
-      assignedWorkIds: unique([...state.assignedWorkIds, workId]),
-      statusOverrides: {
-        ...state.statusOverrides,
-        [workId]: "registered"
-      }
-    };
-  });
-
-  return workId;
 }
 
 export function completeWorkInspection(workId: string) {

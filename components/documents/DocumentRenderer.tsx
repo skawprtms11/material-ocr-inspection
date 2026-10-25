@@ -19,6 +19,8 @@ function Unsupported({ message }: { message: string }) {
 }
 
 // mode=print일 때만 @page를 주입해 다른 화면의 인쇄 설정에 영향이 가지 않게 한다.
+// 배경 그래픽 인쇄를 켜도 본문 아래 빈 영역에 화면용 body 배경이 찍히지 않도록 인쇄 시 흰색으로 고정한다.
+const PRINT_PAGE_STYLE = "@page { size: A4 portrait; margin: 10mm; } @media print { html, body { background: #fff !important; } }";
 export function DocumentRenderer({ template, data, mode = "preview" }: DocumentRendererProps) {
   let body: ReactNode;
 
@@ -39,7 +41,7 @@ export function DocumentRenderer({ template, data, mode = "preview" }: DocumentR
 
   return (
     <div className="doc-root" data-doc-mode={mode}>
-      {mode === "print" ? <style>{"@page { size: A4 portrait; margin: 10mm; }"}</style> : null}
+      {mode === "print" ? <style>{PRINT_PAGE_STYLE}</style> : null}
       {body}
     </div>
   );

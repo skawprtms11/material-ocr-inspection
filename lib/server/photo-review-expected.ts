@@ -1,10 +1,8 @@
-import { relativeStoragePath } from "@/lib/server/inspection-images";
+import { MATERIAL_IMAGE_BUCKET, ownedMaterialImagePath } from "@/lib/server/material-reference";
 import { buildWorkOrderPrintDto } from "@/lib/server/work-order";
 import { text, type DbRow, type ServerSupabase } from "@/lib/server/work-register-shared";
 import type { WorkOrderMaterialDto, WorkOrderPrintDto } from "@/lib/types/document-template";
 import type { PhotoReviewExpectedDto, PhotoReviewWorkDto } from "@/lib/types/work-inspection-api";
-
-const MATERIAL_IMAGE_BUCKET = "material-images";
 
 type PhotoTarget = { inspectionId: string; targetType: "product" | "material"; code: string; lot?: string; materialId?: string };
 
@@ -97,7 +95,11 @@ async function loadReferenceImageUrls(supabase: ServerSupabase, materialIds: str
   const pathById = new Map<string, string>();
   for (const row of (data ?? []) as DbRow[]) {
     const path = text(row.reference_image_path) || text(row.ocr_image_path) || text(row.vision_image_path);
-    if (path) pathById.set(text(row.id), relativeStoragePath(MATERIAL_IMAGE_BUCKET, path));
+    if (!path) continue;
+    // 해당 부자재 폴더 밖 경로(조작된 imagePath 등)는 서명하지 않는다.
+    const owned = ownedMaterialImagePath(path, text(row.id));
+    if (owned) pathById.set(text(row.id), owned);
+    else console.warn("소유 폴더 밖 기준이미지 경로를 서명에서 제외했습니다.", { materialId: text(row.id) });
   }
   if (pathById.size === 0) return urls;
 

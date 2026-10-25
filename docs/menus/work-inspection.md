@@ -37,7 +37,7 @@
 
 생성·재판정 함수는 네 지점에서 호출된다(`setupWorkInspections`는 stage별 멱등이라 어느 순서로 호출돼도 결과는 동일):
 1. **작업등록 시**(`app/api/work-register/route.ts` POST) — 작업 insert 성공 직후. 신규 작업은 이 시점에 바로 검수 행이 생긴다(제품 PHOTO 행이 `work_components`를 읽으므로 구성품 저장 이후 호출). `failed`면 작업등록 전체를 롤백한다.
-2. **담당자 배정 시**(`app/api/work-register/[workId]/assign/route.ts` PATCH) — 배정 update 성공 직후. 1번에서 이미 생성됐다면 `skipped_existing`. `failed`면 배정을 되돌리고 502.
+2. **작업지시서 출력의 자동 배정 시**(`POST .../work-order`, 신규 배정이면 `setupWorkInspections` 호출. 구 `assign` 라우트는 2026-10 삭제됨) — 배정 update 성공 직후. 1번에서 이미 생성됐다면 `skipped_existing`. `failed`면 배정을 되돌리고 502.
 3. **모바일 검수 화면 진입 시 lazy 생성·재판정**(`app/api/work-inspection/setup/route.ts` POST, body `{ workId, stage? }`) — 내부에서 `setupWorkInspections` 대신 `reconcileInspectionPlan`을 호출한다(행이 없으면 생성, 있으면 마스터 체크·제품 구성 변경분 중 손대지 않은 행만 반영, 제출 이력 행 동결). 단 현재 모바일 화면(`app/mobile/pre/[workId]`·`complete/[workId]`)은 해당 stage 검수 행이 0건일 때만 이 API를 호출하므로, 이미 행이 있는 작업의 재판정은 모바일 진입으로 일어나지 않는다. work가 존재하지 않으면 `404`.
 4. **작업 수정 시**(`app/api/work-register/[workId]/route.ts` PATCH) — 작업마스터가 바뀌면 pending 검수 행을 삭제한 뒤, 항상 `reconcileInspectionPlan`(stage=start)으로 제품 구성·부자재 방식 변경분을 반영한다. `failed`면 502.
 
@@ -74,6 +74,7 @@
   2. `.from("work_inspections")`에서 `work_id` + `status = "admin_requested"` 조건으로 `admin_approved`/`retrying`/`failed`로 update — `inspectionId`가 있으면 `.eq("id", inspectionId)`를 추가로 걸어 **해당 검수 항목 1건만** 처리한다(확인요청 섹션 용도). 없으면 기존처럼 work의 `admin_requested` 검수 항목 전체가 대상이다(`AdjustmentReviewModal` 기존 동작 유지).
   3. 같은 work에 아직 처리되지 않은 `admin_requested` 검수 항목이 남아있는지 `count`로 다시 확인한다. **남아있으면 상태 판정을 건너뛴다**(work 상태는 `admin_review_requested` 유지). 남은 항목이 없으면 `approved`/`retry_requested`/`rejected` 모두 `maybeAdvanceWorkStatus(supabase, workId)`(`lib/server/work-auto-status.ts`)로 최신 검수 집계를 다시 판정해 반영한다(시작검수 미완료면 `registered`, 완료검수 단계면 `in_progress`, 불합격·반려 항목이 남으면 `inspection_failed`, 사진 승인대기가 남으면 승인대기 유지, 전부 합격이면 `completed`). 예전의 승인 시 무조건 `in_progress` 강제, `registered` 강제복귀, 재검수·미승인 시 `works`의 `inspection_failed` 직접 update는 모두 제거됐다. 판정 오류(`null`)는 `502`("조정은 저장되었으나…")이고, 응답에는 판정된 `workStatus`가 포함된다(남은 확인요청이 있어 판정을 건너뛰면 생략).
 - PATCH `adjustment`/`request_review` 공통 가드: body `inspectionId`가 가리키는 항목이 `PHOTO`(사진검수)면 `409`(사진검수 항목은 확인요청 체계와 분리되며 승인/반려는 `photo_*` 액션으로만 처리 — `checkNotPhotoInspection`). `inspectionId` 없이 호출하는 `adjustment`는 이 가드를 거치지 않지만 대상이 `admin_requested` 항목뿐이라 PHOTO 항목에는 영향이 없다.
+- PATCH `request_review`는 작업이 종료 상태(`completed`/`passed`/`canceled`/`on_hold`, `workClosed`)면 `409`("취소/보류/완료된 작업은 확인요청할 수 없습니다.")로 거부한다. 모바일 `/mobile/pre`·`/mobile/complete` 화면은 종료 작업이면 검수 카드 대신 안내만 보여 확인요청 버튼이 노출되지 않는다(`adjustment` 등 다른 액션은 이번 가드 대상 아님).
 - PATCH `request_review`(모바일 검수 진행 중 특이사항 확인요청. 실패 후 "검수 취소"도 이 액션의 한 형태다) — body: `{ workId, action: { type: "request_review", inspectionId, reason?, label? } }`. 호출 주체는 모바일 검수 화면(`/mobile/pre`·`/mobile/complete`)의 `OcrInspectionCard`("확인요청"/"검수 취소" 버튼, 기준 사진 미등록이면 "관리자 확인요청 (기준 미등록)" 버튼 — `label: "기준 미등록 확인요청"`)이며, 관리자 웹 화면에는 이 액션을 직접 호출하는 UI가 없다(생성된 요청은 확인요청 섹션 또는 기존 `AdjustmentReviewModal`의 승인/재검수/거부 흐름으로 처리된다).
   1. 저장되는 사유의 접두 라벨은 `label`(선택, 기본값 `"현장 검수 취소 요청"`)이다. `reason`이 있으면 `"{label} - {reason}"`, 없으면 `label` 그대로를 최종 사유로 만든다. 모바일의 일반 "확인요청" 버튼은 `label: "현장 확인요청"`을, 실패 상태의 "검수 취소" 버튼은 `label`을 생략해(기본값) 기존과 동일한 문구를 유지한다.
   2. 멱등 처리: `.from("admin_review_requests")`에서 `inspection_id` + `status = "requested"` 조건으로 기존 미처리 요청을 조회하고, 있으면 재사용(중복 insert 안 함)하고 없으면 `work_id`/`inspection_id`/`reason`/`status: "requested"`로 새로 insert한다(`requester_id`는 uuid 컬럼이라 모바일에서 특정 사용자를 알 수 없는 경우 비워둔다 = `NULL`).
@@ -94,16 +95,16 @@ OCR 실제 호출 로직은 `lib/server/ocr.ts`의 `runOcr()`에 있다(Google C
   2. 기준 텍스트를 `lib/server/ocr-expected-text.ts` `resolveOcrExpectedText()`로 해석한다: 작업의 `work_components.ocr_expected_text`(work_id + 부자재 + 부자재코드 매칭) → 없으면 `material_masters.verification_value`(기존 작업 하위호환) → 둘 다 없으면 `409`("작업등록에서 OCR 검수 텍스트를 지정하거나…", 카드는 관리자 확인요청 안내). 응답 `expectedValue`/`expectedSource`(work|master|none)로 내려준다.
   3. `lib/server/ocr.ts`의 `runOcr()`을 `isCropped: true`로 호출한다(클라이언트가 이미 ROI로 크롭해서 보내므로 서버에서는 전체 크롭본을 그대로 읽는다).
   4. `canVerify`가 `false`(OCR 환경변수 미설정 등)이면 **DB를 전혀 변경하지 않고** 현재 `status`를 그대로 반환한다(`{ status: 기존값, recognizedText: "", expectedValue, expectedSource, threshold, matched: false, canVerify: false, saved: false, evidenceSaved: false }`).
-  5. `canVerify`가 `true`이면 `lib/inspection/ocr-match.ts`의 `matchOcrText()`로 **공백 무시 일치율**을 계산한다: NFKC → 하이픈 변형(U+2010~2015·2212 등) `-` 통일 → 대문자 → 공백·줄바꿈 전부 제거 → Levenshtein 유사도(%) 소수 1자리 **내림**. 합격 기준은 서버 env `OCR_MATCH_PASS_THRESHOLD`(50~100, 기본 90). **숫자 일치 조건은 두지 않는다**(대표님 결정 — 12자 LOT의 끝자리 1개 차이는 91.6%라 자동 합격될 수 있음에 유의). 일치율 ≥ 기준이면 `matched: true`.
+  5. `canVerify`가 `true`이면 `lib/inspection/ocr-match.ts`의 `matchOcrText()`로 **공백 무시 일치율**을 계산한다: NFKC → 하이픈 변형(U+2010~2015·2212 등) `-` 통일 → 대문자 → 공백·줄바꿈·제로폭 문자(U+200B~200D·2060·FEFF) 전부 제거 → Levenshtein 유사도(%) 소수 1자리 **내림**. 합격 기준은 서버 env `OCR_MATCH_PASS_THRESHOLD`(50~100, 기본 90). **숫자 일치 조건은 두지 않는다**(대표님 결정 — 12자 LOT의 끝자리 1개 차이는 91.6%라 자동 합격될 수 있음에 유의). 일치율 ≥ 기준이면 `matched: true`. 관리자 화면의 차이 강조(`diffOcrText`)는 정규화한 두 문자열의 **앞뒤 공통 구간을 먼저 잘라 일치로 표시하고 가운데 구간만 편집거리 역추적으로 정렬**한다(가운데 구간이 25만 셀을 넘으면 그 구간 전체를 차이로 표시).
   6. **기준 미만(`judgement: "below_threshold"`)** — 사진(스토리지+`inspection_images` `ocr_capture`, metadata에 `matchRate`/`threshold`/`judgement`/`expectedSource`)·`ocr_result_text`·`ocr_expected_text`(판정 당시 기준 스냅샷)·`ocr_match_rate`를 저장하고 `attempt_count`를 +1 한다. **`status`는 바꾸지 않고**(합격 처리 안 함) `maybeAdvanceWorkStatus`도 호출하지 않는다. 이전 사진은 prune(최근 1장 유지). 응답 `saved: false, evidenceSaved: true`. 현장은 [재촬영] 또는 [관리자 확인요청](`request_review`) 중 선택한다. `attempt_count`>0이면 작업 수정이 잠긴다(work-register PATCH 409).
   7. **합격(일치율 ≥ 기준)**: 위와 같은 저장에 `status: "passed"`, `result_summary`=`OCR 일치 92.3% (기준 90%, 작업등록 텍스트|부자재마스터 검증값)`를 반영하고 `maybeAdvanceWorkStatus`를 호출한다. 응답 `saved: true, evidenceSaved: false`. 응답에는 항상 `matchRate`/`threshold`/`judgement`가 포함된다.
   8. 업로드 후 `work_inspections`/`inspection_images` 저장이 실패하면 `material-master/registration` 라우트와 동일한 보상 패턴으로 업로드된 파일을 스토리지에서 제거한 뒤 원래 에러를 반환한다.
 - **저장 가드(`lib/server/inspection-guard.ts`)**: OCR 판정 전에 ①검수 항목 `method`가 `OCR`이 아니면 `409` ②항목 상태가 `admin_requested`(확인요청 처리 대기)면 `409`, 이미 `passed`/`admin_approved`여도 `409`(합격 덮어쓰기·`attempt_count` 중복 증가 방지) ③작업상태가 `on_hold`/`canceled`/`completed`/`passed`면 `409`. 제품검수(`/product`)는 OCR 항목을 거부(VISION/PRODUCT만 허용)하고 같은 상태 가드를 적용하며, 완료/비전 사진(`/completion-photo`)은 OCR·PHOTO 항목을 거부(409)하고 합격 후 사진 추가(완료제품 사진)는 허용하되 확인요청 대기·작업상태 가드는 동일하다(DELETE 포함). 비전 사진 저장 결과 문구는 stage에 따라 "시작검수 사진 저장(비전)"/"완료검수 사진 저장(비전)"으로 나뉜다.
 - **저장 순서**: 스토리지 업로드 → `inspection_images` insert → `work_inspections` 합격 update 순서다. 이미지 insert가 실패하면 합격 상태가 반영되지 않고, 상태 update가 실패하면 방금 넣은 이미지 행을 삭제하며 스토리지 파일도 정리한다(OCR·제품검수 공통).
-- 응답: `{ status, recognizedText, expectedValue, matched, canVerify, saved }` (+ `source: "supabase" | "mock"`). `saved`는 합격해서 실제로 서버에 저장됐는지 여부다(불합격/`canVerify: false`는 항상 `false`).
+- 응답: `{ status, recognizedText, expectedValue, expectedSource, threshold, matchRate, judgement, matched, canVerify, saved, evidenceSaved }` (+ `source: "supabase" | "mock"`). `saved`는 합격 저장 여부, `evidenceSaved`는 기준 미달 증거(사진·텍스트·일치율) 저장 여부다(`canVerify: false`는 둘 다 `false`).
 - mock 모드(`NEXT_PUBLIC_USE_MOCK_DATA !== "false"` 또는 Supabase 미설정)에서는 DB를 건드리지 않고 `appRepository`의 mock 검수/부자재 데이터로 그럴듯한 성공 응답(`source: "mock"`, `saved: canVerify`)만 반환한다.
 - 필수값(`inspectionId`/`workId`/`image`/`roi`) 누락 시 `400`을 반환한다.
-- **정책**: 불합격 판정 결과(사진 포함)는 서버에 저장되지 않는다(재검수 전제). 합격한 검수 데이터·사진만 서버에 보존된다.
+- **정책(2026-10-18 변경)**: 일치율 기준 미달은 상태를 바꾸지 않고 증거(사진·스캔 텍스트·일치율·기준 텍스트 스냅샷)만 저장한다(위 6번). 합격 시에만 상태가 `passed`로 바뀐다.
 
 ### 제품검수 제출 API (`app/api/work-inspection/product/route.ts`, 작업검수 8단계 스펙 ②) — 현재 모바일 UI 미사용
 **이 절 전체는 코드가 남아있지만 더 이상 어떤 화면에서도 호출되지 않는 orphan API다.** 부자재 비전 항목은 아래 "완료검수" 절에서 설명하는 `CompletionPhotoCard`(체크리스트 없이 비전 참고 사진 표시 + 촬영·압축·저장, `POST /api/work-inspection/completion-photo` 호출)로 대체됐다(제품코드/명/LOT 확인은 이제 부자재 단위가 아니라 작업 단위 "제품목록" 체크리스트가 담당). `ProductCheckCard`(구 컴포넌트)는 삭제했다. 라우트 자체는 외부 계약(작업검수 8단계 스펙)일 가능성이 있어 보존만 해뒀다.
@@ -237,7 +238,7 @@ OCR 실제 호출 로직은 `lib/server/ocr.ts`의 `runOcr()`에 있다(Google C
 ## 사진검수 + 작업승인 API (2026-10)
 
 ### `POST /api/work-inspection/photo` (multipart: departmentId, shipperId, workId, inspectionId, image)
-- 항목당 현재 사진 1장. jpeg/png/webp 8MB 이하(위반 400). 스코프 누락 400 / 타스코프·타작업 항목 403 / 없음 404
+- 항목당 현재 사진 1장. jpeg/png/webp 8MB 이하(형식 위반 400 / 용량 초과 413, 공용 `lib/server/image-upload.ts`의 `checkImageFile`). 같은 검사가 OCR·제품검수·완료검수 사진 API와 `POST /api/ocr`(mock 모드 포함, 스코프 검사 직후)에도 적용된다. 스코프 누락 400 / 타스코프·타작업 항목 403 / 없음 404
 - 가드(`checkPhotoSubmittable`): PHOTO 아님·승인 항목·작업 `admin_review_requested`(검토 중)·단계별 허용 상태 외 → 409
 - 처리: 업로드 → `inspection_images(photo_review, metadata{submissionNo,reviewStatus})` → 항목 `submitted`(이전 상태 조건부 update, 경합 409) → 검토 전 교체분 삭제(반려 사진은 이력 보존) → `maybeAdvanceWorkStatus`(null=502). 실패 시 스토리지·이미지 행 정리
 - 응답: `{ source, status:"submitted", photo:{id,url}, workStatus }` / mock: 200 간이 응답

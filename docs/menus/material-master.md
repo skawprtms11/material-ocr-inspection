@@ -46,6 +46,7 @@
   - **POST 보강(2026-10)**: 추가 필드 `source`(`web`|`mobile`, 저장값은 `options.source` = `web-material-registration`/`mobile-material-registration`, 그 외 값은 mobile), `ocrRawText`(OCR 인식 원문), `imageWidth`/`imageHeight`(선택, `options.imageNaturalSize`). `recognizedText`(확정 검증값)가 `ocrRawText`와 다르면(앞뒤 공백 무시) `options.manualEdited=true`를 기록한다(DDL 없음, region `options` jsonb 키).
   - **미사용 규칙**: `inspection_method`에 해당 방식(OCR/VISION/BOTH)이 없고 기존 기준(해당 방식의 경로 또는 region)도 없으면 `400`. 기존 기준이 있으면 재등록 허용.
   - **이미지 장수**: OCR 1장, VISION 1~5장(초과 400). `source=web`이면 파일 필수(없으면 400)이고 OCR은 `recognizedText`가 비어 있으면 400.
+  - **업로드·경로 보안(2026-10, 보안점검 M1/M2)**: 업로드 파일은 `checkImageFile`(jpeg/png/webp, 장당 8MB — 형식 400/용량 413)로 검사한 뒤 올리고, 저장 확장자는 클라이언트 파일명이 아니라 검증된 MIME(`imageExtension`)으로 정한다. `method`는 `OCR`/`VISION`만 허용(400). 파일 없이 온 클라이언트 `imagePath`는 해당 부자재·방식 폴더(`mobile/{materialId}/{method}/`) 안일 때만 저장하고 아니면 400(파일이 있으면 imagePath는 무시). 소유 판정은 `lib/server/material-reference.ts`의 `ownedMaterialImagePath`(버킷 프리픽스 1회만 허용, 선행 `/`·`\\`·`.`/`..`/빈 세그먼트 거부)를 저장·서명(GET `resolveRegionImageUrls`, `lib/server/photo-review-expected.ts`)·삭제(`ownedStoragePaths`)가 함께 쓴다. 서명 시 소유 폴더 밖 경로는 서명하지 않고 로그만 남긴다.
   - **저장 순서(부분 실패 정합성)**: 현행 region 조회 → 새 파일 업로드(일부 실패 시 성공분도 삭제) → 새 region INSERT → `material_masters` UPDATE → 이전 region 삭제 → 이전 스토리지 파일 삭제(best-effort, 해당 부자재·방식 폴더 `mobile/{id}/{method}/` 파일만). UPDATE 실패 시 새 region 삭제 + 새 파일 삭제 후 `502`. 새 파일 없이 들어온 요청(JSON/imagePath만)은 이전 파일을 지우지 않는다.
   - **GET 응답 보강**: `{ source, regions, verificationValue, material }`. 각 region에 `imageUrls`(서명 URL 1시간), `roi`, `registeredAt`(`options.savedAt` 없으면 `created_at`), `registrationSource`(web/mobile/unknown), `ocrRawText`, `manualEdited`, `similarity`, `imageCount` 포함. `material`은 `missing_reference` 포함(누락 사유 표시용).
   - DELETE 핸들러는 등록된 이미지/영역 삭제(`material_inspection_regions` 삭제 + `material_masters`의 경로 필드 초기화 + 해당 방식 스토리지 파일 정리)를 지원한다.
@@ -80,7 +81,7 @@
 - `RoiRect`(`lib/types/domain.ts`, registration route에서 검증): `{ x, y, width, height }`, 0~100 범위.
 
 ## 주의사항
-- `InspectionRegionEditor`에 넘기는 `regions`는 모달이 열릴 때 `GET /api/material-master/registration?material_id=...`로 조회한다. Supabase 모드에서는 `material_inspection_regions` 실데이터를, mock/env 미설정 시에는 `appRepository.listMaterialRegions`를 반환하므로 화면 미리보기와 실제 등록 상태가 일치한다.
+- 등록 영역은 팝업(`ReferenceDetailModal`·`MaterialImagePreviewModal`)이 열릴 때 `GET /api/material-master/registration?material_id=...`로 조회한다. Supabase 모드에서는 `material_inspection_regions` 실데이터를, mock/env 미설정 시에는 `appRepository.listMaterialRegions`를 반환한다. (`components/inspection/InspectionRegionEditor.tsx`는 이 화면에서 더 이상 사용하지 않음)
 - 페이지는 이미지 선택만으로 가짜(mock) 저장 경로를 만들지 않는다(`buildMockStoragePath` 삭제). 실제 저장 경로는 서버(`registration/route.ts`)의 `storagePath()`가 `Date.now()` 기반으로 만들어 업로드 성공 후 응답으로만 갱신된다.
 - POST/PATCH `/api/material-master`에서 `reference_image_path`는 `ocr_image_path || vision_image_path || 기존값`으로 프론트에서 계산해서 보내지만, 이후 이미지 업로드(`registration`)가 성공하면 서버가 다시 `reference_image_path`를 갱신한다(최초 1회만, `currentReferencePath || imagePath`).
 - 부자재 삭제(`DELETE /api/material-master`)는 연결된 `work_master_materials`, `material_inspection_regions` 등을 함께 정리하지 않는다(단순 `material_masters` 행 삭제만 수행).

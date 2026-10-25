@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errorMessage } from "@/lib/repositories/supabase-scope";
+import { checkImageFile } from "@/lib/server/image-upload";
 import { checkPhotoSubmittable } from "@/lib/server/inspection-guard";
 import {
   INSPECTION_IMAGE_BUCKET,
@@ -31,9 +32,6 @@ export const runtime = "nodejs";
 // POST: 항목당 현재 사진 1장. 승인대기 전 교체는 이전 submitted 사진을 지우고, 반려 사진은 이력으로 남긴다.
 // GET : 작업·단계별 PHOTO 항목 + 현재/이력 사진 서명URL + 작업승인 가능 여부(readiness).
 
-const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
-const ALLOWED_MIME = ["image/jpeg", "image/png", "image/webp"];
-
 type DbRow = Record<string, unknown>;
 
 function text(value: unknown, fallback = "") {
@@ -58,12 +56,8 @@ export async function POST(request: NextRequest) {
   if (!(image instanceof File) || image.size === 0) {
     return NextResponse.json({ error: "촬영 이미지가 필요합니다." }, { status: 400 });
   }
-  if (!ALLOWED_MIME.includes(image.type)) {
-    return NextResponse.json({ error: "jpeg/png/webp 이미지만 제출할 수 있습니다." }, { status: 400 });
-  }
-  if (image.size > MAX_IMAGE_BYTES) {
-    return NextResponse.json({ error: "이미지는 8MB 이하여야 합니다." }, { status: 400 });
-  }
+  const imageFailure = checkImageFile(image);
+  if (imageFailure) return NextResponse.json({ error: imageFailure.error }, { status: imageFailure.status });
 
   const supabase = createServerSupabaseClient();
 

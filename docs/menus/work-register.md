@@ -36,38 +36,37 @@ POST #11 처리 순서(실DB): 스코프 해석·`assertWorkInScope` → `cancel
 - 서버 헬퍼는 `lib/server/work-order.ts`(양식 매핑 검증, 이력 조회, 출력 DTO 조립). mock 모드는 `appRepository`의 문서양식/매핑을 읽어 옵션·미리보기만 제공하고 POST는 DB 변경 없이 echo한다. mock POST는 작업 상태가 `registered`(미배정)이면 `assigned:true`·`initial`, 그 외(이미 진행 중)는 `assigned:false`·`reprint`로 응답한다(mock에는 `assigned_at`이 없어 상태로 근사, 작업 없음 404/스코프 불일치 403).
 - **출력 DTO BOM 폴백**: `buildWorkOrderPrintDto`는 `work_components`가 있으면 기존대로 사용하고, 제품/부자재 구성품이 0건이면 작업현황 상세(`/api/work-status/detail`)와 같은 규칙으로 작업마스터 BOM(`work_master_products`/`work_master_materials` × 작업수량)으로 폴백한다. 제품: 필요=할당=단위수량×작업수량, LOT `-`. 부자재: 필요=할당=단위수량×작업수량, LOT `-`, 검수방식 라벨은 `normalizeMaterialInspectionMethod` 기준. 조회는 공용 `lib/server/work-master-bom.ts`(`loadWorkMasterProductRows`/`loadWorkMasterMaterialRows`)를 detail 라우트와 공유하며, 미리보기·인쇄가 같은 DTO라 함께 적용된다.
 - 인쇄 페이지(`/print/work-order/[workId]`)는 `issue_id`가 있어도 `template_id`를 함께 전송한다(실DB는 issue_id 우선, mock print-data는 template_id로만 양식을 찾음).
-- **기존 `PATCH /api/work-register/[workId]/assign`은 하위호환으로 라우트만 남겨두었고 화면에서는 호출하지 않는다.** 화면의 `assignWorkToInspection`(work-flow-store) 호출도 제거됨(DB가 기준). `lib/state/work-flow-store.ts`의 `assignWorkToInspection`은 호출처 0건인 **미사용** 함수(삭제하지 않고 유지, 후속 정리 시 삭제 후보). 아래 본문의 해당 호출 서술은 구버전 이력임.
+- **담당자 지정 기능 제거(2026-10, 보안점검 M4)**: `PATCH /api/work-register/[workId]/assign` 라우트와 `lib/state/work-flow-store.ts`의 `assignWorkToInspection`(+`WorkAssignmentDraft`/`AssignedUserDraft` 타입)을 삭제함(호출처 0건 확인). 작업자 없이 배정 시각만 기록하는 작업지시서 출력의 자동 배정(`POST .../work-order`)과 `works.assigned_to`/`assigned_to_name` 컬럼은 유지한다(읽기 전용 표시·구 데이터용). 아래 본문에 남은 assign 서술은 구버전 이력임.
 
 ## 개요
-작업등록 화면은 완성품/구성품 정보를 입력해 새 작업을 등록하고, 등록된 작업 중 담당자가 아직 할당되지 않은 건("할당대기")을 목록으로 관리한다. 목록에서 담당자를 지정하면 해당 작업은 할당대기 목록에서 사라지고 검수 단계로 넘어간다. **검수완료(작업에 연결된 `work_inspections`가 1건 이상이고 전부 `passed`/`admin_approved`)로 판정된 작업은 이 화면의 할당대기 목록에 노출되지 않고 작업현황(`docs/menus/work-status.md`) 화면에서만 조회된다.**
+작업등록 화면은 완성품/구성품 정보를 입력해 새 작업을 등록하고, 검수 시작 전(`registered`) 작업을 "작업지시 대기 목록"으로 관리한다. 목록에서 작업지시서를 출력하면 작업자 지정 없이 자동 배정(`assigned_at`만 기록)되고 검수 단계로 넘어가되, 검수 시작 전까지는 목록에 남아 재출력·수정이 가능하다. **검수완료(작업에 연결된 `work_inspections`가 1건 이상이고 전부 `passed`/`admin_approved`)로 판정된 작업은 이 목록에 노출되지 않고 작업현황(`docs/menus/work-status.md`) 화면에서만 조회된다.**
 
 ## 화면 구조
 `app/(workspace)/work-register/page.tsx`(클라이언트 컴포넌트)는 다음 섹션으로 구성된다.
 - `PageHeader`(`@/components/common/PageHeader`) — 제목/설명 + "작업 등록" 버튼(`CloudButton`)
 - 데이터 소스 배지 바 — `dataSource`가 `supabase`/`mock`/`null`인지 표시. 조회 실패(`loadError`) 시 "연결 오류" 배지 + "다시 시도" 버튼으로 `loadWorkRegister` 재호출
-- `CuteCard`(`@/components/common/CuteCard`) 안의 "할당 대기중인 작업 목록" 테이블 — 등록일자/작업구분/문서번호/완성품코드·명/LOT/작업수량/완료요청일/비고/작업할당 컬럼
+- `CuteCard`(`@/components/common/CuteCard`) 안의 "작업지시 대기 작업 목록" 테이블 — 등록일자/작업구분/문서번호/완성품코드/완성품명/LOT/작업수량/완료요청일/비고/수정/작업지시 컬럼 + 출력 필터(미출력 기본/출력완료/전체)
 - `departmentId`/`shipperId`가 없으면 `EmptyCloudState`(`@/components/common/EmptyCloudState`)를 렌더링
 
-모달 3종(같은 파일 내부에 함수 컴포넌트로 정의):
+모달 3종(`WorkRegisterModal`·`WorkDetailModal`은 page.tsx 내부 함수 컴포넌트, `WorkOrderModal`은 별도 파일). 구버전 `AssignmentModal`은 코드에서 제거됨:
 - `WorkRegisterModal` — 완성품정보(작업구분/문서번호/완성품코드(작업마스터 선택)/완성품명/LOT/작업수량/완료요청일/비고) 표 입력 + 구성품 정보(제품/부자재) 표. 제품은 LOT 분할("행추가"/"삭제") 가능하며 `productAllocationErrors`로 할당수량 합계와 필요수량 불일치를 검증
-- `AssignmentModal` — 담당자 선택 + 메모(비저장) 폼, 제출 시 `handleAssign` 호출
-- `WorkDetailModal` — 할당대기 행의 완성품/구성품 상세 조회 전용(읽기 전용)
+- `WorkOrderModal` — 작업지시서 양식 선택·미리보기·출력(위 "작업지시서 출력" 절)
+- `WorkDetailModal` — 목록 행의 완성품/구성품 상세 조회 전용(읽기 전용)
 
 ## 데이터 흐름
 - 페이지 로드: `GET /api/work-register?department_id=&shipper_id=` 호출
   - 응답(`WorkRegisterDataResponse`)을 `applyData`로 받아 `pendingWorks`/`workMasters`/`materials`/`users`/`materialRowsByWork`/`productRowsByWork`/`dataSource` 상태에 반영
 - 작업 등록: `POST /api/work-register` (body: `CreateWorkRegistrationRequest`)
   - 성공 시 `pendingWorks`에 신규 항목을 prepend
-- 담당자 할당: `PATCH /api/work-register/[workId]/assign` (body: `{ assigneeId, assigneeName }`)
-  - 성공 시 `assignWorkToInspection(targetWork, assignee, scope)`(`@/lib/state/work-flow-store`, localStorage 기반)를 호출
-  - 이후 `pendingWorks`에서 해당 작업을 제거
+- 작업지시서 출력(자동 배정): `POST /api/work-register/[workId]/work-order` (위 "작업지시서 출력" 절). 성공해도 `pendingWorks`에서 제거하지 않고 행의 `assignedAt`/`workOrder` 요약만 갱신함
+  - (구버전 `PATCH .../assign` + `assignWorkToInspection` 호출 흐름은 화면·코드에서 모두 제거됨)
 
 `app/api/work-register/route.ts`(GET/POST):
 - `NEXT_PUBLIC_USE_MOCK_DATA !== "false"`이거나 Supabase 클라이언트가 없으면 `appRepository`(`@/lib/repositories/app-repository`) 기반 mock 데이터를 반환
 - GET Supabase 분기 처리 순서
   1. `resolveScopeIds`로 부서/화주 UUID 보정
   2. `fetchWorkMasterData`(`@/lib/repositories/work-master-supabase-repository`)로 작업마스터/자재/제품 매핑 조회
-  3. `.from("works")`에서 `status = "registered"`이고 `assigned_to`/`assigned_at`이 없는 행 조회
+  3. `.from("works")`에서 `status = "registered"`인 행 조회(배정 여부로 거르지 않음 — 출력 후에도 재출력 가능)
   4. 위 행들의 `work_id in (...)`로 `.from("work_inspections")`를 `work_id`/`status`만 조회해 `getInspectionAggregateStatus`(`lib/server/inspection-status.ts`, work-status API와 공유하는 판정 함수)로 작업별 검수 집계 상태를 계산하고, **검수완료(`completed`)인 작업은 목록에서 제외**한다(검수완료 작업은 작업현황 화면에서만 조회됨). mock 분기(`mockPendingWorks`)도 `appRepository.listInspections(work.id)`로 동일 규칙을 적용해 검수완료 작업을 제외한다.
   5. `.from("work_components")`에서 남은 work_id들의 구성품 조회
 - POST 처리 순서
@@ -78,16 +77,6 @@ POST #11 처리 순서(실DB): 스코프 해석·`assertWorkInScope` → `cancel
 - 응답(`CreateWorkRegistrationResponse`)에는 `work`와 함께 `inspectionSetup`(`"created" | "skipped_existing" | "skipped_no_master" | "skipped_no_materials" | "failed"`)이 포함된다. mock 분기에는 `inspectionSetup`이 없다. 응답의 `inspectionSetup`이 `failed`인 경우는 없다(실패는 롤백 후 502).
 - 실DB 모드에서 GET 조회 중 예외가 발생하면 mock 폴백 없이 `502 { error }`를 반환한다(POST 저장 실패도 502 — 아래 변경 이력). mock 폴백은 mock 모드에서만 동작한다.
 
-`app/api/work-register/[workId]/assign/route.ts`(PATCH):
-- mock 분기: `{ source: "mock", workId, assignedTo }`만 반환(DB 미변경)
-- Supabase 분기 처리 순서
-  1. 스코프 확인(`assertWorkInScope`) 후 `assigneeId`가 UUID가 아니면 `.from("app_users")`에서 이름으로 재조회(찾지 못하면 400)
-  2. 배정 전 값을 읽어둔 뒤 `.from("works")`를 `assigned_to`/`assigned_to_name`/`assigned_at`/`worker_name`으로 update한다(`status`는 덮어쓰지 않음, 응답에 `work_master_id`도 함께 select). 작업이 없으면 404.
-  3. **검수 행 자동 생성**(`setupWorkInspections`, stage=start 공유 함수): 배정 성공 직후 호출한다. 해당 `work_id`·stage에 검수 행이 이미 있으면 스킵(`skipped_existing`, 재배정 시 진행 상황 보존을 위한 멱등 처리). 생성 규칙은 `docs/menus/work-inspection.md` 참고. 작업마스터 미연결/생성할 행 없음은 각각 `"skipped_no_master"`/`"skipped_no_materials"`. 조회·insert 중 예외로 `"failed"`가 되면 **배정을 이전 값으로 되돌리고 502**를 반환한다(변경 이력 참고).
-- 응답: `{ source: "supabase", workId, assignedTo, assignedAt, inspectionSetup }` — `inspectionSetup`은 `"created" | "skipped_existing" | "skipped_no_master" | "skipped_no_materials" | "failed"` 중 하나(`failed`는 502로 처리되어 응답에 나타나지 않는다).
-- mock 분기(`{ source: "mock", ... }`)에는 `inspectionSetup`이 없다(검수 행 생성 로직 자체가 실DB 모드 전용).
-- **생성 시점이 배정 하나만은 아니다**: 같은 `setupWorkInspections`가 작업등록 POST(위 참고)에서도 호출되고, 모바일 검수 화면 진입 시 `app/api/work-inspection/setup/route.ts`(검수 행 0건일 때 lazy 생성, 내부는 `reconcileInspectionPlan`)와 작업 수정 PATCH(`reconcileInspectionPlan`)가 재판정·생성한다. `setupWorkInspections`는 stage별 멱등이라 호출 순서와 무관하게 검수 행은 한 번만 생성된다.
-
 ## 상태·필터
 - `useFilterStore`(`@/lib/state/filter-store`, zustand)에서 `departmentId`/`shipperId`를 읽어 `FilterScope`로 사용
   - 둘 중 하나라도 없으면 `EmptyCloudState`를 표시
@@ -95,9 +84,7 @@ POST #11 처리 순서(실DB): 스코프 해석·`assertWorkInScope` → `cancel
 - 작업 상태 전이
   - 이 화면은 신규 작업을 항상 `status: "registered"`로 생성한다
   - 별도의 `WorkStatus` 전이 UI는 없다(전이는 작업현황/작업검수 화면에서 발생)
-- `assignWorkToInspection`은 localStorage(`harness.work-flow.v1`) 기반 클라이언트 상태로 동작한다
-  - 할당된 작업을 `statusOverrides`에 `"registered"`로 기록
-  - `assignedWorkIds`에 해당 작업 id를 추가
+- (구버전) `assignWorkToInspection`(localStorage `harness.work-flow.v1`)은 삭제됨
 
 ## 주요 타입
 - `lib/types/work-register-api.ts`
@@ -109,7 +96,7 @@ POST #11 처리 순서(실DB): 스코프 해석·`assertWorkInScope` → `cancel
 - `lib/types/work-master-api.ts`: `ProductUsageRowDto`, `WorkMaterialRowDto`(작업마스터별 제품/부자재 구성 매핑)
 
 ## 주의사항
-- `AssignmentModal`의 "할당 메모" `textarea`는 폼에 존재하지만 `handleAssign`/POST body 어디에도 값을 읽어 전송하는 코드가 없다(현재는 저장되지 않는 UI 전용 입력).
+- (삭제됨) `AssignmentModal`의 할당 메모 입력은 모달 제거와 함께 사라짐.
 - `WorkRegisterModal`의 구성품 표는 제품(`productRowsByWork`)이 비어 있을 때 `makeFallbackProductRows`로 하드코딩된 `productTemplates`(PRD-MT-001 등)를 사용해 임의 대체 데이터를 보여준다.
 - POST insert 실패 시 재시도하는 축소 payload는 `work_type`/`quantity`/`due_date`/`finished_product_lot` 컬럼이 Supabase `works` 테이블에 없을 수 있음을 전제로 한 방어 코드다.
 - PATCH(할당) mock 분기는 DB에 아무것도 반영하지 않고 성공 응답만 반환하므로, mock 모드에서는 새로고침 시 할당 이력이 사라진다(클라이언트 localStorage에만 남음).
@@ -126,4 +113,4 @@ POST #11 처리 순서(실DB): 스코프 해석·`assertWorkInScope` → `cancel
 
 ## 스코프 가드 (2026-10 추가, `lib/server/scope-guard.ts`)
 - 공통 규칙: API 라우트는 서비스롤 키로 RLS를 우회하므로, 쓰기·삭제·상태변경·리소스ID 조회 요청은 부서/화주 스코프(JSON/FormData `departmentId`·`shipperId`, 쿼리 `department_id`·`shipper_id`)를 **필수**로 받는다. 누락 `400`, 리소스 없음 `404`, 스코프 불일치 `403`, 가드 내 DB 오류 `502`. 이 검증은 mock 모드에서도 스코프 존재(400)까지 동일하게 적용된다. 호출측은 웹은 `useFilterStore`, 모바일은 `useMobileScope()`(`lib/mobile/mobile-api.ts`, 기본 스코프 폴백 포함)의 값을 보낸다. 인증(로그인 사용자 확인)은 별도 범위다.
-- `PATCH /api/work-register/[workId]/assign` body `{ departmentId, shipperId, assigneeId, assigneeName }`: 작업이 스코프 소속인지 먼저 확인한다(`assertWorkInScope`). `PATCH /api/work-register/[workId]`의 작업 소속 검증도 같은 `assertWorkInScope`를 쓴다(작업마스터 검증은 기존 `fetchScopedWorkMaster`).
+- `PATCH /api/work-register/[workId]`의 작업 소속 검증은 `assertWorkInScope`를 쓴다(구 assign 라우트는 삭제됨)(작업마스터 검증은 기존 `fetchScopedWorkMaster`).
