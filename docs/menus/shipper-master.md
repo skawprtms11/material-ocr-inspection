@@ -1,13 +1,14 @@
 # 화주마스터 (`app/(workspace)/shipper-master`)
 
 ## 개요
-선택된 부서에 소속된 화주 목록을 조회하고, 화주별 작업조장(crew leader)을 다중 선택으로 등록하는 화면이다. 화주 등록/수정 자체는 UI 버튼만 있고 실제 저장 로직은 없으며, 실질적으로 동작하는 것은 작업조장 등록(PATCH) 기능이다.
+선택된 부서에 소속된 화주 목록을 조회하고, 화주를 추가(POST)하며, 화주별 작업조장(crew leader)을 다중 선택으로 등록(PATCH)하는 화면이다. 화주 정보 수정·삭제는 없다.
 
 ## 화면 구조
 - `app/(workspace)/shipper-master/page.tsx` (`ShipperMasterPage`)
 - 사용 컴포넌트: `PageHeader`, `CloudButton`, `CuteCard`, `DataTable`, `EmptyCloudState`(`components/common/EmptyCloudState.tsx`)
 - `departmentId`가 없으면 `EmptyCloudState`("화주가 소속될 부서를 먼저 골라주세요.")를 렌더링하고 조회를 하지 않는다.
 - 테이블 컬럼: 화주코드, 화주명, 작업반장(`foreman_name`), 작업조장(인원수 배지 버튼), 사용여부.
+- "화주 추가" 버튼 → `AddShipperModal`(같은 파일 내부): 화주코드(필수, 영문·숫자·-·_ 30자 이하, 대문자로 저장), 화주명(필수, 50자 이하), 작업반장(선택), 사용여부 입력. 현재 필터의 `departmentId` 소속으로 저장하고 성공 시 목록 재조회.
 - "작업조장" 버튼 클릭 시 `CrewLeaderModal`(같은 파일 내부 컴포넌트) 팝업이 열리며, `workerCandidates`(활성 + role이 worker/manager/admin인 사용자) 중에서 체크박스로 다중 선택 후 저장한다.
 
 ## 데이터 흐름
@@ -17,6 +18,10 @@
   - 실DB 모드에서 조회 중 예외가 발생하면 mock 폴백 없이 `502 { error }`를 반환한다. 화면은 `loadError` 상태로 "연결 오류" 배지 + "다시 시도" 버튼을 표시한다.
 - 저장(작업조장): `PATCH /api/shipper-master` body `{ shipperId, crewLeaderIds }`
   - mock이면 그대로 echo, Supabase면 `.from("shippers").update({ crew_leader_ids }).eq("id", shipperId)`.
+- 추가: `POST /api/shipper-master` body `{ departmentId, code, name, foremanName?, isActive? }` → 201 `{ source, shipper }`.
+  - 검증: departmentId 필수·UUID 형식(400)·부서 존재(404), 코드 형식(400), 화주코드 전체 중복(대소문자 무시, 409), 같은 부서 안 화주명 중복(409).
+  - mock 모드는 `lib/mock/data.ts`의 `shippers` 배열에 추가(서버 메모리).
+  - 새 화주는 사용자 화주 권한(`user_shipper_permissions`)이 없으면 우측 상단 필터 목록에 나타나지 않는다.
 - 확인된 Supabase 테이블: `shippers`, `app_users`, `user_department_permissions`, `user_shipper_permissions`.
 
 ## 상태·필터

@@ -59,7 +59,8 @@ export function matchOcrText(expected: string, recognized: string, threshold = D
 
 export type OcrDiffChar = { char: string; diff: boolean };
 
-const MAX_ALIGN_CELLS = 250_000;
+// 검수 텍스트 상한(1000자) 양쪽이 통째로 달라도 정렬할 수 있는 크기(1001 × 1001 셀).
+const MAX_ALIGN_CELLS = 1_002_001;
 
 // 정규화된 두 문자열을 편집거리 역추적으로 정렬해 서로 다른 글자에 diff 표시를 붙인다(관리자 화면 강조용).
 // 앞뒤 공통 구간은 먼저 잘라 일치로 표시하고, 가운데 구간만 정렬한다. 가운데 구간이 상한을 넘으면 그 구간 전체를 diff로 표시한다.

@@ -18,7 +18,7 @@ export type EditablePendingWorkDto = PendingAssignmentWorkDto & { editLockedReas
 export const EDIT_LOCKED_REASON = "검수가 시작되어 수정할 수 없습니다.";
 export const EDIT_LOCKED_ATTEMPT_REASON = "검수 시도 이력(촬영·판정)이 있어 수정할 수 없습니다.";
 
-export const OCR_TEXT_MAX_LENGTH = 200;
+export const OCR_TEXT_MAX_LENGTH = 1000;
 
 // 검수행 중 pending이 아니거나 시도 이력(attempt_count > 0)이 있으면 수정 잠금 사유를 돌려준다.
 // OCR 일치율 미달 판정은 상태를 바꾸지 않고 증거만 남기므로 status만으로는 시작 여부를 알 수 없다.
