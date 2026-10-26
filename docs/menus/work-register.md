@@ -6,15 +6,15 @@
 
 ## OCR 검수 텍스트 (2026-10-18, dev-A)
 - **목적**: OCR 대상 부자재(부자재마스터 `inspection_method` = OCR 또는 BOTH)에 대해 작업별 검수 기준 텍스트(LOT·유효일자 등 자유 입력)를 등록·수정 모달에서 지정함. 모바일 OCR 판정이 마스터 `verification_value` 대신 이 값을 기준으로 씀(판정은 dev-B 범위, `docs/menus/work-inspection.md`·`mobile.md` 참고)
-- **저장 위치**: `work_components.ocr_expected_text`(부자재 행만, 1~200자 CHECK, 제품·비대상 부자재는 NULL). 텍스트 단위 = 부자재 단위(부자재는 작업당 1행, LOT 분할 없음)
+- **저장 위치**: `work_components.ocr_expected_text`(부자재 행만, 1~1000자 CHECK(2026-10-26 200→1000 확대, `docs/migrations/20261026_01_ocr_text_length.sql`), 제품·비대상 부자재는 NULL). 텍스트 단위 = 부자재 단위(부자재는 작업당 1행, LOT 분할 없음)
 - **DTO**: `WorkComponentRowDto.ocrExpectedText?: string`(선택 필드, 기존 호출 호환). 요청(POST/PATCH `componentRows[]`)·응답(POST/PATCH `work.componentRows[]`, GET `pendingWorks[].componentRows[]`) 공통. 값이 없으면 필드 자체를 내려주지 않음
 - **서버 검증**(`prepareOcrComponentRows`, `lib/server/work-register-shared.ts`; POST·PATCH 공통, 작업마스터 스코프 검증 직후·저장 전이라 롤백 불필요)
   - OCR 대상 판정은 클라이언트 행이 아니라 서버가 `work_master_materials` × `material_masters`로 다시 판단함(mock 모드는 `appRepository`)
-  - 대상 부자재의 텍스트가 비었거나 요청 행에서 빠졌으면 `400 { error: "OCR 검수 텍스트를 입력하세요: CODE1, CODE2" }`, trim 후 200자 초과면 400
+  - 대상 부자재의 텍스트가 비었거나 요청 행에서 빠졌으면 `400 { error: "OCR 검수 텍스트를 입력하세요: CODE1, CODE2" }`, trim 후 1000자 초과면 400
   - 비대상 행(NONE/VISION 부자재, 제품)에 텍스트를 보내면 오류 없이 **무시**(NULL 저장)함. 저장 값은 trim 처리
   - 400은 작업/구성품 변경 전에 반환되므로 PATCH 거부 시 기존 값이 유지됨
 - **수정 잠금 확장**: 검수행 중 `status != pending` **또는 `attempt_count > 0`**(OCR 일치율 미달 판정은 상태를 바꾸지 않고 증거만 남기므로)이면 수정 불가. PATCH는 `409`, GET은 `editLockedReason`으로 사유를 내려 수정 버튼을 비활성화하고 사유를 표시함. 사유 문구는 2종: "검수가 시작되어 수정할 수 없습니다."(상태 기준·works 상태 기준) / "검수 시도 이력(촬영·판정)이 있어 수정할 수 없습니다."(시도 이력 기준). 판정은 `inspectionEditLockReason`(shared)
-- **화면(`WorkRegisterModal`)**: 구성품 표에 열 "OCR 검수 텍스트" 추가. OCR 대상 부자재 행은 구분 옆에 "OCR" 배지 + 입력란(textarea, 최대 200자, 필수) + **"마스터값 가져오기"** 버튼. 입력란은 빈값으로 시작하며 **자동 채움 없음**(수정 모달은 저장값 프리필). 버튼은 부자재마스터 `verification_value`를 입력란에 넣고(이미 다른 값이 있으면 덮어쓰기 확인), 값이 없으면 "마스터에 등록된 검증값이 없습니다." 토스트. 제출 시 대상 행이 비어 있으면 빨간 테두리 + "필수 입력" + 토스트("OCR 검수 텍스트를 입력하세요(N건)")로 저장 중단. 작업마스터를 바꾸면 행이 재생성되어 텍스트도 초기화되고 수량 변경 시에는 보존됨. `WorkDetailModal`(읽기 전용)에도 같은 열을 표시함
+- **화면(`WorkRegisterModal`)**: 구성품 표에 열 "OCR 검수 텍스트" 추가. OCR 대상 부자재 행은 구분 옆에 "OCR" 배지 + 입력란(textarea, 최대 1000자, 필수) + **"마스터값 가져오기"** 버튼. 입력란은 빈값으로 시작하며 **자동 채움 없음**(수정 모달은 저장값 프리필). 버튼은 부자재마스터 `verification_value`를 입력란에 넣고(이미 다른 값이 있으면 덮어쓰기 확인), 값이 없으면 "마스터에 등록된 검증값이 없습니다." 토스트. 제출 시 대상 행이 비어 있으면 빨간 테두리 + "필수 입력" + 토스트("OCR 검수 텍스트를 입력하세요(N건)")로 저장 중단. 작업마스터를 바꾸면 행이 재생성되어 텍스트도 초기화되고 수량 변경 시에는 보존됨. `WorkDetailModal`(읽기 전용)에도 같은 열을 표시함
 - 하위호환: 기존 작업(컬럼 NULL)은 수정 시점부터 대상 부자재 텍스트가 필수가 됨. 판정 시 NULL이면 마스터 `verification_value`로 폴백(dev-B 처리)
 
 ## 작업지시서 출력 (2026-10-18, 최신 기준)

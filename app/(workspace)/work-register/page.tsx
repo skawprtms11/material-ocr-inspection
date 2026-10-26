@@ -819,7 +819,7 @@ function WorkRegisterModal({
                               <textarea
                                 value={row.ocrExpectedText ?? ""}
                                 onChange={(event) => updateComponentRow(row.rowId, { ocrExpectedText: event.target.value })}
-                                maxLength={200}
+                                maxLength={1000}
                                 rows={2}
                                 aria-label={`${row.code} OCR 검수 텍스트`}
                                 aria-invalid={showOcrErrors && ocrTextMissing}
