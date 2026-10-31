@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useFilterStore } from "@/lib/state/filter-store";
+import { fetchMobileFilterOptions } from "@/lib/mobile/mobile-api";
 import { loadMobileScope } from "@/lib/mobile/mobile-scope-storage";
 import type { ReactNode } from "react";
 import type { AppUser, Department, Shipper } from "@/lib/types/domain";
@@ -26,10 +27,9 @@ export function MobileScopeInitializer({ children }: { children: ReactNode }) {
 
     async function initializeScope() {
       try {
-        const response = await fetch("/api/users", { cache: "no-store" });
-        if (!response.ok) return;
+        const data = await fetchMobileFilterOptions<FilterOptionsResponse>();
+        if (!data) return;
 
-        const data = (await response.json()) as FilterOptionsResponse;
         const currentUser = pickCurrentUser(data.users);
         const departmentPermissionIds = new Set(currentUser?.department_ids ?? []);
         const shipperPermissionIds = new Set(currentUser?.shipper_ids ?? []);

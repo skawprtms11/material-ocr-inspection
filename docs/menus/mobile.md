@@ -201,7 +201,7 @@
 - `DELETE /api/material-master/registration` — `material_masters`의 이미지 경로 초기화 + `material_inspection_regions` 삭제.
 
 설정/스코프 초기화 화면이 호출하는 API:
-- `GET /api/users` — `app_users`, `departments`, `shippers`, `user_department_permissions`, `user_shipper_permissions` 테이블 조회. `MobileScopeInitializer`와 `settings` 페이지가 각각 별도로 호출한다.
+- `GET /api/users` — `app_users`, `departments`, `shippers`, `user_department_permissions`, `user_shipper_permissions` 테이블 조회. `MobileScopeInitializer`·`MobileScopeBadge`는 `lib/mobile/mobile-api.ts`의 `fetchMobileFilterOptions()`로 진행 중인 요청을 함께 써서 화면 진입 시 1회만 호출하고, `settings` 페이지는 별도로 호출한다.
 
 이미지 업로드 실제 동작 여부는 화면마다 다르다.
 - 부자재등록(OCR/비전), 작업전 검수·완료검수의 **OCR 검수 카드**, **부자재 비전 카드**, **완료제품 사진 카드**가 실제로 서버(Supabase Storage)에 업로드된다(OCR은 `inspection-images` 버킷의 `{workId}/{inspectionId}/{timestamp}-ocr.jpg`, 비전·완료제품 사진은 같은 버킷의 `{workId}/{inspectionId}/{timestamp}-completion.jpg` 경로).
@@ -227,7 +227,7 @@
 - 비전 등록의 일치율(`getVisionSignature`/`compareVisionSignatures`)은 클라이언트에서 24x32 그레이스케일 픽셀 차이로 계산하는 근사값이며, 서버로 전송되거나 저장 가능 여부를 막는 검증으로 쓰이지 않는다(참고용 표시일 뿐 저장 버튼 활성화 조건이 아님).
 - OCR 등록은 `OCR_PROVIDER=google-vision` 환경변수와 `GOOGLE_CLOUD_PROJECT_ID`/`GOOGLE_CLOUD_CLIENT_EMAIL`/`GOOGLE_CLOUD_PRIVATE_KEY`가 모두 설정되어야 실제 Google Vision을 호출한다. 하나라도 없으면 `/api/ocr`는 `canVerify: false`, `extractedText: ""`인 mock 응답을 반환한다. 이 경우 프론트(`OcrRegistration`)는 검토 완료(`ocrReviewed`) 상태에서 저장을 허용하며, 화면에 "⚠️ OCR 서버 검증 불가 — 텍스트 검증 없이 저장됩니다" 경고 배지를 표시한다(이때 검증값은 빈 문자열로 저장됨). **부자재코드와 인식 텍스트의 일치(`matched`) 여부는 저장 조건이 아니다** — `canVerify`가 true인 정상 환경에서는 `ocrReviewed && 인식 텍스트가 비어있지 않음`이면 저장 버튼이 활성화되고, `matched`는 "코드와 일치"/"코드와 다름" 참고용 뱃지로만 노출된다. 저장되는 검증값은 항상 실제 인식된 텍스트(`recognizedText`)이며 부자재코드로 강제 치환되지 않는다.
 - `lib/state/work-flow-store.ts`, `lib/providers/inspection-provider.ts`는 모바일 화면 어디서도 사용되지 않는다(코드 검색 기준). 향후 모바일 검수 플로우에 실제 저장 로직을 연결할 때 이 두 파일을 재사용할지, 새로 만들지 판단이 필요하다.
-- `MobileScopeInitializer`와 `/mobile/settings`는 각각 독립적으로 `/api/users`를 호출한다. 두 화면을 동시에 열면 동일 데이터를 중복 조회한다.
+- `/mobile/settings`는 `MobileScopeInitializer`·`MobileScopeBadge`와 별도로 `/api/users`를 호출한다(설정 화면은 항상 최신 권한을 보기 위해 공유 요청을 쓰지 않음).
 
 ## 사진검수·관리자 승인/반려 (2026-10 추가)
 - 결론: 제품 구성 행당 1장, 사진검수 대상 부자재(마스터 OCR·비전 둘 다 미체크, `method="PHOTO"`)당 1장을 촬영해 제출하면 관리자 승인 대기가 된다. 시작검수·완료검수 모두 적용되며, 완료제품사진(1~3장, `CompletionProductPhotoCard`)은 현행 유지.

@@ -162,32 +162,33 @@ export async function fetchWorkMasterData(
   departmentId: string,
   shipperId: string
 ): Promise<WorkMasterDataResponse> {
-  const { data: workMasterRows, error: workMasterError } = await supabase
-    .from("work_masters")
-    .select("*")
-    .eq("department_id", departmentId)
-    .eq("shipper_id", shipperId);
+  // 서로 의존하지 않는 조회는 동시에 보내 DB 왕복 대기 시간을 줄인다
+  const [
+    { data: workMasterRows, error: workMasterError },
+    { data: materialRows, error: materialError }
+  ] = await Promise.all([
+    supabase.from("work_masters").select("*").eq("department_id", departmentId).eq("shipper_id", shipperId),
+    supabase.from("material_masters").select("*").eq("department_id", departmentId).eq("shipper_id", shipperId)
+  ]);
 
   if (workMasterError) throw workMasterError;
-
-  const { data: materialRows, error: materialError } = await supabase
-    .from("material_masters")
-    .select("*")
-    .eq("department_id", departmentId)
-    .eq("shipper_id", shipperId);
-
   if (materialError) throw materialError;
 
   const workMasterDbRows = (workMasterRows ?? []) as DbRow[];
   const workMasters = workMasterDbRows.map(toWorkMaster);
   const workMasterIds = workMasters.map((workMaster) => workMaster.id);
-  const workMaterialRows = (await selectByWorkMasters(supabase, "work_master_materials", workMasterIds, "inspection_order")).map(toMaterialRow);
-  const productRows = (await selectByWorkMasters(supabase, "work_master_products", workMasterIds, "sort_order")).map(toProductRow);
+  const [workMaterialDbRows, productDbRows, materials] = await Promise.all([
+    selectByWorkMasters(supabase, "work_master_materials", workMasterIds, "inspection_order"),
+    selectByWorkMasters(supabase, "work_master_products", workMasterIds, "sort_order"),
+    attachMissingReferences(supabase, ((materialRows ?? []) as DbRow[]).map(toMaterial))
+  ]);
+  const workMaterialRows = workMaterialDbRows.map(toMaterialRow);
+  const productRows = productDbRows.map(toProductRow);
 
   return {
     source: "supabase",
     workMasters,
-    materials: await attachMissingReferences(supabase, ((materialRows ?? []) as DbRow[]).map(toMaterial)),
+    materials,
     materialRowsByWork: groupByWork(workMaterialRows),
     productRowsByWork: groupByWork(productRows),
     metaByWork: workMasterDbRows.reduce<Record<string, WorkMasterMetaDto>>((acc, row) => {

@@ -107,6 +107,21 @@ function useScopedMobileData<T>(
   );
 }
 
+// 모바일 셸의 스코프 초기화·스코프 배지가 화면을 열 때 동시에 /api/users를 부르므로, 진행 중인 요청을 함께 써서
+// 같은 조회가 두 번 나가지 않게 한다. 응답이 끝나면 비워 다음 화면 진입 때는 새로 조회한다.
+let mobileFilterOptionsRequest: Promise<unknown | null> | null = null;
+
+export function fetchMobileFilterOptions<T>(): Promise<T | null> {
+  if (!mobileFilterOptionsRequest) {
+    mobileFilterOptionsRequest = fetch("/api/users", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .finally(() => {
+        mobileFilterOptionsRequest = null;
+      });
+  }
+  return mobileFilterOptionsRequest as Promise<T | null>;
+}
+
 // 모바일 쓰기/리소스 조회 API(스코프 가드 필수)용 현재 부서/화주. useScopedMobileData와 같은 기본값 규칙을 쓴다.
 export function useMobileScope() {
   const departmentId = useFilterStore((state) => state.departmentId) || defaultFilterScope.departmentId;

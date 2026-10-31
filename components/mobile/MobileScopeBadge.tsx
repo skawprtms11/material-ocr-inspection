@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { fetchMobileFilterOptions } from "@/lib/mobile/mobile-api";
 import { useFilterStore } from "@/lib/state/filter-store";
 import type { Department, Shipper } from "@/lib/types/domain";
 
@@ -25,10 +26,8 @@ export function MobileScopeBadge() {
 
     async function loadNames() {
       try {
-        const response = await fetch("/api/users", { cache: "no-store" });
-        if (!response.ok) return;
-        const data = (await response.json()) as FilterOptionsResponse;
-        if (cancelled) return;
+        const data = await fetchMobileFilterOptions<FilterOptionsResponse>();
+        if (!data || cancelled) return;
         setDepartments(data.departments ?? []);
         setShippers(data.shippers ?? []);
       } catch {
