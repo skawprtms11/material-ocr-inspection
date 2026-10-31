@@ -27,7 +27,6 @@ import type {
   WorkOrderSummaryDto,
   WorkRegisterDataResponse
 } from "@/lib/types/work-register-api";
-import type { WorkMasterDataResponse } from "@/lib/types/work-master-api";
 
 function mockPendingWorks(departmentId: string, shipperId: string) {
   const workMasters = appRepository.listWorkMasters({ departmentId, shipperId });
@@ -105,6 +104,14 @@ async function fetchUsers(supabase: NonNullable<ReturnType<typeof createServerSu
   return ((data ?? []) as DbRow[]).map(userFromRow).filter((user) => user.is_active);
 }
 
+function fetchRegisteredWorks(
+  supabase: NonNullable<ReturnType<typeof createServerSupabaseClient>>,
+  departmentId: string,
+  shipperId: string
+) {
+  return supabase.from("works").select("*").eq("department_id", departmentId).eq("shipper_id", shipperId).eq("status", "registered");
+}
+
 async function fetchWorkOrderSummaries(supabase: NonNullable<ReturnType<typeof createServerSupabaseClient>>, workIds: string[]) {
   const summaries = new Map<string, WorkOrderSummaryDto>();
   if (workIds.length === 0) return summaries;
@@ -146,13 +153,12 @@ export async function GET(request: NextRequest) {
 
   try {
     const scope = await resolveScopeIds(supabase, departmentId, shipperId);
-    const masterData: WorkMasterDataResponse = await fetchWorkMasterData(supabase, scope.departmentId, scope.shipperId);
-    const { data: workRows, error } = await supabase
-      .from("works")
-      .select("*")
-      .eq("department_id", scope.departmentId)
-      .eq("shipper_id", scope.shipperId)
-      .eq("status", "registered");
+    // 마스터·작업·사용자 조회는 서로 의존하지 않아 동시에 보낸다
+    const [masterData, { data: workRows, error }, users] = await Promise.all([
+      fetchWorkMasterData(supabase, scope.departmentId, scope.shipperId),
+      fetchRegisteredWorks(supabase, scope.departmentId, scope.shipperId),
+      fetchUsers(supabase)
+    ]);
 
     if (error) throw error;
 
@@ -190,8 +196,10 @@ export async function GET(request: NextRequest) {
       (row) => getInspectionAggregateStatus(startStatusesByWorkId.get(text(row.id)) ?? []) !== "completed"
     );
     const rowIds = rows.map((row) => text(row.id));
-    const componentsByWork = await fetchComponentsByWorkIds(supabase, rowIds);
-    const workOrderByWorkId = await fetchWorkOrderSummaries(supabase, rowIds);
+    const [componentsByWork, workOrderByWorkId] = await Promise.all([
+      fetchComponentsByWorkIds(supabase, rowIds),
+      fetchWorkOrderSummaries(supabase, rowIds)
+    ]);
     const workMasterById = new Map(masterData.workMasters.map((workMaster) => [workMaster.id, workMaster]));
 
     return NextResponse.json({
@@ -208,7 +216,7 @@ export async function GET(request: NextRequest) {
       })),
       workMasters: masterData.workMasters,
       materials: masterData.materials,
-      users: await fetchUsers(supabase),
+      users,
       materialRowsByWork: masterData.materialRowsByWork,
       productRowsByWork: masterData.productRowsByWork,
       metaByWork: masterData.metaByWork

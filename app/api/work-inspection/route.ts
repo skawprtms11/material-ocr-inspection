@@ -359,36 +359,34 @@ export async function GET(request: NextRequest) {
 
   try {
     const scope = await resolveScopeIds(supabase, departmentId, shipperId);
-    const masterData = await fetchWorkMasterData(supabase, scope.departmentId, scope.shipperId);
-    const { data: workRows, error: workError } = await supabase
-      .from("works")
-      .select("*")
-      .eq("department_id", scope.departmentId)
-      .eq("shipper_id", scope.shipperId);
+    // 마스터와 작업 목록은 서로 의존하지 않아 동시에 조회한다
+    const [masterData, { data: workRows, error: workError }] = await Promise.all([
+      fetchWorkMasterData(supabase, scope.departmentId, scope.shipperId),
+      supabase.from("works").select("*").eq("department_id", scope.departmentId).eq("shipper_id", scope.shipperId)
+    ]);
 
     if (workError) throw workError;
 
     const works = ((workRows ?? []) as DbRow[]).map(toWork);
     const workIds = works.map((work) => work.id);
-    const inspections = workIds.length > 0
-      ? // 정렬이 없으면 상태가 바뀐 행의 순서가 달라져 모바일 카드 번호(제품 1/2 등)가 뒤바뀌므로 생성순으로 고정한다.
-        await supabase
-          .from("work_inspections")
-          .select("*")
-          .in("work_id", workIds)
-          .order("created_at", { ascending: true })
-          .order("id", { ascending: true })
-      : { data: [], error: null };
+    const emptyResult = { data: [] as DbRow[], error: null };
+    // 작업 ID만 있으면 되는 하위 조회 4건도 동시에 보낸다
+    const [inspections, images, requests, workOcrTexts] = await Promise.all([
+      workIds.length > 0
+        ? // 정렬이 없으면 상태가 바뀐 행의 순서가 달라져 모바일 카드 번호(제품 1/2 등)가 뒤바뀌므로 생성순으로 고정한다.
+          supabase
+            .from("work_inspections")
+            .select("*")
+            .in("work_id", workIds)
+            .order("created_at", { ascending: true })
+            .order("id", { ascending: true })
+        : emptyResult,
+      workIds.length > 0 ? supabase.from("inspection_images").select("*").in("work_id", workIds) : emptyResult,
+      workIds.length > 0 ? supabase.from("admin_review_requests").select("*").in("work_id", workIds) : emptyResult,
+      loadWorkOcrTexts(supabase, workIds)
+    ]);
     if (inspections.error) throw inspections.error;
-
-    const images = workIds.length > 0
-      ? await supabase.from("inspection_images").select("*").in("work_id", workIds)
-      : { data: [], error: null };
     if (images.error) throw images.error;
-
-    const requests = workIds.length > 0
-      ? await supabase.from("admin_review_requests").select("*").in("work_id", workIds)
-      : { data: [], error: null };
     if (requests.error) throw requests.error;
 
     // inspectionRows(전체, stage 무관)는 확인요청 섹션(pendingReviewRequests)에만 쓴다 - 관리자는 시작검수/완료검수
@@ -408,7 +406,6 @@ export async function GET(request: NextRequest) {
     const materialById = new Map(masterData.materials.map((material) => [material.id, material]));
     const inspectionById = new Map(inspectionRows.map((inspection) => [inspection.id, inspection]));
     const workById = new Map(works.map((work) => [work.id, work]));
-    const workOcrTexts = await loadWorkOcrTexts(supabase, workIds);
     const ocrEvidence = await buildOcrEvidence(supabase, requestRows, inspectionById, materialById, workOcrTexts, (images.data ?? []) as DbRow[]);
     const pendingReviewRequests = buildPendingReviewRequests(requestRows, workById, inspectionById, materialById, ocrEvidence);
 
