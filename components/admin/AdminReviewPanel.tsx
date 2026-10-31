@@ -11,32 +11,32 @@ export function AdminReviewPanel() {
   const requests = appRepository.listAdminReviewRequests("requested");
 
   return (
-    <CuteCard className="border-amber-100 bg-amber-50/70">
+    <CuteCard>
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
-          <p className="text-xs font-black text-amber-700">관리자 확인 요청</p>
-          <h2 className="text-lg font-black text-slate-800">현장 판단이 필요한 사진</h2>
+          <p className="text-xs font-medium text-muted-foreground">관리자 확인 요청</p>
+          <h2 className="text-base font-semibold text-foreground">현장 판단이 필요한 사진</h2>
         </div>
-        <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-amber-700">{requests.length}건</span>
+        <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">{requests.length}건</span>
       </div>
       <div className="space-y-3">
         {requests.length === 0 ? (
-          <div className="rounded-2xl bg-white/70 p-4 text-sm font-bold text-slate-400">확인 요청이 없어요.</div>
+          <div className="rounded-md border border-border bg-muted/40 p-4 text-sm text-muted-foreground">확인 요청이 없습니다.</div>
         ) : (
           requests.map((request) => {
             const work = appRepository.findWorkById(request.work_id);
             const image = appRepository.listInspectionImages(request.work_id)[0];
 
             return (
-              <div key={request.id} className="rounded-2xl bg-white p-4">
+              <div key={request.id} className="rounded-md border border-border bg-card p-4">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
-                    <p className="font-black text-slate-800">{work?.document_no}</p>
-                    <p className="mt-1 text-xs font-bold text-slate-500">{request.reason}</p>
+                    <p className="font-semibold text-foreground">{work?.document_no}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{request.reason}</p>
                   </div>
                   <StatusBadge type="admin" status={request.status} />
                 </div>
-                <div className="mb-3 rounded-xl bg-slate-50 p-3 text-xs font-semibold text-slate-500">
+                <div className="mb-3 rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">
                   Storage path: {image?.storage_path ?? "inspection-images/{workId}/{documentNo}.jpg"}
                 </div>
                 <div className="flex flex-wrap gap-2">

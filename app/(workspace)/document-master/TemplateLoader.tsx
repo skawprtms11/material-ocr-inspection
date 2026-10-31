@@ -35,16 +35,16 @@ export function TemplateLoader({ templates, templateType, selectedId, onSelect }
   const hasAny = templates.some((template) => template.template_type === templateType);
 
   return (
-    <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200">
+    <div className="rounded-md bg-card p-3 ring-1 ring-border">
       <div className="flex flex-wrap items-center gap-2">
-        <p className="text-xs font-black text-slate-500">기존 문서 불러오기</p>
-        <label className="ml-auto inline-flex items-center gap-1.5 text-xs font-black text-slate-600">
+        <p className="text-xs font-medium text-muted-foreground">기존 문서 불러오기</p>
+        <label className="ml-auto inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           <input type="checkbox" checked={includeRevisions} onChange={(event) => setIncludeRevisions(event.target.checked)} />
           개정 포함
         </label>
       </div>
       <div className="relative mt-2">
-        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <input
           className={`${inputClass} pl-9`}
           placeholder="문서명 또는 문서코드로 검색"
@@ -59,20 +59,20 @@ export function TemplateLoader({ templates, templateType, selectedId, onSelect }
               type="button"
               onClick={() => onSelect(template)}
               aria-pressed={selectedId === template.id}
-              className={`flex w-full items-center gap-3 rounded-xl px-3 py-1.5 text-left text-xs font-bold ring-1 transition ${
-                selectedId === template.id ? "bg-sky-50 ring-2 ring-sky-400" : "bg-white ring-slate-100 hover:bg-sky-50/60"
+              className={`flex w-full items-center gap-3 rounded-md px-3 py-1.5 text-left text-xs font-medium ring-1 transition-colors ${
+                selectedId === template.id ? "bg-accent ring-2 ring-primary" : "bg-card ring-border hover:bg-muted/50"
               }`}
             >
-              <span className="font-black text-sky-700">{template.code}</span>
-              <span className="min-w-0 flex-1 truncate font-black text-slate-800">{template.name}</span>
-              <span className="text-slate-500">{template.revision_date}</span>
-              <span className="text-slate-400">{templateTypeLabel(template.template_type, template.layout_key)}</span>
-              {!template.is_active && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-500">중지</span>}
+              <span className="font-medium text-foreground">{template.code}</span>
+              <span className="min-w-0 flex-1 truncate font-medium text-foreground">{template.name}</span>
+              <span className="text-muted-foreground">{template.revision_date}</span>
+              <span className="text-muted-foreground">{templateTypeLabel(template.template_type, template.layout_key)}</span>
+              {!template.is_active && <span className="rounded-md bg-slate-100 px-2 py-0.5 text-muted-foreground">중지</span>}
             </button>
           </li>
         ))}
         {candidates.length === 0 && (
-          <li className="py-3 text-center text-xs font-bold text-slate-400">
+          <li className="py-3 text-center text-xs font-medium text-muted-foreground">
             {hasAny ? "검색 결과가 없습니다." : "등록된 문서가 없습니다."}
           </li>
         )}

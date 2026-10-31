@@ -102,7 +102,7 @@ export function ProductChecklist({
   if (loading) {
     return (
       <>
-        <CuteCard className="p-4 text-center text-xs font-bold text-slate-400">제품내역을 불러오는 중이에요.</CuteCard>
+        <CuteCard className="p-4 text-center text-xs text-muted-foreground">제품내역을 불러오는 중입니다.</CuteCard>
         {photoCards}
       </>
     );
@@ -111,7 +111,7 @@ export function ProductChecklist({
   if (error) {
     return (
       <>
-        <CuteCard className="p-4 text-center text-xs font-bold text-rose-600">{error}</CuteCard>
+        <CuteCard className="p-4 text-center text-xs font-medium text-red-700">{error}</CuteCard>
         {photoCards}
       </>
     );
@@ -126,11 +126,11 @@ export function ProductChecklist({
     <CuteCard className="p-4">
       <div className="mb-3 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <PackageSearch className="size-4 text-sky-500" />
-          <h3 className="text-sm font-black text-slate-800">제품내역</h3>
+          <PackageSearch className="size-4 text-primary" />
+          <h3 className="text-sm font-semibold text-foreground">제품내역</h3>
         </div>
         {!hasPhotoCards && (
-          <span className="rounded-full bg-sky-50 px-3 py-1 text-[11px] font-black text-sky-700">
+          <span className="rounded-md bg-muted px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
             검수 {checkedCount}/{products.length}
           </span>
         )}
@@ -143,14 +143,14 @@ export function ProductChecklist({
             <label
               key={product.id}
               className={cn(
-                "flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-sm font-bold ring-1 transition",
-                hasPhotoCards ? "bg-white text-slate-700 ring-sky-100" : isChecked ? "bg-emerald-50 text-emerald-800 ring-emerald-100" : "bg-white text-slate-700 ring-sky-100"
+                "flex items-center justify-between gap-3 rounded-md px-4 py-3 text-sm font-medium ring-1 transition-colors",
+                hasPhotoCards ? "bg-card text-foreground ring-border" : isChecked ? "bg-emerald-50 text-emerald-800 ring-emerald-200" : "bg-card text-foreground ring-border"
               )}
             >
               <span className="min-w-0">
-                <span className="block text-[11px] font-black text-slate-400">{product.productCode}</span>
+                <span className="block text-[11px] font-medium text-muted-foreground">{product.productCode}</span>
                 <span className="block truncate">{product.productName}</span>
-                <span className="mt-1 block text-[11px] font-bold text-slate-400">
+                <span className="mt-1 block text-[11px] font-normal text-muted-foreground">
                   LOT {product.lot || "-"} · 단위수량 {quantityText(product.unitQuantity)} · 사용수량{" "}
                   {quantityText(product.usedQuantity)}
                 </span>
@@ -160,7 +160,7 @@ export function ProductChecklist({
                   type="checkbox"
                   checked={isChecked}
                   onChange={(event) => setChecked((current) => ({ ...current, [product.id]: event.target.checked }))}
-                  className="size-5 shrink-0 accent-emerald-500"
+                  className="size-6 shrink-0 accent-emerald-600"
                   aria-label={`${product.productName} 검수여부`}
                 />
               )}

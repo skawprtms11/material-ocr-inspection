@@ -40,11 +40,11 @@ function buildInspectionMethod(ocrChecked: boolean, visionChecked: boolean): Ins
 }
 
 const referenceButtonStyles: Record<ReferenceButtonState, { label: string; className: string; title?: string }> = {
-  register: { label: "등록", className: "bg-sky-500 text-white hover:bg-sky-600" },
-  complete: { label: "등록완료", className: "bg-emerald-100 text-emerald-700 hover:bg-emerald-200" },
-  incomplete: { label: "보완필요", className: "bg-amber-100 text-amber-800 hover:bg-amber-200" },
-  unused: { label: "미사용", className: "cursor-not-allowed bg-slate-100 text-slate-400", title: "수정에서 해당 방식을 체크하면 등록할 수 있어요" },
-  "unused-registered": { label: "등록완료(미사용)", className: "bg-white text-slate-500 ring-1 ring-slate-300 hover:bg-slate-50", title: "현재 사용하지 않는 방식이에요. 조회·재등록만 가능합니다" }
+  register: { label: "등록", className: "bg-primary text-primary-foreground hover:bg-primary/90" },
+  complete: { label: "등록완료", className: "border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100" },
+  incomplete: { label: "보완필요", className: "border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100" },
+  unused: { label: "미사용", className: "cursor-not-allowed bg-slate-100 text-muted-foreground", title: "수정에서 해당 방식을 체크하면 등록할 수 있습니다" },
+  "unused-registered": { label: "등록완료(미사용)", className: "bg-card text-muted-foreground ring-1 ring-inset ring-input hover:bg-muted", title: "현재 사용하지 않는 방식입니다. 조회·재등록만 가능합니다" }
 };
 
 function ReferenceButton({ material, method, onClick }: { material: MaterialMaster; method: ReferenceMethod; onClick: () => void }) {
@@ -64,7 +64,7 @@ function ReferenceButton({ material, method, onClick }: { material: MaterialMast
         event.stopPropagation();
         onClick();
       }}
-      className={cn("inline-flex min-h-8 items-center justify-center rounded-full px-3.5 text-xs font-extrabold shadow-sm transition focus:outline-none focus:ring-2 focus:ring-sky-300", style.className)}
+      className={cn("inline-flex min-h-8 items-center justify-center whitespace-nowrap rounded-md px-3.5 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40", style.className)}
     >
       {style.label}
     </button>
@@ -73,9 +73,9 @@ function ReferenceButton({ material, method, onClick }: { material: MaterialMast
 
 function FormCheck({ name, defaultChecked, label }: { name: string; defaultChecked: boolean; label: string }) {
   return (
-    <label className="flex min-h-11 items-center justify-between rounded-2xl border border-sky-100 bg-white px-3 text-sm font-bold text-slate-700">
+    <label className="flex min-h-9 items-center justify-between rounded-md border border-input bg-card px-3 text-sm font-medium text-foreground shadow-xs">
       {label}
-      <input name={name} type="checkbox" defaultChecked={defaultChecked} className="size-4 rounded border-slate-300 accent-sky-500" />
+      <input name={name} type="checkbox" defaultChecked={defaultChecked} className="size-4 rounded border-input accent-primary" />
     </label>
   );
 }
@@ -221,7 +221,7 @@ export default function MaterialMasterPage() {
             </CloudButton>
             <Link
               href={`/mobile/material-photo${selectedMaterial ? `?materialId=${selectedMaterial.id}` : ""}`}
-              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full bg-emerald-100 px-4 text-sm font-extrabold text-emerald-700 shadow-sm transition hover:bg-emerald-200 focus:outline-none focus:ring-2 focus:ring-emerald-300"
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
             >
               <Camera className="size-4" />
               모바일 사진등록
@@ -230,33 +230,33 @@ export default function MaterialMasterPage() {
         }
       />
 
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white/60 px-4 py-2 text-xs font-black text-slate-500 ring-1 ring-white/80">
-        <span>{isLoading ? "부자재마스터를 불러오는 중이에요." : "선택된 부서/화주 기준으로 부자재를 조회합니다."}</span>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-card px-4 py-2 text-xs text-muted-foreground">
+        <span>{isLoading ? "부자재마스터를 불러오는 중입니다." : "선택된 부서/화주 기준으로 부자재를 조회합니다."}</span>
         <div className="flex items-center gap-2">
-          <span className={`rounded-full px-3 py-1 ring-1 ${loadError ? "bg-rose-50 text-rose-700 ring-rose-100" : "bg-sky-50 text-sky-700 ring-sky-100"}`}>
+          <span className={`rounded-md px-2 py-0.5 font-medium ring-1 ring-inset ${loadError ? "bg-red-50 text-red-700 ring-red-600/20" : "bg-muted text-muted-foreground ring-border"}`}>
             데이터: {loadError ? "연결 오류" : dataSource === "supabase" ? "Supabase" : dataSource === "mock" ? "Mock/Fallback" : "연결 확인 중"}
           </span>
           {loadError && (
-            <button type="button" onClick={() => void loadMaterials()} className="rounded-full bg-rose-100 px-3 py-1 text-rose-800">
+            <button type="button" onClick={() => void loadMaterials()} className="rounded-md border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-100">
               다시 시도
             </button>
           )}
         </div>
       </div>
 
-      <CuteCard className="p-0">
+      <CuteCard className="overflow-hidden p-0">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[900px] text-left text-sm">
-            <thead className="bg-sky-50/80 text-xs font-black text-sky-700">
+            <thead className="bg-muted/60 text-xs font-medium text-muted-foreground">
               <tr>
                 {tableHeaders.map((header) => (
-                  <th key={header} className={cn("px-5 py-4", header.includes("등록") && "text-center")}>
+                  <th key={header} className={cn("h-10 whitespace-nowrap px-4 align-middle", header.includes("등록") && "text-center")}>
                     {header}
                   </th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-border">
               {materials.map((material) => {
                 const isSelected = material.id === selectedMaterial?.id;
 
@@ -265,33 +265,35 @@ export default function MaterialMasterPage() {
                     key={material.id}
                     onClick={() => setSelectedMaterialId(material.id)}
                     className={cn(
-                      "cursor-pointer text-slate-600 transition hover:bg-sky-50/70",
-                      isSelected && "bg-sky-50/90"
+                      "cursor-pointer text-foreground transition-colors hover:bg-muted/40",
+                      isSelected && "bg-accent hover:bg-accent"
                     )}
                   >
-                    <td className="px-5 py-4">
-                      <span className="font-black text-sky-700">{material.code}</span>
+                    <td className="whitespace-nowrap px-4 py-2.5">
+                      <span className="font-medium text-foreground">{material.code}</span>
                     </td>
-                    <td className="px-5 py-4">
+                    <td className="whitespace-nowrap px-4 py-2.5">
                       <button
                         type="button"
                         onClick={(event) => {
                           event.stopPropagation();
                           setPreviewMaterial(material);
                         }}
-                        className="font-bold text-sky-700 underline decoration-sky-300 decoration-2 underline-offset-2 transition hover:text-sky-500"
+                        className="font-medium text-primary underline decoration-primary/40 underline-offset-2 transition-colors hover:text-primary/80"
                       >
                         {material.name}
                       </button>
                     </td>
-                    <td className="px-5 py-4">{material.lot || "-"}</td>
-                    <td className="px-5 py-4">{material.verification_value || "-"}</td>
-                    <td className="px-5 py-4">
+                    <td className="whitespace-nowrap px-4 py-2.5">{material.lot || "-"}</td>
+                    <td className="max-w-xs px-4 py-2.5" title={material.verification_value || undefined}>
+                      <span className="line-clamp-3">{material.verification_value || "-"}</span>
+                    </td>
+                    <td className="min-w-56 px-4 py-2.5">
                       <div className="flex flex-col items-start gap-1">
                         <span
                           className={cn(
-                            "rounded-full px-2.5 py-1 text-xs font-black",
-                            material.inspection_method === "NONE" ? "bg-slate-100 text-slate-600" : "bg-sky-100 text-sky-700"
+                            "rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset",
+                            material.inspection_method === "NONE" ? "bg-slate-100 text-slate-700 ring-slate-500/20" : "bg-blue-50 text-blue-700 ring-blue-600/20"
                           )}
                         >
                           {inspectionMethodLabels[material.inspection_method]}
@@ -299,20 +301,20 @@ export default function MaterialMasterPage() {
                         {getMissingReferences(material).length > 0 && (
                           <span
                             title={`${getMissingReferences(material).join("·")} ${missingReferenceHint}`}
-                            className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-black text-amber-800"
+                            className="rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-inset ring-amber-600/20"
                           >
                             {missingReferenceBadgeText}({getMissingReferences(material).join("·")}) — {missingReferenceHint}
                           </span>
                         )}
                       </div>
                     </td>
-                    <td className="px-5 py-4 text-center">
+                    <td className="px-4 py-2.5 text-center">
                       <ReferenceButton material={material} method="OCR" onClick={() => openReference(material, "OCR")} />
                     </td>
-                    <td className="px-5 py-4 text-center">
+                    <td className="px-4 py-2.5 text-center">
                       <ReferenceButton material={material} method="VISION" onClick={() => openReference(material, "VISION")} />
                     </td>
-                    <td className="px-5 py-4 text-slate-500">{material.remark || "-"}</td>
+                    <td className="px-4 py-2.5 text-muted-foreground">{material.remark || "-"}</td>
                   </tr>
                 );
               })}
@@ -394,12 +396,12 @@ function MaterialEditorModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/35 px-4 py-8 backdrop-blur-sm">
-      <div className="w-full max-w-3xl rounded-[1.4rem] border border-white/80 bg-[#f8fbff] p-5 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
-        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/50 px-4 py-8">
+      <div className="w-full max-w-3xl rounded-lg border border-border bg-card p-5 shadow-lg">
+        <div className="mb-5 flex flex-col gap-3 border-b border-border pb-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-xs font-black text-sky-600">{isEditMode ? "선택 부자재 수정" : "신규 부자재 등록"}</p>
-            <h2 className="mt-1 text-2xl font-black tracking-normal text-slate-800">
+            <p className="text-xs font-medium text-muted-foreground">{isEditMode ? "선택 부자재 수정" : "신규 부자재 등록"}</p>
+            <h2 className="mt-1 text-lg font-semibold text-foreground">
               {isEditMode ? material?.name : "부자재 등록"}
             </h2>
           </div>
@@ -407,19 +409,19 @@ function MaterialEditorModal({
             type="button"
             onClick={onClose}
             aria-label="팝업 닫기"
-            className="inline-flex size-10 items-center justify-center rounded-full bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:bg-sky-50"
+            className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
-            <X className="size-5" />
+            <X className="size-4" />
           </button>
         </div>
 
         <form className="grid gap-5" onSubmit={handleSubmit}>
-          <CuteCard>
-            <h3 className="mb-4 text-lg font-black text-slate-800">기본 정보</h3>
+          <CuteCard className="shadow-none">
+            <h3 className="mb-4 text-base font-semibold text-foreground">기본 정보</h3>
             <div className="grid gap-3 sm:grid-cols-2">
               <input
                 name="code"
-                className="h-11 w-full rounded-2xl border border-sky-100 bg-white px-3 text-sm"
+                className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                 defaultValue={material?.code}
                 placeholder="부자재코드"
                 aria-label="부자재코드"
@@ -427,7 +429,7 @@ function MaterialEditorModal({
               />
               <input
                 name="name"
-                className="h-11 w-full rounded-2xl border border-sky-100 bg-white px-3 text-sm"
+                className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                 defaultValue={material?.name}
                 placeholder="부자재명"
                 aria-label="부자재명"
@@ -435,36 +437,36 @@ function MaterialEditorModal({
               />
               <input
                 name="lot"
-                className="h-11 w-full rounded-2xl border border-sky-100 bg-white px-3 text-sm"
+                className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                 defaultValue={material?.lot}
                 placeholder="LOT"
                 aria-label="LOT"
               />
               {isEditMode && (
-                <div className="flex min-h-11 items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 px-3 text-sm font-bold text-slate-500 sm:col-span-2">
+                <div className="flex min-h-9 items-center justify-between rounded-md border border-border bg-muted/40 px-3 text-sm text-muted-foreground sm:col-span-2">
                   <span>검증값(OCR 기준 등록 팝업에서 설정)</span>
-                  <span className="text-slate-700">{material?.verification_value || "-"}</span>
+                  <span className="text-foreground">{material?.verification_value || "-"}</span>
                 </div>
               )}
-              <p className="text-xs font-bold text-slate-500 sm:col-span-2">
+              <p className="text-xs text-muted-foreground sm:col-span-2">
                 둘 다 해제하면 사진검수(작업자 사진 촬영 후 관리자 승인)로 운영됩니다. 체크한 방식은 목록의 OCR등록/비전스캔등록 버튼으로 기준을 등록해야 현장 검수가 진행됩니다.
               </p>
               <FormCheck name="ocr" defaultChecked={isEditMode ? hasInspectionMethod(material?.inspection_method, "OCR") : false} label="OCR등록" />
               <FormCheck name="vision" defaultChecked={isEditMode ? hasInspectionMethod(material?.inspection_method, "VISION") : false} label="비전스캔등록" />
               <textarea
                 name="remark"
-                className="min-h-24 w-full rounded-2xl border border-sky-100 bg-white px-3 py-3 text-sm sm:col-span-2"
+                className="min-h-24 w-full rounded-md border border-input bg-card px-3 py-2 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40 sm:col-span-2"
                 defaultValue={material?.remark}
                 placeholder="비고"
                 aria-label="비고"
               />
             </div>
           </CuteCard>
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <CloudButton type="button" tone="soft" onClick={onClose}>
+          <div className="flex flex-col-reverse gap-2 border-t border-border pt-4 sm:flex-row sm:justify-end">
+            <CloudButton type="button" tone="soft" className="min-w-24" onClick={onClose}>
               취소
             </CloudButton>
-            <CloudButton type="submit">
+            <CloudButton type="submit" className="min-w-24">
               <Save className="size-4" />
               저장
             </CloudButton>
@@ -477,13 +479,13 @@ function MaterialEditorModal({
 
 function RoiOverlayImage({ imageUrl, roi, tone }: { imageUrl: string; roi: MaterialInspectionRegion["roi"]; tone: "OCR" | "VISION" }) {
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+    <div className="relative overflow-hidden rounded-md border border-border bg-muted">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={imageUrl} alt="등록 이미지" className="block w-full max-w-full" />
       <div
         className={cn(
           "absolute rounded-md border-2 bg-white/20 shadow-sm",
-          tone === "OCR" ? "border-sky-400" : "border-violet-400"
+          tone === "OCR" ? "border-blue-400" : "border-violet-400"
         )}
         style={{
           left: `${roi.x}%`,
@@ -535,51 +537,51 @@ function MaterialImagePreviewModal({ material, onClose }: { material: MaterialMa
   const ocrRecognizedText = typeof ocrRegion?.options?.recognizedText === "string" ? ocrRegion.options.recognizedText : "";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/35 px-4 py-8 backdrop-blur-sm">
-      <div className="w-full max-w-4xl rounded-[1.4rem] border border-white/80 bg-[#f8fbff] p-5 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
-        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/50 px-4 py-8">
+      <div className="w-full max-w-4xl rounded-lg border border-border bg-card p-5 shadow-lg">
+        <div className="mb-5 flex flex-col gap-3 border-b border-border pb-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-xs font-black text-sky-600">등록 이미지 미리보기</p>
-            <h2 className="mt-1 text-2xl font-black tracking-normal text-slate-800">{material.name}</h2>
+            <p className="text-xs font-medium text-muted-foreground">등록 이미지 미리보기</p>
+            <h2 className="mt-1 text-lg font-semibold text-foreground">{material.name}</h2>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="팝업 닫기"
-            className="inline-flex size-10 items-center justify-center rounded-full bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:bg-sky-50"
+            className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
-            <X className="size-5" />
+            <X className="size-4" />
           </button>
         </div>
 
         {isLoading ? (
-          <div className="flex min-h-40 flex-col items-center justify-center gap-2 rounded-[1.2rem] bg-white/70 text-sm font-bold text-slate-500">
-            <Loader2 className="size-6 animate-spin text-sky-400" />
-            등록 이미지를 불러오는 중이에요.
+          <div className="flex min-h-40 flex-col items-center justify-center gap-2 rounded-lg bg-card text-sm font-medium text-muted-foreground">
+            <Loader2 className="size-6 animate-spin text-primary" />
+            등록 이미지를 불러오는 중입니다.
           </div>
         ) : error ? (
-          <div className="rounded-[1.2rem] bg-rose-50 p-6 text-center text-sm font-bold text-rose-600">{error}</div>
+          <div className="rounded-md border border-red-200 bg-red-50 p-6 text-center text-sm font-medium text-red-700">{error}</div>
         ) : (
           <div className="grid gap-5">
-            <CuteCard>
-              <h3 className="mb-3 text-lg font-black text-slate-800">OCR 등록 이미지</h3>
+            <CuteCard className="shadow-none">
+              <h3 className="mb-3 text-base font-semibold text-foreground">OCR 등록 이미지</h3>
               {ocrRegion && ocrRegion.imageUrls.length > 0 ? (
                 <div className="grid gap-3">
                   <RoiOverlayImage imageUrl={ocrRegion.imageUrls[0]} roi={ocrRegion.roi} tone="OCR" />
-                  <div className="rounded-2xl bg-slate-50 p-3 text-xs font-bold leading-5 text-slate-500">
+                  <div className="rounded-md bg-muted/40 p-3 text-xs leading-5 text-muted-foreground">
                     <p>기준 텍스트: {ocrRegion.expected_text || "-"}</p>
                     <p>인식된 텍스트: {ocrRecognizedText || "-"}</p>
                   </div>
                 </div>
               ) : (
-                <div className="rounded-[1.2rem] bg-slate-50 p-6 text-center text-sm font-bold text-slate-400">
+                <div className="rounded-md bg-muted/40 p-6 text-center text-sm text-muted-foreground">
                   등록된 이미지가 없습니다.
                 </div>
               )}
             </CuteCard>
 
-            <CuteCard>
-              <h3 className="mb-3 text-lg font-black text-slate-800">비전 등록 이미지</h3>
+            <CuteCard className="shadow-none">
+              <h3 className="mb-3 text-base font-semibold text-foreground">비전 등록 이미지</h3>
               {visionRegion && visionRegion.imageUrls.length > 0 ? (
                 <div className="grid gap-3 sm:grid-cols-2">
                   {visionRegion.imageUrls.slice(0, 5).map((imageUrl, index) => (
@@ -587,7 +589,7 @@ function MaterialImagePreviewModal({ material, onClose }: { material: MaterialMa
                   ))}
                 </div>
               ) : (
-                <div className="rounded-[1.2rem] bg-slate-50 p-6 text-center text-sm font-bold text-slate-400">
+                <div className="rounded-md bg-muted/40 p-6 text-center text-sm text-muted-foreground">
                   등록된 이미지가 없습니다.
                 </div>
               )}

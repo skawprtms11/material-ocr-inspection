@@ -21,27 +21,27 @@ export function PendingTemplatePanel({ templateType, description, templates, onC
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start gap-3 rounded-2xl bg-amber-50 p-5 ring-1 ring-amber-100">
+      <div className="flex items-start gap-3 rounded-md border border-amber-200 bg-amber-50 p-5">
         <Construction className="mt-0.5 size-5 shrink-0 text-amber-600" />
         <div>
-          <p className="text-sm font-black text-amber-800">{meta.label} 양식은 준비 중입니다 (추후 정의)</p>
-          <p className="mt-1 text-xs font-semibold text-amber-700">{description}</p>
-          <p className="mt-1 text-xs font-semibold text-amber-700">
+          <p className="text-sm font-medium text-amber-800">{meta.label} 양식은 준비 중입니다 (추후 정의)</p>
+          <p className="mt-1 text-xs text-amber-700">{description}</p>
+          <p className="mt-1 text-xs text-amber-700">
             문서코드는 저장 시 {meta.codePrefix}0001 형식으로 자동채번될 예정입니다.
           </p>
         </div>
       </div>
       <TemplateLoader templates={templates} templateType={templateType} selectedId={selected?.id ?? null} onSelect={setSelected} />
       {selected && (
-        <p className="rounded-xl bg-slate-50 px-4 py-2 text-xs font-bold text-slate-600">
+        <p className="rounded-md bg-muted px-4 py-2 text-xs font-medium text-muted-foreground">
           선택: {selected.code} · {selected.name} ({selected.revision_date}) — 불러온 값을 채울 화면은 추후 정의됩니다.
         </p>
       )}
-      <div className="grid grid-cols-2 gap-2">
-        <CloudButton type="button" tone="soft" onClick={onClose}>
+      <div className="flex justify-end gap-2 border-t border-border pt-4">
+        <CloudButton type="button" tone="soft" className="min-w-24" onClick={onClose}>
           취소
         </CloudButton>
-        <CloudButton type="button" disabled>
+        <CloudButton type="button" className="min-w-24" disabled>
           저장 (준비 중)
         </CloudButton>
       </div>

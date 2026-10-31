@@ -85,28 +85,28 @@ export default function MobileCompletionInspectionPage() {
   }, [inspections.length, params.workId, canEnterCompletion]);
 
   if (isLoading) {
-    return <CuteCard className="p-5 text-center text-sm font-bold text-slate-500">작업 데이터를 불러오는 중이에요.</CuteCard>;
+    return <CuteCard className="p-5 text-center text-sm text-muted-foreground">작업 데이터를 불러오는 중입니다.</CuteCard>;
   }
 
   if (!work) {
-    return <CuteCard className="p-5 text-center text-sm font-bold text-slate-500">작업을 찾지 못했어요.</CuteCard>;
+    return <CuteCard className="p-5 text-center text-sm text-muted-foreground">작업을 찾을 수 없습니다.</CuteCard>;
   }
 
   if (!canEnterCompletion) {
     return (
       <div className="space-y-4">
-        <CuteCard className="p-5 text-center text-sm font-bold leading-6 text-slate-500">
-          작업현황 상태값이 "진행"(또는 재검수가 필요한 "불합격")인 작업만 완료검수할 수 있어요.
+        <CuteCard className="p-5 text-center text-sm leading-6 text-muted-foreground">
+          작업현황 상태값이 "진행"(또는 재검수가 필요한 "불합격")인 작업만 완료검수할 수 있습니다.
           <br />
           현재 상태: {getWorkStatusLabel(work.status, "complete")}
         </CuteCard>
         {work.status === "registered" && (
-          <CloudButton className="w-full" onClick={() => router.push(`/mobile/pre/${work.id}`)}>
+          <CloudButton className="min-h-12 w-full" onClick={() => router.push(`/mobile/pre/${work.id}`)}>
             <PackageCheck className="size-4" />
             작업전 검수로 이동
           </CloudButton>
         )}
-        <CloudButton className="w-full" tone="soft" onClick={() => router.push("/mobile")}>
+        <CloudButton className="min-h-12 w-full" tone="soft" onClick={() => router.push("/mobile")}>
           작업문서 스캔으로
         </CloudButton>
       </div>
@@ -142,7 +142,7 @@ export default function MobileCompletionInspectionPage() {
         toast.success("작업이 완료 처리되었습니다.");
         router.push("/mobile/status");
       } else {
-        toast.warning("아직 완료 처리되지 않았어요. 검수 항목을 확인해주세요.");
+        toast.warning("아직 완료 처리되지 않았습니다. 검수 항목을 확인해 주세요.");
       }
     } finally {
       setCompleting(false);
@@ -152,21 +152,21 @@ export default function MobileCompletionInspectionPage() {
   return (
     <div className="space-y-4">
       <CuteCard className="p-4">
-        <p className="text-xs font-black text-violet-600">완료검수</p>
-        <h1 className="mt-1 text-2xl font-black text-slate-800">{work.document_no}</h1>
-        <p className="mt-1 text-sm font-bold text-slate-500">
+        <p className="text-xs font-medium text-muted-foreground">완료검수</p>
+        <h1 className="mt-1 text-lg font-semibold text-foreground">{work.document_no}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
           {work.worker_name || "미할당"} · {getWorkStatusLabel(work.status, "complete")}
         </p>
       </CuteCard>
 
       {(warning || error || prepareError) && (
-        <CuteCard className="flex items-center justify-between gap-3 p-3 text-xs font-bold leading-5 text-amber-700">
+        <CuteCard className="flex items-center justify-between gap-3 p-3 text-xs font-medium leading-5 text-amber-800">
           <span>{error || prepareError || warning}</span>
           {(error || prepareError) && (
             <button
               type="button"
               onClick={() => void refetch()}
-              className="shrink-0 rounded-full bg-amber-100 px-3 py-1.5 text-[11px] font-black text-amber-800"
+              className="inline-flex min-h-11 shrink-0 items-center rounded-md border border-amber-200 bg-amber-50 px-4 text-xs font-medium text-amber-800 hover:bg-amber-100"
             >
               다시 시도
             </button>
@@ -175,7 +175,7 @@ export default function MobileCompletionInspectionPage() {
       )}
 
       {preparing && (
-        <CuteCard className="flex items-center justify-center gap-2 p-4 text-sm font-bold text-slate-500">
+        <CuteCard className="flex items-center justify-center gap-2 p-4 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" />
           완료검수 대상 준비 중...
         </CuteCard>
@@ -206,15 +206,15 @@ export default function MobileCompletionInspectionPage() {
         <CompletionProductPhotoCard workId={work.id} inspection={productPhotoInspection} onSubmitted={reloadAll} />
       )}
 
-      <CloudButton className="w-full" disabled={!allDone || completing} onClick={() => void handleComplete()}>
+      <CloudButton className="min-h-12 w-full" disabled={!allDone || completing} onClick={() => void handleComplete()}>
         <PackageCheck className="size-4" />
         {completing ? "확인 중..." : "완료 확인하고 나가기"}
       </CloudButton>
-      <p className={allDone ? "text-center text-xs font-bold text-emerald-600" : "text-center text-xs font-bold leading-5 text-slate-500"}>
+      <p className={allDone ? "text-center text-xs font-medium text-emerald-700" : "text-center text-xs leading-5 text-muted-foreground"}>
         <CheckCircle2 className="mr-1 inline size-3.5" />
         {allDone
-          ? "모든 항목이 완료돼 작업현황 상태가 \"완료\"로 변경됐어요."
-          : "사진 승인·부자재 검수·완료제품 사진(최소 1장)이 모두 끝나고 관리자가 완료 승인하면 작업현황 상태가 \"완료\"로 변경돼요."}
+          ? "모든 항목이 완료되어 작업현황 상태가 \"완료\"로 변경되었습니다."
+          : "사진 승인·부자재 검수·완료제품 사진(최소 1장)이 모두 끝나고 관리자가 완료 승인하면 작업현황 상태가 \"완료\"로 변경됩니다."}
       </p>
     </div>
   );

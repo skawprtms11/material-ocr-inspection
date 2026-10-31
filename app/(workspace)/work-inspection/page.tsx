@@ -20,10 +20,10 @@ type AdjustmentStatus = "requested" | "approved" | "rejected" | "retry_requested
 type InspectionTableRow = InspectionTableRowDto;
 
 const adjustmentLabels: Record<AdjustmentStatus, { label: string; className: string }> = {
-  requested: { label: "확인요청", className: "bg-amber-100 text-amber-800 ring-amber-200" },
-  approved: { label: "조정승인", className: "bg-emerald-100 text-emerald-700 ring-emerald-200" },
-  rejected: { label: "조정 미승인", className: "bg-rose-100 text-rose-700 ring-rose-200" },
-  retry_requested: { label: "재검수 요청", className: "bg-sky-100 text-sky-700 ring-sky-200" }
+  requested: { label: "확인요청", className: "bg-amber-50 text-amber-800 ring-amber-600/20" },
+  approved: { label: "조정승인", className: "bg-emerald-50 text-emerald-700 ring-emerald-600/20" },
+  rejected: { label: "조정 미승인", className: "bg-red-50 text-red-700 ring-red-600/20" },
+  retry_requested: { label: "재검수 요청", className: "bg-blue-50 text-blue-700 ring-blue-600/20" }
 };
 
 const photoStages: WorkInspectionStage[] = ["start", "complete"];
@@ -39,15 +39,15 @@ function getDefaultPhotoStage(row: InspectionTableRow): WorkInspectionStage {
 }
 
 function getStepClassName(step: string) {
-  if (step.includes("반려")) return "bg-rose-100 text-rose-700";
-  if (step.includes("승인대기")) return "bg-indigo-100 text-indigo-700";
-  if (step.includes("완료") || step.includes("승인")) return "bg-emerald-100 text-emerald-700";
-  if (step.includes("대상")) return "bg-violet-100 text-violet-700";
-  if (step.includes("보류") || step.includes("취소")) return "bg-slate-100 text-slate-600";
-  if (step.includes("요청")) return "bg-amber-100 text-amber-800";
-  if (step.includes("불일치") || step.includes("재검수")) return "bg-rose-100 text-rose-700";
-  if (step.includes("진행") || step.includes("모바일")) return "bg-sky-100 text-sky-700";
-  return "bg-slate-100 text-slate-600";
+  if (step.includes("반려")) return "bg-red-50 text-red-700 ring-1 ring-inset ring-red-600/20";
+  if (step.includes("승인대기")) return "bg-indigo-50 text-indigo-700 ring-1 ring-inset ring-indigo-600/20";
+  if (step.includes("완료") || step.includes("승인")) return "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20";
+  if (step.includes("대상")) return "bg-violet-50 text-violet-700 ring-1 ring-inset ring-violet-600/20";
+  if (step.includes("보류") || step.includes("취소")) return "bg-slate-100 text-slate-700 ring-1 ring-inset ring-slate-500/20";
+  if (step.includes("요청")) return "bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-600/20";
+  if (step.includes("불일치") || step.includes("재검수")) return "bg-red-50 text-red-700 ring-1 ring-inset ring-red-600/20";
+  if (step.includes("진행") || step.includes("모바일")) return "bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-600/20";
+  return "bg-slate-100 text-slate-700 ring-1 ring-inset ring-slate-500/20";
 }
 
 export default function WorkInspectionPage() {
@@ -164,14 +164,14 @@ export default function WorkInspectionPage() {
         description="모바일 검수 단계와 확인 요청을 확인하고, 제출된 제품·부자재 사진을 관리자가 승인/반려합니다."
       />
 
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white/60 px-4 py-2 text-xs font-black text-slate-500 ring-1 ring-white/80">
-        <span>{isLoading ? "작업검수 데이터를 불러오는 중이에요." : "선택된 부서/화주 기준으로 검수 작업을 조회합니다."}</span>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-card px-4 py-2 text-xs font-medium text-muted-foreground">
+        <span>{isLoading ? "작업검수 데이터를 불러오는 중입니다." : "선택된 부서/화주 기준으로 검수 작업을 조회합니다."}</span>
         <div className="flex items-center gap-2">
-          <span className={`rounded-full px-3 py-1 ring-1 ${loadError ? "bg-rose-50 text-rose-700 ring-rose-100" : "bg-sky-50 text-sky-700 ring-sky-100"}`}>
+          <span className={`rounded-md px-2 py-0.5 ring-1 ring-inset ${loadError ? "bg-red-50 text-red-700 ring-red-600/20" : "bg-muted text-muted-foreground ring-border"}`}>
             데이터: {loadError ? "연결 오류" : dataSource === "supabase" ? "Supabase" : dataSource === "mock" ? "Mock/Fallback" : "연결 확인 중"}
           </span>
           {loadError && (
-            <button type="button" onClick={() => void loadRows()} className="rounded-full bg-rose-100 px-3 py-1 text-rose-800">
+            <button type="button" onClick={() => void loadRows()} className="rounded-md border border-red-200 bg-red-50 px-3 py-1 text-red-700 transition-colors hover:bg-red-100">
               다시 시도
             </button>
           )}
@@ -180,34 +180,34 @@ export default function WorkInspectionPage() {
 
       {pendingReviewRequests.length > 0 && (
         <CuteCard className="mb-4 p-0">
-          <div className="flex items-center gap-2 border-b border-amber-100 bg-amber-50/60 px-5 py-4">
+          <div className="flex items-center gap-2 border-b border-border px-5 py-4">
             <AlertTriangle className="size-5 text-amber-600" />
-            <h2 className="text-lg font-black text-amber-800">확인요청 {pendingReviewRequests.length}건</h2>
-            <p className="text-sm font-semibold text-amber-700">현장에서 검수 중 특이사항을 확인 요청한 건입니다.</p>
+            <h2 className="text-base font-semibold text-foreground">확인요청 {pendingReviewRequests.length}건</h2>
+            <p className="text-sm text-muted-foreground">현장에서 검수 중 특이사항을 확인 요청한 건입니다.</p>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full min-w-[960px] text-left text-sm">
-              <thead className="bg-amber-50/40 text-xs font-black text-amber-700">
+              <thead className="bg-muted/60 text-xs font-medium text-muted-foreground">
                 <tr>
                   {["문서번호", "부자재/제품명", "검수방식", "일치율", "요청사유", "요청시각", "처리"].map((header) => (
-                    <th key={header} className="px-4 py-3">
+                    <th key={header} className={`h-10 whitespace-nowrap px-4${header === "일치율" ? " text-right" : ""}`}>
                       {header}
                     </th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-amber-50 bg-white/70">
+              <tbody className="divide-y divide-border">
                 {pendingReviewRequests.map((item) => (
-                  <tr key={item.requestId} className="text-slate-600">
-                    <td className="px-4 py-3 font-black text-sky-700">{item.documentNo}</td>
-                    <td className="px-4 py-3 font-bold text-slate-700">{item.materialName}</td>
-                    <td className="px-4 py-3 font-bold">{item.method}</td>
-                    <td className="px-4 py-3 text-right">
+                  <tr key={item.requestId} className="text-foreground">
+                    <td className="px-4 py-2.5 font-medium text-primary">{item.documentNo}</td>
+                    <td className="px-4 py-2.5 text-foreground">{item.materialName}</td>
+                    <td className="px-4 py-2.5">{item.method}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">
                       {typeof item.ocr?.matchRate === "number" ? (
                         <span
-                          className={`rounded-full px-2.5 py-1 text-xs font-black ${
-                            item.ocr.matchRate >= item.ocr.threshold ? "bg-emerald-100 text-emerald-700" : "bg-orange-100 text-orange-700"
+                          className={`rounded-md px-2 py-0.5 text-xs font-medium tabular-nums ring-1 ring-inset ${
+                            item.ocr.matchRate >= item.ocr.threshold ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20" : "bg-orange-50 text-orange-700 ring-orange-600/20"
                           }`}
                         >
                           {item.ocr.matchRate}%
@@ -216,11 +216,11 @@ export default function WorkInspectionPage() {
                         "-"
                       )}
                     </td>
-                    <td className="px-4 py-3 font-semibold text-slate-600">{item.reason}</td>
-                    <td className="px-4 py-3 font-semibold text-slate-500">
+                    <td className="px-4 py-2.5 text-foreground">{item.reason}</td>
+                    <td className="px-4 py-2.5 text-muted-foreground">
                       {item.requestedAt ? formatDate(item.requestedAt, "yyyy.MM.dd HH:mm") : "-"}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-2.5">
                       <div className="flex flex-wrap gap-2">
                         {item.ocr && (
                           <CloudButton type="button" tone="soft" onClick={() => setCompareItem(item)}>
@@ -267,37 +267,37 @@ export default function WorkInspectionPage() {
 
       {photoApprovalQueue.length > 0 && (
         <CuteCard className="mb-4 p-0">
-          <div className="flex items-center gap-2 border-b border-indigo-100 bg-indigo-50/60 px-5 py-4">
+          <div className="flex items-center gap-2 border-b border-border px-5 py-4">
             <Camera className="size-5 text-indigo-600" />
-            <h2 className="text-lg font-black text-indigo-800">사진 승인대기 {photoApprovalQueue.length}건</h2>
-            <p className="text-sm font-semibold text-indigo-700">현장에서 제출한 제품·부자재 사진의 승인을 기다리는 작업입니다.</p>
+            <h2 className="text-base font-semibold text-foreground">사진 승인대기 {photoApprovalQueue.length}건</h2>
+            <p className="text-sm text-muted-foreground">현장에서 제출한 제품·부자재 사진의 승인을 기다리는 작업입니다.</p>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full min-w-[960px] text-left text-sm">
-              <thead className="bg-indigo-50/40 text-xs font-black text-indigo-700">
+              <thead className="bg-muted/60 text-xs font-medium text-muted-foreground">
                 <tr>
                   {["문서번호", "단계", "제출", "반려", "사진 외 미완료", "제출시각", "처리"].map((header) => (
-                    <th key={header} className="px-4 py-3">
+                    <th key={header} className={`h-10 whitespace-nowrap px-4${["제출", "반려", "사진 외 미완료"].includes(header) ? " text-right" : ""}`}>
                       {header}
                     </th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-indigo-50 bg-white/70">
+              <tbody className="divide-y divide-border">
                 {photoApprovalQueue.map(({ row, stage, summary }) => (
-                  <tr key={`${row.work.id}-${stage}`} className="text-slate-600">
-                    <td className="px-4 py-3 font-black text-sky-700">{row.work.document_no}</td>
-                    <td className="px-4 py-3 font-bold text-slate-700">{photoApprovalStageLabels[stage]}</td>
-                    <td className="px-4 py-3 font-bold">
+                  <tr key={`${row.work.id}-${stage}`} className="text-foreground">
+                    <td className="px-4 py-2.5 font-medium text-primary">{row.work.document_no}</td>
+                    <td className="px-4 py-2.5 text-foreground">{photoApprovalStageLabels[stage]}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">
                       {summary.submittedPhotos + summary.approvedPhotos}/{summary.totalPhotos}
                     </td>
-                    <td className="px-4 py-3 font-bold">{summary.rejectedPhotos}</td>
-                    <td className="px-4 py-3 font-bold">{summary.nonPhotoIncomplete}</td>
-                    <td className="px-4 py-3 font-semibold text-slate-500">
+                    <td className="px-4 py-2.5 text-right tabular-nums">{summary.rejectedPhotos}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">{summary.nonPhotoIncomplete}</td>
+                    <td className="px-4 py-2.5 text-muted-foreground">
                       {summary.latestSubmittedAt ? formatDate(summary.latestSubmittedAt, "yyyy.MM.dd HH:mm") : "-"}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-2.5">
                       <CloudButton type="button" tone="primary" onClick={() => setPhotoTarget({ row, stage })}>
                         <Camera className="size-4" />
                         사진 확인
@@ -312,50 +312,51 @@ export default function WorkInspectionPage() {
       )}
 
       <CuteCard className="p-0">
-        <div className="flex flex-col gap-2 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-2 border-b border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="flex items-center gap-2 text-lg font-black text-slate-800">
-              <ClipboardCheck className="size-5 text-sky-500" />
+            <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
+              <ClipboardCheck className="size-5 text-primary" />
               작업 검수 목록
             </h2>
-            <p className="mt-1 text-sm font-semibold text-slate-500">
+            <p className="mt-1 text-sm text-muted-foreground">
               조정확인 요청은 모바일 OCR/비전 불일치 시 현장에서 올라온 관리자 확인 요청입니다.
             </p>
           </div>
-          <span className="w-fit rounded-full bg-amber-50 px-3 py-1 text-xs font-black text-amber-700">
+          <span className="w-fit rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium tabular-nums text-amber-800 ring-1 ring-inset ring-amber-600/20">
             검수대상 {tableRows.filter((row) => row.inspectionStep === "검수대상").length}건
           </span>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1320px] text-left text-sm">
-            <thead className="bg-sky-50/80 text-xs font-black text-sky-700">
+          {/* 목록 표: 셀 줄바꿈을 막고 좌우 여백을 줄여 1440px 화면에서 처리 버튼·조정확인 열까지 보이게 한다. */}
+          <table className="w-full min-w-[1080px] text-left text-sm [&_td]:whitespace-nowrap [&_td]:px-3 [&_th]:px-3">
+            <thead className="bg-muted/60 text-xs font-medium text-muted-foreground">
               <tr>
                 {["등록일자", "작업구분", "문서번호", "완성품코드", "완성품명", "작업수량", "검수단계", "사진검수/승인", "조정확인"].map((header) => (
-                  <th key={header} className="px-4 py-3">
+                  <th key={header} className={`h-10 whitespace-nowrap px-4${header === "작업수량" ? " text-right" : ""}`}>
                     {header}
                   </th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 bg-white/70">
+            <tbody className="divide-y divide-border">
               {tableRows.map((row) => {
                 const adjustment = row.adjustmentStatus ? adjustmentLabels[row.adjustmentStatus] : undefined;
 
                 return (
-                  <tr key={row.work.id} className="text-slate-600 transition hover:bg-sky-50/70">
-                    <td className="px-4 py-3 font-bold">{formatDate(row.registeredAt)}</td>
-                    <td className="px-4 py-3 font-black text-slate-800">{row.workType}</td>
-                    <td className="px-4 py-3 font-black text-sky-700">{row.work.document_no}</td>
-                    <td className="px-4 py-3 font-bold">{row.finishedProductCode}</td>
-                    <td className="px-4 py-3 font-bold text-slate-700">{row.finishedProductName}</td>
-                    <td className="px-4 py-3 font-bold">{row.quantity.toLocaleString()}</td>
-                    <td className="px-4 py-3">
-                      <span className={`rounded-full px-3 py-1 text-xs font-black ${getStepClassName(row.inspectionStep)}`}>
+                  <tr key={row.work.id} className="text-foreground transition-colors hover:bg-muted/40">
+                    <td className="px-4 py-2.5">{formatDate(row.registeredAt)}</td>
+                    <td className="px-4 py-2.5 font-medium text-foreground">{row.workType}</td>
+                    <td className="px-4 py-2.5 font-medium text-primary">{row.work.document_no}</td>
+                    <td className="px-4 py-2.5">{row.finishedProductCode}</td>
+                    <td className="px-4 py-2.5 text-foreground">{row.finishedProductName}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">{row.quantity.toLocaleString()}</td>
+                    <td className="px-4 py-2.5">
+                      <span className={`whitespace-nowrap rounded-md px-2 py-0.5 text-xs font-medium ${getStepClassName(row.inspectionStep)}`}>
                         {row.inspectionStep}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-2.5">
                       <div className="flex flex-wrap items-center gap-2">
                         <CloudButton
                           type="button"
@@ -379,18 +380,18 @@ export default function WorkInspectionPage() {
                         </CloudButton>
                       </div>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-2.5">
                       {adjustment && row.request ? (
                         <button
                           type="button"
                           onClick={() => setSelectedRow(row)}
-                          className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-black ring-1 transition hover:scale-[1.02] ${adjustment.className}`}
+                          className={`inline-flex items-center gap-2 rounded-md px-2.5 py-1 text-xs font-medium ring-1 ring-inset transition-colors hover:brightness-95 ${adjustment.className}`}
                         >
                           <Eye className="size-3.5" />
                           {adjustment.label}
                         </button>
                       ) : (
-                        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-500">요청없음</span>
+                        <span className="rounded-md bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">요청없음</span>
                       )}
                     </td>
                   </tr>
@@ -399,7 +400,7 @@ export default function WorkInspectionPage() {
 
               {tableRows.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center text-sm font-bold text-slate-400">
+                  <td colSpan={9} className="px-4 py-10 text-center text-sm text-muted-foreground">
                     선택된 부서/화주에 표시할 검수 작업이 없습니다.
                   </td>
                 </tr>
@@ -449,39 +450,39 @@ function OcrCompareModal({
   const ocr = item.ocr!;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/35 px-4 py-8 backdrop-blur-sm">
-      <div className="w-full max-w-4xl rounded-[1.5rem] border border-white/80 bg-[#f8fbff] p-5 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
-        <div className="mb-4 flex items-start justify-between gap-4">
+    <div className="fixed inset-0 z-50 flex items-center-safe justify-center overflow-y-auto bg-slate-950/50 px-4 py-8">
+      <div className="w-full max-w-4xl rounded-lg border border-border bg-card p-5 shadow-lg">
+        <div className="mb-4 flex items-start justify-between gap-4 border-b border-border pb-4">
           <div>
-            <p className="text-xs font-black text-amber-600">OCR 확인요청 비교</p>
-            <h2 className="mt-1 text-xl font-black text-slate-800">
+            <p className="text-xs font-medium text-muted-foreground">OCR 확인요청 비교</p>
+            <h2 className="mt-1 text-lg font-semibold text-foreground">
               {item.documentNo} · {item.materialName}
             </h2>
-            <p className="mt-1 text-sm font-semibold text-slate-500">{item.reason}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{item.reason}</p>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="OCR 비교 팝업 닫기"
-            className="inline-flex size-10 items-center justify-center rounded-full bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:bg-sky-50"
+            className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
-            <X className="size-5" />
+            <X className="size-4" />
           </button>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <div className="rounded-[1.2rem] bg-white/75 p-4">
-            <p className="text-xs font-black text-slate-500">촬영 사진</p>
+          <div className="rounded-md border border-border bg-card p-4">
+            <p className="text-xs font-medium text-muted-foreground">촬영 사진</p>
             {ocr.imageUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={ocr.imageUrl} alt="OCR 촬영 사진" className="mt-3 w-full rounded-2xl border border-sky-100" />
+              <img src={ocr.imageUrl} alt="OCR 촬영 사진" className="mt-3 w-full rounded-md border border-border" />
             ) : (
-              <div className="mt-3 flex aspect-[4/3] items-center justify-center rounded-2xl bg-slate-50 text-sm font-black text-slate-400">
+              <div className="mt-3 flex aspect-[4/3] items-center justify-center rounded-md bg-muted text-sm font-medium text-muted-foreground">
                 저장된 촬영 사진 없음
               </div>
             )}
           </div>
-          <div className="rounded-[1.2rem] bg-white/75 p-4">
+          <div className="rounded-md border border-border bg-card p-4">
             <OcrTextCompare
               expectedText={ocr.expectedText}
               expectedSource={ocr.expectedSource}
@@ -492,16 +493,16 @@ function OcrCompareModal({
           </div>
         </div>
 
-        <div className="mt-5 grid gap-2 sm:grid-cols-3">
-          <CloudButton type="button" tone="success" disabled={processing} onClick={() => onProcess("approved")}>
+        <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-border pt-4">
+          <CloudButton type="button" tone="success" className="min-w-24" disabled={processing} onClick={() => onProcess("approved")}>
             <CheckCircle2 className="size-4" />
             승인
           </CloudButton>
-          <CloudButton type="button" tone="warning" disabled={processing} onClick={() => onProcess("retry_requested")}>
+          <CloudButton type="button" tone="warning" className="min-w-24" disabled={processing} onClick={() => onProcess("retry_requested")}>
             <RotateCcw className="size-4" />
             재검수
           </CloudButton>
-          <CloudButton type="button" tone="danger" disabled={processing} onClick={() => onProcess("rejected")}>
+          <CloudButton type="button" tone="danger" className="min-w-24" disabled={processing} onClick={() => onProcess("rejected")}>
             <XCircle className="size-4" />
             반려
           </CloudButton>
@@ -531,13 +532,13 @@ function AdjustmentReviewModal({
   const evidenceImageUrl = ocrEvidence.find((item) => item.ocr?.imageUrl)?.ocr?.imageUrl;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/35 px-4 py-8 backdrop-blur-sm">
-      <div className="w-full max-w-5xl rounded-[1.5rem] border border-white/80 bg-[#f8fbff] p-5 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
-        <div className="mb-5 flex items-start justify-between gap-4">
+    <div className="fixed inset-0 z-50 flex items-center-safe justify-center overflow-y-auto bg-slate-950/50 px-4 py-8">
+      <div className="w-full max-w-5xl rounded-lg border border-border bg-card p-5 shadow-lg">
+        <div className="mb-5 flex items-start justify-between gap-4 border-b border-border pb-4">
           <div>
-            <p className="text-xs font-black text-amber-600">관리자 확인</p>
-            <h2 className="mt-1 text-2xl font-black text-slate-800">{row.work.document_no}</h2>
-            <p className="mt-2 text-sm font-semibold text-slate-500">
+            <p className="text-xs font-medium text-muted-foreground">관리자 확인</p>
+            <h2 className="mt-1 text-lg font-semibold text-foreground">{row.work.document_no}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
               OCR/비전 불일치로 현장에서 확인 요청한 내용을 검토하고 조정 처리합니다.
             </p>
           </div>
@@ -545,29 +546,29 @@ function AdjustmentReviewModal({
             type="button"
             onClick={onClose}
             aria-label="관리자 확인 팝업 닫기"
-            className="inline-flex size-10 items-center justify-center rounded-full bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:bg-sky-50"
+            className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
-            <X className="size-5" />
+            <X className="size-4" />
           </button>
         </div>
 
         <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
           <div className="space-y-4">
-            <div className="grid gap-3 rounded-[1.2rem] bg-white/75 p-4 text-sm sm:grid-cols-2">
+            <div className="grid gap-3 rounded-md border border-border bg-card p-4 text-sm sm:grid-cols-2">
               <InfoItem label="작업구분" value={row.workType} />
               <InfoItem label="완성품코드" value={row.finishedProductCode} />
               <InfoItem label="완성품명" value={row.finishedProductName} />
               <InfoItem label="작업수량" value={`${row.quantity.toLocaleString()}개`} />
             </div>
 
-            <div className="rounded-[1.2rem] bg-amber-50 p-4">
-              <p className="text-xs font-black text-amber-700">현장 확인 요청 사유</p>
-              <p className="mt-2 text-sm font-bold leading-6 text-slate-700">{request.reason}</p>
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-4">
+              <p className="text-xs font-medium text-amber-800">현장 확인 요청 사유</p>
+              <p className="mt-2 text-sm font-medium leading-6 text-foreground">{request.reason}</p>
             </div>
 
             {ocrEvidence.map((item) => (
-              <div key={item.requestId} className="rounded-[1.2rem] bg-white/75 p-4">
-                <p className="mb-2 text-xs font-black text-slate-500">OCR 비교 · {item.materialName}</p>
+              <div key={item.requestId} className="rounded-md border border-border bg-card p-4">
+                <p className="mb-2 text-xs font-medium text-muted-foreground">OCR 비교 · {item.materialName}</p>
                 <OcrTextCompare
                   expectedText={item.ocr!.expectedText}
                   expectedSource={item.ocr!.expectedSource}
@@ -578,31 +579,31 @@ function AdjustmentReviewModal({
               </div>
             ))}
 
-            <div className="overflow-hidden rounded-[1.2rem] border border-white/80 bg-white/75">
+            <div className="overflow-x-auto rounded-md border border-border bg-card">
               <table className="w-full text-left text-xs">
-                <thead className="bg-sky-50/80 font-black text-sky-700">
+                <thead className="bg-muted/60 text-xs font-medium text-muted-foreground">
                   <tr>
-                    <th className="px-4 py-3">검수방식</th>
-                    <th className="px-4 py-3">판정상태</th>
-                    <th className="px-4 py-3">OCR/비전 결과</th>
-                    <th className="px-4 py-3">기준 텍스트</th>
-                    <th className="px-4 py-3 text-right">일치율</th>
-                    <th className="px-4 py-3">요약</th>
+                    <th className="whitespace-nowrap px-4 h-10">검수방식</th>
+                    <th className="whitespace-nowrap px-4 h-10">판정상태</th>
+                    <th className="whitespace-nowrap px-4 h-10">OCR/비전 결과</th>
+                    <th className="whitespace-nowrap px-4 h-10">기준 텍스트</th>
+                    <th className="whitespace-nowrap px-4 h-10 text-right">일치율</th>
+                    <th className="whitespace-nowrap px-4 h-10">요약</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-border">
                   {row.inspections.map((inspection) => (
-                    <tr key={inspection.id} className="text-slate-600">
-                      <td className="px-4 py-3 font-black text-slate-800">{workInspectionMethodLabels[inspection.method] ?? inspection.method}</td>
-                      <td className="px-4 py-3 font-bold">{inspectionStatusLabels[inspection.status] ?? inspection.status}</td>
-                      <td className="px-4 py-3">
+                    <tr key={inspection.id} className="text-foreground">
+                      <td className="px-4 py-2.5 font-medium text-foreground">{workInspectionMethodLabels[inspection.method] ?? inspection.method}</td>
+                      <td className="px-4 py-2.5">{inspectionStatusLabels[inspection.status] ?? inspection.status}</td>
+                      <td className="px-4 py-2.5">
                         {inspection.method === "OCR"
                           ? inspection.ocr_result_text ?? "-"
                           : inspection.method === "VISION"
                             ? `${Math.round((inspection.vision_similarity ?? 0) * 100)}%`
                             : "-"}
                       </td>
-                      <td className="px-4 py-3 font-bold text-sky-700">
+                      <td className="px-4 py-2.5 font-medium text-foreground">
                         {inspection.method === "OCR"
                           ? (inspection.ocrExpectedText ?? "-") +
                             (inspection.ocrExpectedSource && inspection.ocrExpectedSource !== "none"
@@ -610,10 +611,10 @@ function AdjustmentReviewModal({
                               : "")
                           : inspection.materialVerificationValue || "-"}
                       </td>
-                      <td className="px-4 py-3 text-right font-bold">
+                      <td className="px-4 py-2.5 text-right tabular-nums">
                         {inspection.method === "OCR" && typeof inspection.ocr_match_rate === "number" ? `${inspection.ocr_match_rate}%` : "-"}
                       </td>
-                      <td className="px-4 py-3">{inspection.result_summary}</td>
+                      <td className="px-4 py-2.5">{inspection.result_summary}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -621,17 +622,17 @@ function AdjustmentReviewModal({
             </div>
           </div>
 
-          <div className="rounded-[1.2rem] bg-white/75 p-4">
-            <p className="text-xs font-black text-slate-500">검수 이미지</p>
+          <div className="rounded-md border border-border bg-card p-4">
+            <p className="text-xs font-medium text-muted-foreground">검수 이미지</p>
             {evidenceImageUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={evidenceImageUrl} alt="OCR 촬영 사진" className="mt-3 w-full rounded-2xl border border-sky-100" />
+              <img src={evidenceImageUrl} alt="OCR 촬영 사진" className="mt-3 w-full rounded-md border border-border" />
             ) : (
               <>
-                <div className="mt-3 flex aspect-[4/3] items-center justify-center rounded-2xl bg-gradient-to-br from-sky-50 to-amber-50 p-4 text-center text-sm font-black text-slate-400">
+                <div className="mt-3 flex aspect-[4/3] items-center justify-center rounded-md bg-muted p-4 text-center text-sm font-medium text-muted-foreground">
                   이미지 미리보기 영역
                 </div>
-                <div className="mt-3 rounded-2xl bg-slate-50 p-3 text-xs font-semibold leading-5 text-slate-500">
+                <div className="mt-3 rounded-md bg-muted p-3 text-xs leading-5 text-muted-foreground">
                   Storage path:
                   <br />
                   {image?.storage_path ?? `inspection-images/${row.work.id}/${row.work.document_no}.jpg`}
@@ -641,16 +642,16 @@ function AdjustmentReviewModal({
           </div>
         </div>
 
-        <div className="mt-5 grid gap-2 sm:grid-cols-3">
-          <CloudButton type="button" tone="success" onClick={onApprove}>
+        <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-border pt-4">
+          <CloudButton type="button" tone="success" className="min-w-24" onClick={onApprove}>
             <CheckCircle2 className="size-4" />
             조정승인
           </CloudButton>
-          <CloudButton type="button" tone="warning" onClick={onRetry}>
+          <CloudButton type="button" tone="warning" className="min-w-24" onClick={onRetry}>
             <RotateCcw className="size-4" />
             재검수 요청
           </CloudButton>
-          <CloudButton type="button" tone="danger" onClick={onReject}>
+          <CloudButton type="button" tone="danger" className="min-w-24" onClick={onReject}>
             <XCircle className="size-4" />
             조정 미승인
           </CloudButton>
@@ -663,8 +664,8 @@ function AdjustmentReviewModal({
 function InfoItem({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-xs font-black text-slate-400">{label}</p>
-      <p className="mt-1 font-black text-slate-800">{value}</p>
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 font-medium text-foreground">{value}</p>
     </div>
   );
 }

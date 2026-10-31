@@ -7,22 +7,22 @@ type DataTableProps = {
 
 export function DataTable({ headers, rows }: DataTableProps) {
   return (
-    <div className="overflow-hidden rounded-[1.2rem] border border-white/80 bg-white/70">
+    <div className="overflow-x-auto rounded-lg border border-border bg-card">
       <table className="w-full min-w-[720px] text-left text-sm">
-        <thead className="bg-sky-50/80 text-xs font-black uppercase text-sky-700">
+        <thead className="bg-muted/60 text-xs font-medium text-muted-foreground">
           <tr>
             {headers.map((header) => (
-              <th key={header} className="px-4 py-3">
+              <th key={header} className="h-10 whitespace-nowrap px-4 align-middle">
                 {header}
               </th>
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-100">
+        <tbody className="divide-y divide-border">
           {rows.map((row, rowIndex) => (
-            <tr key={rowIndex} className="text-slate-600">
+            <tr key={rowIndex} className="text-foreground transition-colors hover:bg-muted/40">
               {row.map((cell, cellIndex) => (
-                <td key={cellIndex} className="px-4 py-3">
+                <td key={cellIndex} className="px-4 py-2.5 align-middle">
                   {cell}
                 </td>
               ))}

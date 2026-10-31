@@ -109,8 +109,8 @@ export function BasicLayoutPanel({ mode, source, templates, layouts, isSaving, o
   };
 
   const radioClass = (active: boolean, disabled = false) =>
-    `inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-black ring-1 transition ${
-      disabled ? "cursor-not-allowed bg-slate-50 text-slate-300 ring-slate-100" : active ? "bg-sky-500 text-white ring-sky-500" : "bg-white text-slate-500 ring-slate-200 hover:bg-sky-50"
+    `inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium ring-1 transition-colors ${
+      disabled ? "cursor-not-allowed bg-muted text-muted-foreground opacity-50 ring-border" : active ? "bg-primary text-primary-foreground ring-primary" : "bg-card text-muted-foreground ring-input hover:bg-muted hover:text-foreground"
     }`;
 
   return (
@@ -121,7 +121,7 @@ export function BasicLayoutPanel({ mode, source, templates, layouts, isSaving, o
             <>
               <TemplateLoader templates={templates} templateType="layout" selectedId={basis?.id ?? null} onSelect={loadTemplate} />
               {basis && (
-                <p className="rounded-xl bg-sky-50 px-4 py-2 text-xs font-bold text-sky-800">
+                <p className="rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-xs font-medium text-blue-700">
                   불러옴: {basis.code} · {basis.name} ({basis.revision_date}) — 기존 문서는 덮어쓰지 않고 아래 저장 방식대로 새로 저장됩니다.
                 </p>
               )}
@@ -129,7 +129,7 @@ export function BasicLayoutPanel({ mode, source, templates, layouts, isSaving, o
           )}
 
           <div>
-            <p className="mb-2 text-xs font-black text-slate-500">기본형 레이아웃</p>
+            <p className="mb-2 text-xs font-medium text-muted-foreground">기본형 레이아웃</p>
             <div className="grid gap-2 sm:grid-cols-3">
               {layouts.map((layout) => (
                 <button
@@ -137,12 +137,12 @@ export function BasicLayoutPanel({ mode, source, templates, layouts, isSaving, o
                   type="button"
                   onClick={() => changeLayout(layout.key)}
                   aria-pressed={layoutKey === layout.key}
-                  className={`rounded-2xl p-3 text-left ring-1 transition ${
-                    layoutKey === layout.key ? "bg-sky-50 ring-2 ring-sky-400" : "bg-white ring-slate-200 hover:bg-sky-50/50"
+                  className={`rounded-md p-3 text-left ring-1 transition-colors ${
+                    layoutKey === layout.key ? "bg-accent ring-2 ring-primary" : "bg-card ring-input hover:bg-muted/50"
                   }`}
                 >
-                  <span className="block text-sm font-black text-slate-800">{layout.label}</span>
-                  <span className="mt-1 block text-xs font-semibold text-slate-500">{layout.description}</span>
+                  <span className="block text-sm font-medium text-foreground">{layout.label}</span>
+                  <span className="mt-1 block text-xs text-muted-foreground">{layout.description}</span>
                 </button>
               ))}
             </div>
@@ -179,13 +179,13 @@ export function BasicLayoutPanel({ mode, source, templates, layouts, isSaving, o
           </Field>
 
           <div>
-            <p className="mb-2 text-xs font-black text-slate-500">결재란 (최대 5칸)</p>
+            <p className="mb-2 text-xs font-medium text-muted-foreground">결재란 (최대 5칸)</p>
             <div className="flex flex-wrap items-center gap-2">
               {approvalLines.map((line, index) => (
-                <span key={index} className="inline-flex items-center gap-1 rounded-full bg-white py-1 pl-3 pr-1 ring-1 ring-slate-200">
+                <span key={index} className="inline-flex items-center gap-1 rounded-md bg-card py-1 pl-3 pr-1 ring-1 ring-input">
                   <input
                     aria-label={`결재란 ${index + 1}`}
-                    className="w-16 bg-transparent text-xs font-black text-slate-700 outline-none"
+                    className="w-16 bg-transparent text-xs font-medium text-foreground outline-none"
                     value={line.label}
                     maxLength={10}
                     onChange={(event) =>
@@ -196,7 +196,7 @@ export function BasicLayoutPanel({ mode, source, templates, layouts, isSaving, o
                     type="button"
                     aria-label={`결재란 ${index + 1} 삭제`}
                     onClick={() => patchSettings({ approvalLines: approvalLines.filter((_, i) => i !== index) })}
-                    className="inline-flex size-6 items-center justify-center rounded-full text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                    className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-red-50 hover:text-red-600"
                   >
                     <X className="size-3.5" />
                   </button>
@@ -206,7 +206,7 @@ export function BasicLayoutPanel({ mode, source, templates, layouts, isSaving, o
                 <button
                   type="button"
                   onClick={() => patchSettings({ approvalLines: [...approvalLines, { label: "" }] })}
-                  className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-3 py-1.5 text-xs font-black text-sky-700 ring-1 ring-sky-100 hover:bg-sky-100"
+                  className="inline-flex items-center gap-1 rounded-md bg-card px-3 py-1.5 text-xs font-medium text-foreground ring-1 ring-input hover:bg-accent hover:text-accent-foreground"
                 >
                   <Plus className="size-3.5" />칸 추가
                 </button>
@@ -250,7 +250,7 @@ export function BasicLayoutPanel({ mode, source, templates, layouts, isSaving, o
           </div>
 
           <div>
-            <p className="mb-2 text-xs font-black text-slate-500">표시 섹션</p>
+            <p className="mb-2 text-xs font-medium text-muted-foreground">표시 섹션</p>
             <div className="flex flex-wrap gap-2">
               {SECTION_LABELS.map(([key, label]) => (
                 <Toggle key={key} label={label} checked={settings.sections[key]} onChange={(checked) => patchSettings({ sections: { ...settings.sections, [key]: checked } })} />
@@ -277,8 +277,8 @@ export function BasicLayoutPanel({ mode, source, templates, layouts, isSaving, o
           </div>
 
           {!isEdit && (
-            <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200">
-              <p className="mb-2 text-xs font-black text-slate-500">저장 방식</p>
+            <div className="rounded-md bg-card p-3 ring-1 ring-border">
+              <p className="mb-2 text-xs font-medium text-muted-foreground">저장 방식</p>
               <div className="flex flex-wrap gap-2">
                 <button type="button" aria-pressed={!isRevision} className={radioClass(!isRevision)} onClick={() => setSaveMode("new")}>
                   새 문서로 저장 (새 코드 자동채번)
@@ -299,7 +299,7 @@ export function BasicLayoutPanel({ mode, source, templates, layouts, isSaving, o
                   <Toggle label="이전 개정 사용중지" checked={deactivatePrevious} onChange={setDeactivatePrevious} />
                 </div>
               )}
-              <p className="mt-2 text-xs font-semibold text-slate-400">
+              <p className="mt-2 text-xs text-muted-foreground">
                 {isRevision
                   ? `${basis!.code}의 새 개정으로 저장합니다. 개정일자가 기존 개정과 달라야 하며 기존 문서는 그대로 보존됩니다.`
                   : "새 문서로 저장하면 화주 매핑은 승계되지 않으며 기존 문서는 그대로 보존됩니다."}
@@ -309,20 +309,20 @@ export function BasicLayoutPanel({ mode, source, templates, layouts, isSaving, o
         </div>
 
         <div className="lg:sticky lg:top-4 lg:self-start">
-          <p className="mb-2 text-xs font-black text-slate-500">실시간 미리보기 (샘플 데이터)</p>
-          <div className="overflow-hidden rounded-xl bg-slate-100 p-2">
+          <p className="mb-2 text-xs font-medium text-muted-foreground">실시간 미리보기 (샘플 데이터)</p>
+          <div className="overflow-hidden rounded-md bg-slate-100 p-2">
             <TemplatePreview template={{ templateType: "layout", layoutKey, settings }} data={previewData} scale={0.5} />
           </div>
         </div>
       </div>
 
-      {error && <p className="mt-4 rounded-xl bg-rose-50 px-4 py-2 text-sm font-bold text-rose-700">{error}</p>}
+      {error && <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-xs font-medium text-red-700">{error}</p>}
 
-      <div className="mt-5 grid grid-cols-2 gap-2">
-        <CloudButton type="button" tone="soft" onClick={onClose}>
+      <div className="mt-5 flex justify-end gap-2 border-t border-border pt-4">
+        <CloudButton type="button" tone="soft" className="min-w-24" onClick={onClose}>
           취소
         </CloudButton>
-        <CloudButton type="button" disabled={isSaving} onClick={submit}>
+        <CloudButton type="button" className="min-w-24" disabled={isSaving} onClick={submit}>
           <Check className="size-4" />
           {isSaving ? "저장 중..." : isRevision ? "새 개정으로 저장" : isEdit ? "수정 저장" : "새 문서로 저장"}
         </CloudButton>

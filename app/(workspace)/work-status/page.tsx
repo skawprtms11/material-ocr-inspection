@@ -63,31 +63,31 @@ const displayStatusMeta: Record<
   waiting: {
     label: "대기",
     icon: Clock3,
-    badge: "bg-slate-100 text-slate-600 ring-slate-200",
+    badge: "bg-slate-100 text-slate-700 ring-slate-500/20",
     iconBox: "bg-slate-200 text-slate-600"
   },
   progress: {
     label: "진행",
     icon: PlayCircle,
-    badge: "bg-sky-100 text-sky-700 ring-sky-200",
-    iconBox: "bg-sky-500 text-white"
+    badge: "bg-blue-50 text-blue-700 ring-blue-600/20",
+    iconBox: "bg-primary text-primary-foreground"
   },
   hold: {
     label: "보류",
     icon: CirclePause,
-    badge: "bg-amber-100 text-amber-800 ring-amber-200",
-    iconBox: "bg-amber-400 text-white"
+    badge: "bg-amber-50 text-amber-800 ring-amber-600/20",
+    iconBox: "bg-amber-500 text-white"
   },
   cancel: {
     label: "취소",
     icon: Ban,
-    badge: "bg-rose-100 text-rose-700 ring-rose-200",
-    iconBox: "bg-rose-500 text-white"
+    badge: "bg-red-50 text-red-700 ring-red-600/20",
+    iconBox: "bg-red-500 text-white"
   },
   complete: {
     label: "완료",
     icon: CheckCircle2,
-    badge: "bg-emerald-100 text-emerald-700 ring-emerald-200",
+    badge: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
     iconBox: "bg-emerald-500 text-white"
   }
 };
@@ -266,12 +266,12 @@ export default function WorkStatusPage() {
   };
 
   const cards = [
-    { label: "전체", value: summary.total, icon: ListChecks, tone: "text-sky-600 bg-sky-100" },
-    { label: "대기", value: summary.waiting, icon: Clock3, tone: "text-slate-600 bg-slate-100" },
-    { label: "진행", value: summary.progress, icon: PlayCircle, tone: "text-sky-600 bg-sky-100" },
-    { label: "보류", value: summary.hold, icon: CirclePause, tone: "text-amber-700 bg-amber-100" },
-    { label: "취소", value: summary.cancel, icon: Ban, tone: "text-rose-700 bg-rose-100" },
-    { label: "완료", value: summary.complete, icon: CheckCircle2, tone: "text-emerald-700 bg-emerald-100" }
+    { label: "전체", value: summary.total, icon: ListChecks, tone: "text-blue-700 bg-blue-50" },
+    { label: "대기", value: summary.waiting, icon: Clock3, tone: "text-slate-700 bg-slate-100" },
+    { label: "진행", value: summary.progress, icon: PlayCircle, tone: "text-blue-700 bg-blue-50" },
+    { label: "보류", value: summary.hold, icon: CirclePause, tone: "text-amber-700 bg-amber-50" },
+    { label: "취소", value: summary.cancel, icon: Ban, tone: "text-red-700 bg-red-50" },
+    { label: "완료", value: summary.complete, icon: CheckCircle2, tone: "text-emerald-700 bg-emerald-50" }
   ];
 
   return (
@@ -284,7 +284,7 @@ export default function WorkStatusPage() {
             <select
               value={filters.year}
               onChange={(event) => setFilters((current) => ({ ...current, year: event.target.value }))}
-              className="h-10 rounded-2xl border border-sky-100 bg-white/90 px-3 text-sm font-black text-slate-700 outline-none focus:ring-2 focus:ring-sky-200"
+              className="h-9 rounded-md border border-input bg-card px-3 text-sm font-medium text-foreground shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
               aria-label="작업현황 조회 년도"
             >
               {yearOptions.map((year) => (
@@ -296,7 +296,7 @@ export default function WorkStatusPage() {
             <select
               value={filters.month}
               onChange={(event) => setFilters((current) => ({ ...current, month: event.target.value }))}
-              className="h-10 rounded-2xl border border-sky-100 bg-white/90 px-3 text-sm font-black text-slate-700 outline-none focus:ring-2 focus:ring-sky-200"
+              className="h-9 rounded-md border border-input bg-card px-3 text-sm font-medium text-foreground shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
               aria-label="작업현황 조회 월"
             >
               {Array.from({ length: 12 }).map((_, index) => {
@@ -317,25 +317,25 @@ export default function WorkStatusPage() {
       />
 
       {hasDetailFilters && (
-        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-[1.2rem] bg-amber-50/80 px-4 py-3 text-xs font-black text-amber-800 ring-1 ring-amber-100">
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-medium text-amber-800">
           <Search className="size-4" />
           상세필터 적용중
-          {filters.workType && <span className="rounded-full bg-white px-2 py-1">작업구분 {filters.workType}</span>}
-          {filters.documentNo && <span className="rounded-full bg-white px-2 py-1">문서번호 {filters.documentNo}</span>}
-          {filters.productCode && <span className="rounded-full bg-white px-2 py-1">완성품코드 {filters.productCode}</span>}
-          {filters.productName && <span className="rounded-full bg-white px-2 py-1">완성품명 {filters.productName}</span>}
-          {filters.lot && <span className="rounded-full bg-white px-2 py-1">LOT {filters.lot}</span>}
+          {filters.workType && <span className="rounded-md bg-card px-2 py-0.5 ring-1 ring-inset ring-amber-600/20">작업구분 {filters.workType}</span>}
+          {filters.documentNo && <span className="rounded-md bg-card px-2 py-0.5 ring-1 ring-inset ring-amber-600/20">문서번호 {filters.documentNo}</span>}
+          {filters.productCode && <span className="rounded-md bg-card px-2 py-0.5 ring-1 ring-inset ring-amber-600/20">완성품코드 {filters.productCode}</span>}
+          {filters.productName && <span className="rounded-md bg-card px-2 py-0.5 ring-1 ring-inset ring-amber-600/20">완성품명 {filters.productName}</span>}
+          {filters.lot && <span className="rounded-md bg-card px-2 py-0.5 ring-1 ring-inset ring-amber-600/20">LOT {filters.lot}</span>}
         </div>
       )}
 
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white/60 px-4 py-2 text-xs font-black text-slate-500 ring-1 ring-white/80">
-        <span>{isLoading ? "작업현황 데이터를 불러오는 중이에요." : "선택된 부서/화주 기준으로 작업현황을 조회합니다."}</span>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-card px-4 py-2 text-xs font-medium text-muted-foreground">
+        <span>{isLoading ? "작업현황 데이터를 불러오는 중입니다." : "선택된 부서/화주 기준으로 작업현황을 조회합니다."}</span>
         <div className="flex items-center gap-2">
-          <span className={`rounded-full px-3 py-1 ring-1 ${loadError ? "bg-rose-50 text-rose-700 ring-rose-100" : "bg-sky-50 text-sky-700 ring-sky-100"}`}>
+          <span className={`rounded-md px-2 py-0.5 ring-1 ring-inset ${loadError ? "bg-red-50 text-red-700 ring-red-600/20" : "bg-muted text-muted-foreground ring-border"}`}>
             데이터: {loadError ? "연결 오류" : dataSource === "supabase" ? "Supabase" : dataSource === "mock" ? "Mock/Fallback" : "연결 확인 중"}
           </span>
           {loadError && (
-            <button type="button" onClick={() => void loadRows()} className="rounded-full bg-rose-100 px-3 py-1 text-rose-800">
+            <button type="button" onClick={() => void loadRows()} className="rounded-md border border-red-200 bg-red-50 px-3 py-1 text-red-700 transition-colors hover:bg-red-100">
               다시 시도
             </button>
           )}
@@ -344,13 +344,13 @@ export default function WorkStatusPage() {
 
       <CuteCard className="mb-4 p-3">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
-          <div className="flex min-w-[180px] items-center justify-between gap-4 rounded-2xl bg-sky-50 px-4 py-3">
+          <div className="flex min-w-[180px] items-center justify-between gap-4 rounded-md bg-muted px-4 py-3">
             <div>
-              <p className="text-xs font-black text-sky-600">완료율</p>
-              <p className="mt-0.5 text-2xl font-black text-slate-800">{completionRate}%</p>
+              <p className="text-xs font-medium text-muted-foreground">완료율</p>
+              <p className="mt-0.5 text-2xl font-semibold tabular-nums text-foreground">{completionRate}%</p>
             </div>
-            <div className="h-2 w-24 overflow-hidden rounded-full bg-white">
-              <div className="h-full rounded-full bg-emerald-400" style={{ width: `${completionRate}%` }} />
+            <div className="h-2 w-24 overflow-hidden rounded-full bg-slate-200">
+              <div className="h-full rounded-full bg-emerald-500" style={{ width: `${completionRate}%` }} />
             </div>
           </div>
 
@@ -358,13 +358,13 @@ export default function WorkStatusPage() {
             {cards.map((card) => {
               const Icon = card.icon;
               return (
-                <div key={card.label} className="flex items-center gap-2 rounded-2xl bg-white/70 px-3 py-2 ring-1 ring-slate-100">
+                <div key={card.label} className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2">
                   <span className={`inline-flex size-7 shrink-0 items-center justify-center rounded-full ${card.tone}`}>
                     <Icon className="size-4" />
                   </span>
                   <div className="min-w-0">
-                    <p className="text-[11px] font-black text-slate-400">{card.label}</p>
-                    <p className="text-base font-black text-slate-800">{card.value}</p>
+                    <p className="text-[11px] text-muted-foreground">{card.label}</p>
+                    <p className="text-base font-semibold tabular-nums text-foreground">{card.value}</p>
                   </div>
                 </div>
               );
@@ -374,30 +374,30 @@ export default function WorkStatusPage() {
       </CuteCard>
 
       <CuteCard className="p-0">
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <div>
-            <h2 className="text-lg font-black text-slate-800">작업현황</h2>
-            <p className="mt-1 text-sm font-semibold text-slate-500">선택한 기간과 상세필터 기준으로 조회됩니다.</p>
+            <h2 className="text-base font-semibold text-foreground">작업현황</h2>
+            <p className="mt-1 text-sm text-muted-foreground">선택한 기간과 상세필터 기준으로 조회됩니다.</p>
           </div>
-          <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-black text-sky-700">{filteredRows.length}건</span>
+          <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">{filteredRows.length}건</span>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1256px] text-left text-sm">
-            <thead className="bg-sky-50/80 text-xs font-black text-sky-700">
+          <table className="w-full min-w-[1080px] text-left text-sm">
+            <thead className="bg-muted/60 text-xs font-medium text-muted-foreground">
               <tr>
-                <th className="whitespace-nowrap px-3 py-3">작업시작</th>
-                <th className="w-20 whitespace-nowrap px-2 py-3">작업상태</th>
+                <th className="whitespace-nowrap px-3 h-10">작업시작</th>
+                <th className="w-20 whitespace-nowrap px-2 h-10">작업상태</th>
                 {["작업구분", "문서번호", "완성품코드", "완성품명", "LOT"].map((header) => (
-                  <th key={header} className="px-4 py-3">
+                  <th key={header} className="whitespace-nowrap px-4 h-10">
                     {header}
                   </th>
                 ))}
-                <th className="px-4 py-3">작업수량</th>
-                <th className="whitespace-nowrap px-3 py-3">완료일자</th>
-                <th className="px-4 py-3">비고</th>
+                <th className="h-10 whitespace-nowrap px-4 text-right">작업수량</th>
+                <th className="whitespace-nowrap px-3 h-10">완료일자</th>
+                <th className="whitespace-nowrap px-4 h-10">비고</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 bg-white/70">
+            <tbody className="divide-y divide-border">
               {filteredRows.map((row) => {
                 const status = displayStatusMeta[row.displayStatus];
                 const Icon = status.icon;
@@ -410,14 +410,14 @@ export default function WorkStatusPage() {
                       : status.label;
 
                 return (
-                  <tr key={row.work.id} className="text-slate-600 transition hover:bg-sky-50/70">
-                    <td className="whitespace-nowrap px-3 py-3 font-bold">{formatShortDate(row.workStartedAt)}</td>
-                    <td className="px-2 py-3">
+                  <tr key={row.work.id} className="text-foreground transition-colors hover:bg-muted/40">
+                    <td className="whitespace-nowrap px-3 py-2.5">{formatShortDate(row.workStartedAt)}</td>
+                    <td className="px-2 py-2.5">
                       <div className="relative inline-block">
                         <button
                           type="button"
                           onClick={() => setStatusMenuWorkId((current) => (current === row.work.id ? null : row.work.id))}
-                          className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-1 text-[11px] font-black ring-1 transition hover:scale-[1.02] ${status.badge}`}
+                          className={`inline-flex items-center gap-1 whitespace-nowrap rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset transition-colors hover:brightness-95 ${status.badge}`}
                           aria-haspopup="menu"
                           aria-expanded={statusMenuWorkId === row.work.id}
                           aria-label={`${row.work.document_no} 작업상태 변경`}
@@ -430,7 +430,7 @@ export default function WorkStatusPage() {
                         </button>
 
                         {statusMenuWorkId === row.work.id && (
-                          <div className="absolute left-0 top-full z-30 mt-2 w-36 overflow-hidden rounded-2xl border border-white/80 bg-white shadow-[0_16px_40px_rgba(15,23,42,0.16)]">
+                          <div className="absolute left-0 top-full z-30 mt-2 w-36 overflow-hidden rounded-lg border border-border bg-popover shadow-md">
                             {getSelectableStatusOptions(row.inspectionStatus, row.work.status).map((option) => {
                               const optionStatus = displayStatusMeta[getDisplayStatus(option.value)];
                               const OptionIcon = optionStatus.icon;
@@ -441,8 +441,8 @@ export default function WorkStatusPage() {
                                   key={option.value}
                                   type="button"
                                   onClick={() => handleStatusChange(row.work.id, option.value)}
-                                  className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-black transition hover:bg-sky-50 ${
-                                    selected ? "bg-sky-50 text-sky-700" : "text-slate-600"
+                                  className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium transition-colors hover:bg-accent ${
+                                    selected ? "bg-accent text-accent-foreground" : "text-foreground"
                                   }`}
                                 >
                                   <span className={`inline-flex size-6 items-center justify-center rounded-full ${optionStatus.iconBox}`}>
@@ -456,31 +456,31 @@ export default function WorkStatusPage() {
                         )}
                       </div>
                     </td>
-                    <td className="px-4 py-3 font-black text-slate-800">{row.workType}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-2.5 font-medium text-foreground">{row.workType}</td>
+                    <td className="px-4 py-2.5">
                       <button
                         type="button"
                         onClick={(event) => {
                           event.stopPropagation();
                           setDetailWorkId(row.work.id);
                         }}
-                        className="font-black text-sky-700 underline decoration-sky-300 decoration-2 underline-offset-2 transition hover:text-sky-500"
+                        className="font-medium text-primary underline decoration-primary/30 underline-offset-2 transition-colors hover:text-primary/80"
                       >
                         {row.work.document_no}
                       </button>
                     </td>
-                    <td className="px-4 py-3 font-bold">{row.productCode}</td>
-                    <td className="px-4 py-3 font-bold text-slate-700">{row.productName}</td>
-                    <td className="max-w-[240px] px-4 py-3 font-bold text-violet-700">{row.lot || "-"}</td>
-                    <td className="px-4 py-3 font-bold">{row.quantity.toLocaleString()}</td>
-                    <td className="whitespace-nowrap px-3 py-3 font-bold">{formatShortDate(row.completedAt)}</td>
-                    <td className="max-w-[280px] truncate px-4 py-3 text-slate-500">{row.work.memo || "-"}</td>
+                    <td className="px-4 py-2.5">{row.productCode}</td>
+                    <td className="px-4 py-2.5 text-foreground">{row.productName}</td>
+                    <td className="max-w-[240px] px-4 py-2.5 font-medium text-foreground">{row.lot || "-"}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">{row.quantity.toLocaleString()}</td>
+                    <td className="whitespace-nowrap px-3 py-2.5">{formatShortDate(row.completedAt)}</td>
+                    <td className="max-w-[280px] truncate px-4 py-2.5 text-muted-foreground">{row.work.memo || "-"}</td>
                   </tr>
                 );
               })}
               {filteredRows.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="px-4 py-12 text-center text-sm font-bold text-slate-400">
+                  <td colSpan={11} className="px-4 py-12 text-center text-sm text-muted-foreground">
                     조회 조건에 맞는 작업현황이 없습니다.
                   </td>
                 </tr>
@@ -523,12 +523,12 @@ const materialStatusMeta: Record<
   "pass" | "wait" | "fail" | "adminRequest" | "submitted" | "rejected",
   { label: string; badge: string }
 > = {
-  pass: { label: "합격", badge: "bg-emerald-100 text-emerald-700 ring-emerald-200" },
-  wait: { label: "대기", badge: "bg-slate-100 text-slate-600 ring-slate-200" },
-  fail: { label: "불합격", badge: "bg-rose-100 text-rose-700 ring-rose-200" },
-  adminRequest: { label: "관리자요청", badge: "bg-orange-100 text-orange-700 ring-orange-200" },
-  submitted: { label: "승인대기", badge: "bg-indigo-100 text-indigo-700 ring-indigo-200" },
-  rejected: { label: "반려", badge: "bg-rose-100 text-rose-700 ring-rose-200" }
+  pass: { label: "합격", badge: "bg-emerald-50 text-emerald-700 ring-emerald-600/20" },
+  wait: { label: "대기", badge: "bg-slate-100 text-slate-700 ring-slate-500/20" },
+  fail: { label: "불합격", badge: "bg-red-50 text-red-700 ring-red-600/20" },
+  adminRequest: { label: "관리자요청", badge: "bg-orange-50 text-orange-700 ring-orange-600/20" },
+  submitted: { label: "승인대기", badge: "bg-indigo-50 text-indigo-700 ring-indigo-600/20" },
+  rejected: { label: "반려", badge: "bg-red-50 text-red-700 ring-red-600/20" }
 };
 
 function summarizeMaterialStatus(statuses: InspectionStatus[]): keyof typeof materialStatusMeta {
@@ -579,12 +579,12 @@ function WorkDetailModal({ workId, onClose }: { workId: string; onClose: () => v
   }, [workId, retryCount, departmentId, shipperId]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/35 px-4 py-8 backdrop-blur-sm">
-      <div className="w-full max-w-4xl rounded-[1.4rem] border border-white/80 bg-[#f8fbff] p-5 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
-        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/50 px-4 py-8">
+      <div className="w-full max-w-4xl rounded-lg border border-border bg-card p-5 shadow-lg">
+        <div className="mb-5 flex flex-col gap-3 border-b border-border pb-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-xs font-black text-sky-600">작업 상세내역</p>
-            <h2 className="mt-1 text-2xl font-black tracking-normal text-slate-800">
+            <p className="text-xs font-medium text-muted-foreground">작업 상세내역</p>
+            <h2 className="mt-1 text-lg font-semibold text-foreground">
               {detail?.work.documentNo ?? "작업 상세"}
             </h2>
           </div>
@@ -592,24 +592,24 @@ function WorkDetailModal({ workId, onClose }: { workId: string; onClose: () => v
             type="button"
             onClick={onClose}
             aria-label="상세내역 팝업 닫기"
-            className="inline-flex size-10 items-center justify-center rounded-full bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:bg-sky-50"
+            className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
-            <X className="size-5" />
+            <X className="size-4" />
           </button>
         </div>
 
         {isLoading ? (
-          <div className="flex min-h-40 flex-col items-center justify-center gap-2 rounded-[1.2rem] bg-white/70 text-sm font-bold text-slate-500">
-            <Loader2 className="size-6 animate-spin text-sky-400" />
-            작업 상세내역을 불러오는 중이에요.
+          <div className="flex min-h-40 flex-col items-center justify-center gap-2 rounded-md border border-border bg-card text-sm font-medium text-muted-foreground">
+            <Loader2 className="size-6 animate-spin text-primary" />
+            작업 상세내역을 불러오는 중입니다.
           </div>
         ) : error ? (
-          <div className="flex flex-col items-center gap-3 rounded-[1.2rem] bg-rose-50 p-6 text-center text-sm font-bold text-rose-600">
+          <div className="flex flex-col items-center gap-3 rounded-md border border-red-200 bg-red-50 p-6 text-center text-sm font-medium text-red-600">
             {error}
             <button
               type="button"
               onClick={() => setRetryCount((current) => current + 1)}
-              className="rounded-full bg-rose-100 px-4 py-2 text-xs font-black text-rose-700 transition hover:bg-rose-200"
+              className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-xs font-medium text-red-700 transition-colors hover:bg-red-100"
             >
               다시 시도
             </button>
@@ -617,7 +617,7 @@ function WorkDetailModal({ workId, onClose }: { workId: string; onClose: () => v
         ) : detail ? (
           <div className="grid gap-5">
             <CuteCard>
-              <h3 className="mb-3 text-lg font-black text-slate-800">작업 기본정보</h3>
+              <h3 className="mb-3 text-sm font-semibold text-foreground">작업 기본정보</h3>
               <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
                 <DetailField label="문서번호" value={detail.work.documentNo} />
                 <DetailField label="완성품코드" value={detail.work.productCode} />
@@ -630,10 +630,10 @@ function WorkDetailModal({ workId, onClose }: { workId: string; onClose: () => v
             </CuteCard>
 
             <CuteCard>
-              <h3 className="mb-3 flex items-center gap-2 text-lg font-black text-slate-800">
+              <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
                 제품내역
                 {detail.productsSource === "work_master" && (
-                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-black text-amber-700 ring-1 ring-amber-200">
+                  <span className="rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 ring-1 ring-inset ring-amber-600/20">
                     마스터 기준
                   </span>
                 )}
@@ -642,12 +642,12 @@ function WorkDetailModal({ workId, onClose }: { workId: string; onClose: () => v
             </CuteCard>
 
             <CuteCard>
-              <h3 className="mb-3 text-lg font-black text-slate-800">부자재 내역</h3>
+              <h3 className="mb-3 text-sm font-semibold text-foreground">부자재 내역</h3>
               <MaterialTable materials={detail.materials} />
             </CuteCard>
 
             <CuteCard>
-              <h3 className="mb-3 text-lg font-black text-slate-800">작업완료사진</h3>
+              <h3 className="mb-3 text-sm font-semibold text-foreground">작업완료사진</h3>
               <CompletionPhotoSection photos={detail.completionPhotos} />
             </CuteCard>
           </div>
@@ -659,9 +659,9 @@ function WorkDetailModal({ workId, onClose }: { workId: string; onClose: () => v
 
 function DetailField({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl bg-white/75 p-3">
-      <p className="text-xs font-black text-slate-400">{label}</p>
-      <p className="mt-1 font-black text-slate-800">{value}</p>
+    <div className="rounded-md bg-muted/40 p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 font-medium text-foreground">{value}</p>
     </div>
   );
 }
@@ -679,34 +679,34 @@ function ProductTable({
   const colSpan = hasPhotoReview ? 8 : 7;
 
   return (
-    <div className="overflow-hidden rounded-[1.2rem] border border-white/80 bg-white/75">
+    <div className="overflow-x-auto rounded-md border border-border bg-card">
       <table className="w-full text-left text-xs">
-        <thead className="bg-sky-50/80 font-black text-sky-700">
+        <thead className="bg-muted/60 text-xs font-medium text-muted-foreground">
           <tr>
-            <th className="px-4 py-3">제품코드</th>
-            <th className="px-4 py-3">제품명</th>
-            <th className="px-4 py-3">LOT</th>
-            <th className="px-4 py-3">단위수량</th>
-            <th className="px-4 py-3">{isWorkComponents ? "수량" : "구분"}</th>
-            <th className="px-4 py-3">사용수량</th>
-            <th className="px-4 py-3">비고</th>
-            {hasPhotoReview && <th className="px-4 py-3">사진검수</th>}
+            <th className="whitespace-nowrap px-4 h-10">제품코드</th>
+            <th className="whitespace-nowrap px-4 h-10">제품명</th>
+            <th className="whitespace-nowrap px-4 h-10">LOT</th>
+            <th className="h-10 whitespace-nowrap px-4 text-right">단위수량</th>
+            <th className={`h-10 whitespace-nowrap px-4${isWorkComponents ? " text-right" : ""}`}>{isWorkComponents ? "수량" : "구분"}</th>
+            <th className="h-10 whitespace-nowrap px-4 text-right">사용수량</th>
+            <th className="whitespace-nowrap px-4 h-10">비고</th>
+            {hasPhotoReview && <th className="whitespace-nowrap px-4 h-10">사진검수</th>}
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-100">
+        <tbody className="divide-y divide-border">
           {products.map((product) => (
-            <tr key={product.id} className="text-slate-600">
-              <td className="px-4 py-3 font-black text-slate-800">{product.productCode}</td>
-              <td className="px-4 py-3 font-bold">{product.productName}</td>
-              <td className="px-4 py-3 font-bold text-violet-700">{product.lot || "-"}</td>
-              <td className="px-4 py-3">{product.unitQuantity?.toLocaleString() ?? "-"}</td>
-              <td className="px-4 py-3">
+            <tr key={product.id} className="text-foreground">
+              <td className="px-4 py-2.5 font-medium text-foreground">{product.productCode}</td>
+              <td className="px-4 py-2.5">{product.productName}</td>
+              <td className="px-4 py-2.5 font-medium text-foreground">{product.lot || "-"}</td>
+              <td className="px-4 py-2.5 text-right tabular-nums">{product.unitQuantity?.toLocaleString() ?? "-"}</td>
+              <td className={`px-4 py-2.5${isWorkComponents ? " text-right tabular-nums" : ""}`}>
                 {isWorkComponents ? (product.requiredQuantity?.toLocaleString() ?? "-") : (product.productType ?? "-")}
               </td>
-              <td className="px-4 py-3 font-bold text-sky-700">{product.usedQuantity?.toLocaleString() ?? "-"}</td>
-              <td className="px-4 py-3">{product.memo || "-"}</td>
+              <td className="px-4 py-2.5 text-right font-medium tabular-nums text-foreground">{product.usedQuantity?.toLocaleString() ?? "-"}</td>
+              <td className="px-4 py-2.5">{product.memo || "-"}</td>
               {hasPhotoReview && (
-                <td className="px-4 py-3">
+                <td className="px-4 py-2.5">
                   <div className="space-y-2">
                     {(product.photoReviews ?? []).map((review) => (
                       <PhotoReviewCell
@@ -726,7 +726,7 @@ function ProductTable({
           ))}
           {products.length === 0 && (
             <tr>
-              <td colSpan={colSpan} className="px-4 py-8 text-center font-bold text-slate-400">
+              <td colSpan={colSpan} className="px-4 py-8 text-center text-muted-foreground">
                 등록된 제품내역이 없습니다.
               </td>
             </tr>
@@ -739,46 +739,46 @@ function ProductTable({
 
 function MaterialTable({ materials }: { materials: WorkDetailMaterialDto[] }) {
   return (
-    <div className="overflow-hidden rounded-[1.2rem] border border-white/80 bg-white/75">
+    <div className="overflow-x-auto rounded-md border border-border bg-card">
       <table className="w-full text-left text-xs">
-        <thead className="bg-sky-50/80 font-black text-sky-700">
+        <thead className="bg-muted/60 text-xs font-medium text-muted-foreground">
           <tr>
-            <th className="px-4 py-3">부자재코드</th>
-            <th className="px-4 py-3">부자재명</th>
-            <th className="px-4 py-3">검수방식</th>
-            <th className="px-4 py-3">단위수량</th>
-            <th className="px-4 py-3">사용수량</th>
-            <th className="px-4 py-3">검증값</th>
-            <th className="px-4 py-3">검수상태</th>
-            <th className="px-4 py-3">검수 사진</th>
+            <th className="whitespace-nowrap px-4 h-10">부자재코드</th>
+            <th className="whitespace-nowrap px-4 h-10">부자재명</th>
+            <th className="whitespace-nowrap px-4 h-10">검수방식</th>
+            <th className="h-10 whitespace-nowrap px-4 text-right">단위수량</th>
+            <th className="h-10 whitespace-nowrap px-4 text-right">사용수량</th>
+            <th className="whitespace-nowrap px-4 h-10">검증값</th>
+            <th className="whitespace-nowrap px-4 h-10">검수상태</th>
+            <th className="whitespace-nowrap px-4 h-10">검수 사진</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-100">
+        <tbody className="divide-y divide-border">
           {materials.map((material) => {
             const statusKey = summarizeMaterialStatus(material.inspections.map((inspection) => inspection.status));
             const status = materialStatusMeta[statusKey];
 
             return (
-              <tr key={material.id} className="text-slate-600">
-                <td className="px-4 py-3 font-black text-slate-800">{material.materialCode}</td>
-                <td className="px-4 py-3 font-bold">{material.materialName}</td>
-                <td className="px-4 py-3">{inspectionMethodLabels[material.inspectionMethod] ?? material.inspectionMethod}</td>
-                <td className="px-4 py-3">{material.unitQuantity.toLocaleString()}</td>
-                <td className="px-4 py-3 font-bold text-sky-700">{material.usedQuantity?.toLocaleString() ?? "-"}</td>
-                <td className="px-4 py-3 font-bold text-sky-700">{material.verificationValue || "-"}</td>
-                <td className="px-4 py-3">
-                  <span className={`inline-flex rounded-full px-3 py-1 text-[11px] font-black ring-1 ${status.badge}`}>
+              <tr key={material.id} className="text-foreground">
+                <td className="px-4 py-2.5 font-medium text-foreground">{material.materialCode}</td>
+                <td className="px-4 py-2.5">{material.materialName}</td>
+                <td className="px-4 py-2.5">{inspectionMethodLabels[material.inspectionMethod] ?? material.inspectionMethod}</td>
+                <td className="px-4 py-2.5 text-right tabular-nums">{material.unitQuantity.toLocaleString()}</td>
+                <td className="px-4 py-2.5 text-right font-medium tabular-nums text-foreground">{material.usedQuantity?.toLocaleString() ?? "-"}</td>
+                <td className="px-4 py-2.5 font-medium text-foreground">{material.verificationValue || "-"}</td>
+                <td className="px-4 py-2.5">
+                  <span className={`inline-flex rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${status.badge}`}>
                     {status.label}
                   </span>
                   {material.inspections
                     .filter((inspection) => inspection.status === "rejected" && inspection.reviewComment)
                     .map((inspection, index) => (
-                      <p key={index} className="mt-1 text-[11px] font-bold text-rose-700">
+                      <p key={index} className="mt-1 text-[11px] font-medium text-red-700">
                         반려 사유: {inspection.reviewComment}
                       </p>
                     ))}
                 </td>
-                <td className="px-4 py-3">
+                <td className="px-4 py-2.5">
                   {material.imageUrls.length > 0 ? (
                     <div className="flex flex-wrap gap-1.5">
                       {material.imageUrls.map((url, index) => (
@@ -787,7 +787,7 @@ function MaterialTable({ materials }: { materials: WorkDetailMaterialDto[] }) {
                           <img
                             src={url}
                             alt={`${material.materialName} 검수 사진 ${index + 1}`}
-                            className="h-12 w-12 rounded-lg object-cover ring-1 ring-slate-200 transition hover:opacity-80"
+                            className="h-12 w-12 rounded-lg object-cover ring-1 ring-border transition-opacity hover:opacity-80"
                           />
                         </a>
                       ))}
@@ -801,7 +801,7 @@ function MaterialTable({ materials }: { materials: WorkDetailMaterialDto[] }) {
           })}
           {materials.length === 0 && (
             <tr>
-              <td colSpan={8} className="px-4 py-8 text-center font-bold text-slate-400">
+              <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
                 등록된 부자재 내역이 없습니다.
               </td>
             </tr>
@@ -830,18 +830,18 @@ function PhotoReviewCell({
   return (
     <div>
       <div className="flex items-center gap-1.5">
-        <span className="text-[11px] font-black text-slate-500">{stageLabel}</span>
-        <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-black ring-1 ${status.badge}`}>{status.label}</span>
+        <span className="text-[11px] font-medium text-muted-foreground">{stageLabel}</span>
+        <span className={`inline-flex rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${status.badge}`}>{status.label}</span>
       </div>
       {reviewComment && statuses.includes("rejected") && (
-        <p className="mt-1 text-[11px] font-bold text-rose-700">반려 사유: {reviewComment}</p>
+        <p className="mt-1 text-[11px] font-medium text-red-700">반려 사유: {reviewComment}</p>
       )}
       {imageUrls.length > 0 && (
         <div className="mt-1 flex flex-wrap gap-1.5">
           {imageUrls.map((url, index) => (
             <a key={url} href={url} target="_blank" rel="noreferrer">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={url} alt={`${alt} ${index + 1}`} className="h-12 w-12 rounded-lg object-cover ring-1 ring-slate-200 transition hover:opacity-80" />
+              <img src={url} alt={`${alt} ${index + 1}`} className="h-12 w-12 rounded-lg object-cover ring-1 ring-border transition-opacity hover:opacity-80" />
             </a>
           ))}
         </div>
@@ -861,34 +861,34 @@ const completionMethodLabels: Record<WorkDetailCompletionPhotoDto["method"], str
 // 사진을 보여준다. 완료검수가 아직 없는 작업은 빈 상태 문구만 표시한다.
 function CompletionPhotoSection({ photos }: { photos: WorkDetailCompletionPhotoDto[] }) {
   return (
-    <div className="overflow-hidden rounded-[1.2rem] border border-white/80 bg-white/75">
+    <div className="overflow-x-auto rounded-md border border-border bg-card">
       <table className="w-full text-left text-xs">
-        <thead className="bg-sky-50/80 font-black text-sky-700">
+        <thead className="bg-muted/60 text-xs font-medium text-muted-foreground">
           <tr>
-            <th className="px-4 py-3">항목</th>
-            <th className="px-4 py-3">검수방식</th>
-            <th className="px-4 py-3">검수상태</th>
-            <th className="px-4 py-3">사진</th>
+            <th className="whitespace-nowrap px-4 h-10">항목</th>
+            <th className="whitespace-nowrap px-4 h-10">검수방식</th>
+            <th className="whitespace-nowrap px-4 h-10">검수상태</th>
+            <th className="whitespace-nowrap px-4 h-10">사진</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-100">
+        <tbody className="divide-y divide-border">
           {photos.map((photo) => {
             const statusKey = summarizeMaterialStatus([photo.status]);
             const status = materialStatusMeta[statusKey];
 
             return (
-              <tr key={photo.id} className="text-slate-600">
-                <td className="px-4 py-3 font-black text-slate-800">{photo.label}</td>
-                <td className="px-4 py-3">{completionMethodLabels[photo.method]}</td>
-                <td className="px-4 py-3">
-                  <span className={`inline-flex rounded-full px-3 py-1 text-[11px] font-black ring-1 ${status.badge}`}>
+              <tr key={photo.id} className="text-foreground">
+                <td className="px-4 py-2.5 font-medium text-foreground">{photo.label}</td>
+                <td className="px-4 py-2.5">{completionMethodLabels[photo.method]}</td>
+                <td className="px-4 py-2.5">
+                  <span className={`inline-flex rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${status.badge}`}>
                     {status.label}
                   </span>
                   {photo.status === "rejected" && photo.reviewComment && (
-                    <p className="mt-1 text-[11px] font-bold text-rose-700">반려 사유: {photo.reviewComment}</p>
+                    <p className="mt-1 text-[11px] font-medium text-red-700">반려 사유: {photo.reviewComment}</p>
                   )}
                 </td>
-                <td className="px-4 py-3">
+                <td className="px-4 py-2.5">
                   {photo.imageUrls.length > 0 ? (
                     <div className="flex flex-wrap gap-1.5">
                       {photo.imageUrls.map((url, index) => (
@@ -897,7 +897,7 @@ function CompletionPhotoSection({ photos }: { photos: WorkDetailCompletionPhotoD
                           <img
                             src={url}
                             alt={`${photo.label} 완료검수 사진 ${index + 1}`}
-                            className="h-12 w-12 rounded-lg object-cover ring-1 ring-slate-200 transition hover:opacity-80"
+                            className="h-12 w-12 rounded-lg object-cover ring-1 ring-border transition-opacity hover:opacity-80"
                           />
                         </a>
                       ))}
@@ -911,7 +911,7 @@ function CompletionPhotoSection({ photos }: { photos: WorkDetailCompletionPhotoD
           })}
           {photos.length === 0 && (
             <tr>
-              <td colSpan={4} className="px-4 py-8 text-center font-bold text-slate-400">
+              <td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">
                 완료검수 사진이 아직 없습니다.
               </td>
             </tr>
@@ -953,13 +953,13 @@ function DetailFilterModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/35 px-4 py-8 backdrop-blur-sm">
-      <div className="w-full max-w-4xl rounded-[1.5rem] border border-white/80 bg-[#f8fbff] p-5 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
-        <div className="mb-5 flex items-start justify-between gap-4">
+    <div className="fixed inset-0 z-50 flex items-center-safe justify-center overflow-y-auto bg-slate-950/50 px-4 py-8">
+      <div className="w-full max-w-4xl rounded-lg border border-border bg-card p-5 shadow-lg">
+        <div className="mb-5 flex items-start justify-between gap-4 border-b border-border pb-4">
           <div>
-            <p className="text-xs font-black text-sky-600">상세필터</p>
-            <h2 className="mt-1 text-2xl font-black text-slate-800">작업현황 상세 검색</h2>
-            <p className="mt-2 text-sm font-semibold text-slate-500">
+            <p className="text-xs font-medium text-muted-foreground">상세필터</p>
+            <h2 className="mt-1 text-lg font-semibold text-foreground">작업현황 상세 검색</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
               년도, 월과 함께 작업구분, 문서번호, 완성품, LOT 조건으로 조회합니다.
             </p>
           </div>
@@ -967,9 +967,9 @@ function DetailFilterModal({
             type="button"
             onClick={onClose}
             aria-label="상세필터 닫기"
-            className="inline-flex size-10 items-center justify-center rounded-full bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:bg-sky-50"
+            className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
-            <X className="size-5" />
+            <X className="size-4" />
           </button>
         </div>
 
@@ -979,7 +979,7 @@ function DetailFilterModal({
               <select
                 value={draft.year}
                 onChange={(event) => update("year", event.target.value)}
-                className="h-11 w-full rounded-2xl border border-sky-100 bg-white px-3 text-sm font-bold outline-none focus:ring-2 focus:ring-sky-200"
+                className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
               >
                 {yearOptions.map((year) => (
                   <option key={year} value={year}>
@@ -993,7 +993,7 @@ function DetailFilterModal({
               <select
                 value={draft.month}
                 onChange={(event) => update("month", event.target.value)}
-                className="h-11 w-full rounded-2xl border border-sky-100 bg-white px-3 text-sm font-bold outline-none focus:ring-2 focus:ring-sky-200"
+                className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
               >
                 {Array.from({ length: 12 }).map((_, index) => {
                   const month = String(index + 1).padStart(2, "0");
@@ -1010,7 +1010,7 @@ function DetailFilterModal({
               <select
                 value={draft.workType}
                 onChange={(event) => update("workType", event.target.value)}
-                className="h-11 w-full rounded-2xl border border-sky-100 bg-white px-3 text-sm font-bold outline-none focus:ring-2 focus:ring-sky-200"
+                className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
               >
                 <option value="">전체</option>
                 {workTypeOptions.map((workType) => (
@@ -1038,14 +1038,14 @@ function DetailFilterModal({
             </FilterField>
           </div>
 
-          <div className="mt-5 grid gap-2 sm:grid-cols-3">
-            <CloudButton type="button" tone="soft" onClick={onReset}>
+          <div className="mt-5 flex justify-end gap-2 border-t border-border pt-4">
+            <CloudButton type="button" tone="soft" className="min-w-24" onClick={onReset}>
               초기화
             </CloudButton>
-            <CloudButton type="button" tone="danger" onClick={onClose}>
+            <CloudButton type="button" tone="soft" className="min-w-24" onClick={onClose}>
               취소
             </CloudButton>
-            <CloudButton type="submit">
+            <CloudButton type="submit" className="min-w-24">
               <Search className="size-4" />
               검색
             </CloudButton>
@@ -1059,7 +1059,7 @@ function DetailFilterModal({
 function FilterField({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-black text-slate-500">{label}</span>
+      <span className="mb-1 block text-sm font-medium text-foreground">{label}</span>
       {children}
     </label>
   );
@@ -1079,7 +1079,7 @@ function FilterInput({
       value={value}
       onChange={(event) => onChange(event.target.value)}
       placeholder={placeholder}
-      className="h-11 w-full rounded-2xl border border-sky-100 bg-white px-3 text-sm font-bold outline-none focus:ring-2 focus:ring-sky-200"
+      className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
     />
   );
 }

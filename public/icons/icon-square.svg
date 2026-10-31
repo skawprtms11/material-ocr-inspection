@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="솜솜 검수실 G 로고">
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="유통가공관리시스템 로고">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#38bdf8"/>
-      <stop offset="1" stop-color="#0284c7"/>
+      <stop offset="0" stop-color="#d97757"/>
+      <stop offset="1" stop-color="#a34f32"/>
     </linearGradient>
   </defs>
   <rect x="0" y="0" width="512" height="512" rx="0" fill="url(#bg)"/>

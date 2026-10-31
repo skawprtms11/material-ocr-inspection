@@ -188,12 +188,12 @@ export function ShipperMappingTab({ departmentId }: { departmentId: string }) {
       if (result.warning) toast.error(result.warning);
     }, "양식 해제에 실패했습니다.");
 
-  const iconButton = "inline-flex items-center gap-1 rounded-full px-2.5 py-1.5 text-xs font-black ring-1 transition disabled:opacity-40";
+  const iconButton = "inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-xs font-medium ring-1 ring-inset transition-colors disabled:cursor-not-allowed disabled:opacity-50";
 
   return (
     <>
       <DataStatusBar
-        message={isLoading ? "화주별 양식을 불러오는 중이에요." : "화주를 선택하고 사용할 양식을 추가·정렬합니다."}
+        message={isLoading ? "화주별 양식을 불러오는 중입니다." : "화주를 선택하고 사용할 양식을 추가·정렬합니다."}
         source={source}
         loadError={loadError}
         onRetry={() => {
@@ -204,7 +204,7 @@ export function ShipperMappingTab({ departmentId }: { departmentId: string }) {
 
       <div className="grid gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]">
         <CuteCard className="self-start p-3">
-          <p className="mb-2 px-2 text-xs font-black text-slate-500">화주 선택</p>
+          <p className="mb-2 px-2 text-xs font-medium text-muted-foreground">화주 선택</p>
           <div className="space-y-1.5">
             {shippers.map((shipper) => (
               <button
@@ -212,27 +212,27 @@ export function ShipperMappingTab({ departmentId }: { departmentId: string }) {
                 type="button"
                 onClick={() => setShipperId(shipper.id)}
                 aria-pressed={shipper.id === activeShipperId}
-                className={`flex w-full items-center justify-between gap-2 rounded-2xl px-3 py-2.5 text-left text-sm font-black transition ${
-                  shipper.id === activeShipperId ? "bg-sky-500 text-white shadow-md shadow-sky-100" : "bg-white text-slate-700 hover:bg-sky-50"
+                className={`flex w-full items-center justify-between gap-2 rounded-md px-3 py-2.5 text-left text-sm font-medium transition-colors ${
+                  shipper.id === activeShipperId ? "bg-primary text-primary-foreground" : "bg-card text-foreground hover:bg-muted"
                 }`}
               >
                 <span>{shipper.name}</span>
-                <span className={`text-xs ${shipper.id === activeShipperId ? "text-white/80" : "text-slate-400"}`}>{shipper.code}</span>
+                <span className={`text-xs ${shipper.id === activeShipperId ? "text-primary-foreground/80" : "text-muted-foreground"}`}>{shipper.code}</span>
               </button>
             ))}
-            {shippers.length === 0 && <p className="px-2 py-6 text-center text-xs font-bold text-slate-400">부서에 등록된 화주가 없습니다.</p>}
+            {shippers.length === 0 && <p className="px-2 py-6 text-center text-xs font-medium text-muted-foreground">부서에 등록된 화주가 없습니다.</p>}
           </div>
         </CuteCard>
 
         <CuteCard>
           {!selectedShipper ? (
-            <p className="py-16 text-center text-sm font-bold text-slate-400">왼쪽에서 화주를 선택해 주세요.</p>
+            <p className="py-16 text-center text-sm font-medium text-muted-foreground">왼쪽에서 화주를 선택해 주세요.</p>
           ) : (
             <div className="space-y-4">
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
-                  <p className="text-xs font-black text-violet-600">화주별 양식</p>
-                  <h2 className="text-xl font-black text-slate-800">{selectedShipper.name}</h2>
+                  <p className="text-xs font-medium text-muted-foreground">화주별 양식</p>
+                  <h2 className="text-base font-semibold text-foreground">{selectedShipper.name}</h2>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <CloudButton type="button" disabled={isBusy} onClick={() => setPickerOpen(true)}>
@@ -244,34 +244,34 @@ export function ShipperMappingTab({ departmentId }: { departmentId: string }) {
 
               <ul className="space-y-2">
                 {sorted.map((mapping, index) => (
-                  <li key={mapping.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white/80 px-4 py-3 ring-1 ring-slate-100">
+                  <li key={mapping.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-card px-4 py-3 ring-1 ring-border">
                     <div className="flex items-center gap-3">
-                      <span className="inline-flex size-7 items-center justify-center rounded-full bg-sky-50 text-xs font-black text-sky-700">{index + 1}</span>
+                      <span className="inline-flex size-7 items-center justify-center rounded-full bg-accent text-xs font-medium text-accent-foreground">{index + 1}</span>
                       <div>
-                        <p className="text-sm font-black text-slate-800">
-                          <span className="text-sky-700">{mapping.template.code}</span> · {mapping.template.name}
+                        <p className="text-sm font-medium text-foreground">
+                          <span className="font-semibold">{mapping.template.code}</span> · {mapping.template.name}
                         </p>
-                        <p className="text-xs font-bold text-slate-500">개정일자 {mapping.template.revision_date}</p>
+                        <p className="text-xs font-medium text-muted-foreground">개정일자 {mapping.template.revision_date}</p>
                       </div>
-                      {mapping.is_default && <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-black text-amber-800">기본</span>}
-                      {!mapping.template.is_active && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-black text-slate-500">사용중지</span>}
+                      {mapping.is_default && <span className="rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-inset ring-amber-600/20">기본</span>}
+                      {!mapping.template.is_active && <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 ring-1 ring-inset ring-slate-500/20">사용중지</span>}
                     </div>
                     <div className="flex flex-wrap gap-1.5">
-                      <button type="button" aria-label="위로" disabled={isBusy || index === 0} onClick={() => void move(index, -1)} className={`${iconButton} bg-white text-slate-600 ring-slate-200 hover:bg-sky-50`}>
+                      <button type="button" aria-label="위로" disabled={isBusy || index === 0} onClick={() => void move(index, -1)} className={`${iconButton} bg-card text-foreground ring-input hover:bg-accent hover:text-accent-foreground`}>
                         <ArrowUp className="size-3.5" />
                       </button>
-                      <button type="button" aria-label="아래로" disabled={isBusy || index === sorted.length - 1} onClick={() => void move(index, 1)} className={`${iconButton} bg-white text-slate-600 ring-slate-200 hover:bg-sky-50`}>
+                      <button type="button" aria-label="아래로" disabled={isBusy || index === sorted.length - 1} onClick={() => void move(index, 1)} className={`${iconButton} bg-card text-foreground ring-input hover:bg-accent hover:text-accent-foreground`}>
                         <ArrowDown className="size-3.5" />
                       </button>
-                      <button type="button" disabled={isBusy || mapping.is_default} onClick={() => void setDefault(mapping)} className={`${iconButton} bg-amber-50 text-amber-800 ring-amber-100 hover:bg-amber-100`}>
+                      <button type="button" disabled={isBusy || mapping.is_default} onClick={() => void setDefault(mapping)} className={`${iconButton} bg-amber-50 text-amber-800 ring-amber-600/20 hover:bg-amber-100`}>
                         <Star className="size-3.5" />
                         기본 지정
                       </button>
-                      <button type="button" onClick={() => setPreview(mapping.template)} className={`${iconButton} bg-violet-50 text-violet-700 ring-violet-100 hover:bg-violet-100`}>
+                      <button type="button" onClick={() => setPreview(mapping.template)} className={`${iconButton} bg-card text-foreground ring-input hover:bg-accent hover:text-accent-foreground`}>
                         <Eye className="size-3.5" />
                         미리보기
                       </button>
-                      <button type="button" disabled={isBusy} onClick={() => void removeMapping(mapping)} className={`${iconButton} bg-rose-50 text-rose-700 ring-rose-100 hover:bg-rose-100`}>
+                      <button type="button" disabled={isBusy} onClick={() => void removeMapping(mapping)} className={`${iconButton} bg-red-50 text-red-700 ring-red-600/20 hover:bg-red-100`}>
                         <Unlink className="size-3.5" />
                         해제
                       </button>
@@ -279,8 +279,8 @@ export function ShipperMappingTab({ departmentId }: { departmentId: string }) {
                   </li>
                 ))}
                 {sorted.length === 0 && (
-                  <li className="py-10 text-center text-sm font-bold text-slate-400">
-                    {isLoading ? "불러오는 중..." : "이 화주에 지정된 양식이 없습니다. 양식을 추가해 주세요."}
+                  <li className="py-10 text-center text-sm font-medium text-muted-foreground">
+                    {isLoading ? "불러오는 중..." : "이 화주에 지정된 양식이 없습니다. 양식을 추가하세요."}
                   </li>
                 )}
               </ul>

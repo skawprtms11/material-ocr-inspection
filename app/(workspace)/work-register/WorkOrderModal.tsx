@@ -146,13 +146,13 @@ export function WorkOrderModal({ work, departmentId, shipperId, onClose, onIssue
   const noTemplates = options !== null && options.templates.length === 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/35 px-4 py-8 backdrop-blur-sm">
-      <div className="w-full max-w-5xl rounded-[1.5rem] border border-white/80 bg-[#f8fbff] p-5 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
-        <div className="mb-4 flex items-start justify-between gap-4">
+    <div className="fixed inset-0 z-50 flex items-center-safe justify-center overflow-y-auto bg-slate-950/50 px-4 py-8">
+      <div className="w-full max-w-5xl rounded-lg border border-border bg-card p-5 shadow-lg">
+        <div className="mb-4 flex items-start justify-between gap-4 border-b border-border pb-4">
           <div>
-            <p className="text-xs font-black text-sky-600">작업지시서</p>
-            <h2 className="mt-1 text-2xl font-black text-slate-800">{work.documentNo}</h2>
-            <p className="mt-2 text-sm font-semibold text-slate-500">
+            <p className="text-xs font-medium text-muted-foreground">작업지시서</p>
+            <h2 className="mt-1 text-lg font-semibold text-foreground">{work.documentNo}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
               {work.workType} · {work.finishedProductCode} {work.finishedProductName} · LOT {work.finishedProductLot || "-"}
             </p>
           </div>
@@ -160,23 +160,23 @@ export function WorkOrderModal({ work, departmentId, shipperId, onClose, onIssue
             type="button"
             onClick={onClose}
             aria-label="작업지시서 팝업 닫기"
-            className="inline-flex size-10 items-center justify-center rounded-full bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:bg-sky-50"
+            className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
-            <X className="size-5" />
+            <X className="size-4" />
           </button>
         </div>
 
         {optionsError && (
-          <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl bg-rose-50 px-4 py-3 text-xs font-bold text-rose-700">
+          <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-xs font-medium text-red-700">
             <span>{optionsError}</span>
-            <button type="button" onClick={() => void loadOptions()} className="rounded-full bg-rose-100 px-3 py-1 text-rose-800">
+            <button type="button" onClick={() => void loadOptions()} className="rounded-md border border-red-200 bg-red-50 px-3 py-1 text-red-700 transition-colors hover:bg-red-100">
               다시 시도
             </button>
           </div>
         )}
 
         {noTemplates && (
-          <div className="mb-4 rounded-2xl bg-amber-50 px-4 py-4 text-sm font-bold leading-6 text-amber-800">
+          <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-4 text-sm font-medium leading-6 text-amber-800">
             이 화주에 등록된 작업지시서 양식이 없습니다. 문서마스터 &gt; 화주별양식등록에서 양식을 등록하세요.
             <Link href="/document-master" className="ml-2 underline underline-offset-4">
               문서마스터로 이동
@@ -187,15 +187,15 @@ export function WorkOrderModal({ work, departmentId, shipperId, onClose, onIssue
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
           <div className="space-y-4">
             <section>
-              <h3 className="mb-2 text-sm font-black text-slate-800">양식 선택</h3>
+              <h3 className="mb-2 text-sm font-semibold text-foreground">양식 선택</h3>
               <div className="space-y-2">
                 {(options?.templates ?? []).map((item) => {
                   const active = item.template.id === selectedTemplateId;
                   return (
                     <label
                       key={item.mappingId}
-                      className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-4 py-3 text-sm transition ${
-                        active ? "border-sky-300 bg-sky-50" : "border-white/80 bg-white/75 hover:bg-sky-50/60"
+                      className={`flex cursor-pointer items-start gap-3 rounded-md border px-4 py-3 text-sm transition-colors ${
+                        active ? "border-primary bg-accent" : "border-border bg-card hover:bg-muted/50"
                       }`}
                     >
                       <input
@@ -206,48 +206,48 @@ export function WorkOrderModal({ work, departmentId, shipperId, onClose, onIssue
                         className="mt-1"
                       />
                       <span className="min-w-0 flex-1">
-                        <span className="flex flex-wrap items-center gap-2 font-black text-slate-800">
+                        <span className="flex flex-wrap items-center gap-2 font-medium text-foreground">
                           {item.template.name}
-                          {item.isDefault && <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] text-sky-700">기본</span>}
+                          {item.isDefault && <span className="rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 ring-1 ring-inset ring-blue-600/20">기본</span>}
                         </span>
-                        <span className="mt-1 block text-xs font-semibold text-slate-500">
+                        <span className="mt-1 block text-xs text-muted-foreground">
                           {item.template.code} · 개정 {formatDate(item.template.revision_date)} · {layoutLabel(item.template)}
                         </span>
                       </span>
                     </label>
                   );
                 })}
-                {options === null && !optionsError && <p className="text-xs font-bold text-slate-400">양식을 불러오는 중이에요.</p>}
+                {options === null && !optionsError && <p className="text-xs text-muted-foreground">양식을 불러오는 중입니다.</p>}
               </div>
             </section>
 
             <section>
-              <h3 className="mb-2 text-sm font-black text-slate-800">출력 이력</h3>
-              <div className="overflow-hidden rounded-2xl border border-white/80 bg-white/75">
+              <h3 className="mb-2 text-sm font-semibold text-foreground">출력 이력</h3>
+              <div className="overflow-x-auto rounded-md border border-border bg-card">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-sky-50/80 font-black text-sky-700">
+                  <thead className="bg-muted/60 text-xs font-medium text-muted-foreground">
                     <tr>
-                      <th className="px-3 py-2 text-right">순번</th>
-                      <th className="px-3 py-2">출력일시</th>
-                      <th className="px-3 py-2">양식</th>
-                      <th className="px-3 py-2">구분</th>
+                      <th className="h-9 whitespace-nowrap px-3 text-right">순번</th>
+                      <th className="whitespace-nowrap px-3 h-9">출력일시</th>
+                      <th className="whitespace-nowrap px-3 h-9">양식</th>
+                      <th className="whitespace-nowrap px-3 h-9">구분</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 text-slate-600">
+                  <tbody className="divide-y divide-border text-foreground">
                     {issues.map((issue) => (
                       <tr key={issue.id}>
-                        <td className="px-3 py-2 text-right font-black">{issue.seq}</td>
-                        <td className="px-3 py-2 font-bold">{formatDateTime(issue.issued_at)}</td>
+                        <td className="px-3 py-2 text-right font-medium tabular-nums">{issue.seq}</td>
+                        <td className="px-3 py-2 tabular-nums">{formatDateTime(issue.issued_at)}</td>
                         <td className="px-3 py-2">
                           {issue.template_name}
-                          <span className="ml-1 text-slate-400">({issue.template_code})</span>
+                          <span className="ml-1 text-muted-foreground">({issue.template_code})</span>
                         </td>
-                        <td className="px-3 py-2 font-bold">{issue.issue_kind === "initial" ? "최초" : "재출력"}</td>
+                        <td className="px-3 py-2">{issue.issue_kind === "initial" ? "최초" : "재출력"}</td>
                       </tr>
                     ))}
                     {issues.length === 0 && (
                       <tr>
-                        <td colSpan={4} className="px-3 py-4 text-center font-bold text-slate-400">
+                        <td colSpan={4} className="px-3 py-4 text-center text-muted-foreground">
                           출력 이력이 없습니다.
                         </td>
                       </tr>
@@ -259,26 +259,26 @@ export function WorkOrderModal({ work, departmentId, shipperId, onClose, onIssue
           </div>
 
           <section>
-            <h3 className="mb-2 text-sm font-black text-slate-800">미리보기</h3>
-            <div className="flex min-h-[420px] items-start justify-center overflow-hidden rounded-2xl bg-slate-100 p-3">
+            <h3 className="mb-2 text-sm font-semibold text-foreground">미리보기</h3>
+            <div className="flex min-h-[420px] items-start justify-center overflow-hidden rounded-md bg-muted p-3">
               {preview ? (
                 <DocumentPreviewFrame scale={0.5}>
                   <DocumentRenderer template={preview.template} data={preview.data} mode="preview" />
                 </DocumentPreviewFrame>
               ) : (
-                <p className="self-center text-xs font-bold text-slate-400">
-                  {previewError ?? (selectedTemplateId ? "미리보기를 불러오는 중이에요." : "양식을 선택하면 미리보기가 표시됩니다.")}
+                <p className="self-center text-xs text-muted-foreground">
+                  {previewError ?? (selectedTemplateId ? "미리보기를 불러오는 중입니다." : "양식을 선택하면 미리보기가 표시됩니다.")}
                 </p>
               )}
             </div>
           </section>
         </div>
 
-        <div className="mt-5 grid grid-cols-2 gap-2">
-          <CloudButton type="button" tone="soft" onClick={onClose}>
+        <div className="mt-5 flex justify-end gap-2 border-t border-border pt-4">
+          <CloudButton type="button" tone="soft" className="min-w-24" onClick={onClose}>
             닫기
           </CloudButton>
-          <CloudButton type="button" disabled={!selected || !preview || isIssuing} onClick={() => void handleIssue()}>
+          <CloudButton type="button" className="min-w-24" disabled={!selected || !preview || isIssuing} onClick={() => void handleIssue()}>
             <Printer className="size-4" />
             {isIssuing ? "출력 중..." : isAssigned ? "재출력" : "출력(자동배정)"}
           </CloudButton>

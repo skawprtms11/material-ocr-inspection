@@ -286,15 +286,15 @@ export default function WorkRegisterPage() {
         }
       />
 
-      <div className="space-y-5">
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white/60 px-4 py-2 text-xs font-black text-slate-500 ring-1 ring-white/80">
-          <span>{isLoading ? "작업등록 데이터를 불러오는 중이에요." : "선택된 부서/화주 기준으로 검수 시작 전 작업을 조회합니다."}</span>
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-card px-4 py-2 text-xs font-medium text-muted-foreground">
+          <span>{isLoading ? "작업등록 데이터를 불러오는 중입니다." : "선택된 부서/화주 기준으로 검수 시작 전 작업을 조회합니다."}</span>
           <div className="flex items-center gap-2">
-            <span className={`rounded-full px-3 py-1 ring-1 ${loadError ? "bg-rose-50 text-rose-700 ring-rose-100" : "bg-sky-50 text-sky-700 ring-sky-100"}`}>
+            <span className={`rounded-md px-2 py-0.5 ring-1 ring-inset ${loadError ? "bg-red-50 text-red-700 ring-red-600/20" : "bg-muted text-muted-foreground ring-border"}`}>
               데이터: {loadError ? "연결 오류" : dataSource === "supabase" ? "Supabase" : dataSource === "mock" ? "Mock/Fallback" : "연결 확인 중"}
             </span>
             {loadError && (
-              <button type="button" onClick={() => void loadWorkRegister()} className="rounded-full bg-rose-100 px-3 py-1 text-rose-800">
+              <button type="button" onClick={() => void loadWorkRegister()} className="rounded-md border border-red-200 bg-red-50 px-3 py-1 text-red-700 transition-colors hover:bg-red-100">
                 다시 시도
               </button>
             )}
@@ -302,92 +302,93 @@ export default function WorkRegisterPage() {
         </div>
 
         <CuteCard className="p-0">
-          <div className="flex flex-col gap-2 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-2 border-b border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="text-lg font-black text-slate-800">작업지시 대기 작업 목록</h2>
-              <p className="mt-1 text-sm font-semibold text-slate-500">검수 시작 전 작업을 출력 여부와 관계없이 표시합니다.</p>
+              <h2 className="text-base font-semibold text-foreground">작업지시 대기 작업 목록</h2>
+              <p className="mt-1 text-sm text-muted-foreground">검수 시작 전 작업을 출력 여부와 관계없이 표시합니다.</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <div className="inline-flex rounded-full bg-slate-100 p-1" role="group" aria-label="출력 여부 필터">
+              <div className="inline-flex h-9 items-center rounded-lg bg-muted p-1" role="group" aria-label="출력 여부 필터">
                 {issueFilterOptions.map((option) => (
                   <button
                     key={option.value}
                     type="button"
                     onClick={() => setIssueFilter(option.value)}
                     aria-pressed={issueFilter === option.value}
-                    className={`rounded-full px-3 py-1 text-xs font-black transition ${
-                      issueFilter === option.value ? "bg-white text-sky-700 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                    className={`h-7 rounded-md px-3 text-sm font-medium transition-colors ${
+                      issueFilter === option.value ? "bg-card text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
                     {option.label}
                   </button>
                 ))}
               </div>
-              <span className="w-fit rounded-full bg-sky-50 px-3 py-1 text-xs font-black text-sky-700">
+              <span className="w-fit rounded-md bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
                 {visibleWorks.length}건
               </span>
             </div>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1440px] text-left text-sm">
-              <thead className="bg-sky-50/80 text-xs font-black text-sky-700">
+            {/* 목록 표: 짧은 값이 두 줄로 꺾이지 않게 셀 줄바꿈을 막고 좌우 여백을 줄여 1440px 화면에 작업지시 열까지 들어오게 한다. */}
+            <table className="w-full min-w-[1080px] text-left text-sm [&_td]:whitespace-nowrap [&_td]:px-3 [&_th]:px-3">
+              <thead className="bg-muted/60 text-xs font-medium text-muted-foreground">
                 <tr>
                   {["등록일자", "작업구분", "문서번호", "완성품코드", "완성품명", "LOT", "작업수량", "완료요청일", "비고", "수정", "작업지시"].map((header) => (
-                    <th key={header} className="px-4 py-3">
+                    <th key={header} className={`h-10 whitespace-nowrap px-4${["작업수량", "단위수량", "필요수량", "할당수량"].includes(header) ? " text-right" : ""}`}>
                       {header}
                     </th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 bg-white/70">
+              <tbody className="divide-y divide-border">
                 {visibleWorks.map((work) => (
-                  <tr key={work.id} className="text-slate-600 transition hover:bg-sky-50/70">
-                    <td className="px-4 py-3 font-bold">{formatDate(work.registeredAt)}</td>
-                    <td className="px-4 py-3">
-                      <span className="font-black text-slate-800">{work.workType}</span>
+                  <tr key={work.id} className="text-foreground transition-colors hover:bg-muted/40">
+                    <td className="px-4 py-2.5">{formatDate(work.registeredAt)}</td>
+                    <td className="px-4 py-2.5">
+                      <span className="font-medium text-foreground">{work.workType}</span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-2.5">
                       <button
                         type="button"
                         onClick={() => setDetailTarget(work)}
-                        className="inline-flex items-center gap-2 font-black text-sky-700 underline-offset-4 transition hover:text-sky-900 hover:underline"
+                        className="inline-flex items-center gap-2 font-medium text-primary underline-offset-4 transition-colors hover:text-primary/80 hover:underline"
                         aria-label={`${work.documentNo} 상세정보 보기`}
                       >
                         <Eye className="size-4" />
                         {work.documentNo}
                       </button>
                     </td>
-                    <td className="px-4 py-3 font-bold">{work.finishedProductCode}</td>
-                    <td className="px-4 py-3 font-bold text-slate-700">{work.finishedProductName}</td>
-                    <td className="px-4 py-3 font-bold text-violet-700">{work.finishedProductLot}</td>
-                    <td className="px-4 py-3 font-bold">{work.quantity.toLocaleString()}</td>
-                    <td className="px-4 py-3 font-bold">{formatDate(work.dueDate)}</td>
-                    <td className="max-w-[220px] truncate px-4 py-3 text-slate-500">{work.memo || "-"}</td>
-                    <td className="px-4 py-3">
-                      <CloudButton type="button" tone="soft" disabled={Boolean(work.editLockedReason)} onClick={() => setEditTarget(work)}>
+                    <td className="px-4 py-2.5">{work.finishedProductCode}</td>
+                    <td className="px-4 py-2.5 text-foreground">{work.finishedProductName}</td>
+                    <td className="px-4 py-2.5 font-medium text-foreground">{work.finishedProductLot}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">{work.quantity.toLocaleString()}</td>
+                    <td className="px-4 py-2.5">{formatDate(work.dueDate)}</td>
+                    <td className="max-w-[220px] truncate px-4 py-2.5 text-muted-foreground">{work.memo || "-"}</td>
+                    <td className="px-4 py-2.5">
+                      <CloudButton type="button" tone="soft" disabled={Boolean(work.editLockedReason)} title={work.editLockedReason} onClick={() => setEditTarget(work)}>
                         <Pencil className="size-4" />
                         수정
                       </CloudButton>
-                      {work.editLockedReason && <p className="mt-1 text-[10px] font-black text-rose-600">{work.editLockedReason}</p>}
+                      {work.editLockedReason && <p className="mt-1 max-w-40 whitespace-normal break-keep text-[11px] font-medium leading-4 text-red-600">{work.editLockedReason}</p>}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-2.5">
                       <CloudButton type="button" tone="soft" onClick={() => setWorkOrderTarget(work)}>
                         <FileText className="size-4" />
                         작업지시서
                       </CloudButton>
                       {work.workOrder ? (
-                        <p className="mt-1 text-[10px] font-black text-emerald-700">
+                        <p className="mt-1 text-[11px] font-medium text-emerald-700">
                           출력 {work.workOrder.issueCount}회 · 최근 {formatIssuedAt(work.workOrder.lastIssuedAt)}
                         </p>
                       ) : (
-                        <p className="mt-1 text-[10px] font-bold text-slate-400">미출력</p>
+                        <p className="mt-1 text-[11px] text-muted-foreground">미출력</p>
                       )}
                     </td>
                   </tr>
                 ))}
                 {pendingWorks.length === 0 && (
                   <tr>
-                    <td colSpan={11} className="px-4 py-10 text-center text-sm font-bold text-slate-400">
+                    <td colSpan={11} className="px-4 py-10 text-center text-sm text-muted-foreground">
                       {issueFilter === "issued" ? "출력 완료된 작업이 없습니다." : issueFilter === "unissued" ? "작업지시서를 출력하지 않은 작업이 없습니다." : "표시할 작업이 없습니다."} 상단의 작업 등록 버튼으로 새 작업을 등록해주세요.
                     </td>
                   </tr>
@@ -621,13 +622,13 @@ function WorkRegisterModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/35 px-4 py-8 backdrop-blur-sm">
-      <div className="w-full max-w-7xl rounded-[1.5rem] border border-white/80 bg-[#f8fbff] p-5 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
-        <div className="mb-5 flex items-start justify-between gap-4">
+    <div className="fixed inset-0 z-50 flex items-center-safe justify-center overflow-y-auto bg-slate-950/50 px-4 py-8">
+      <div className="w-full max-w-7xl rounded-lg border border-border bg-card p-5 shadow-lg">
+        <div className="mb-5 flex items-start justify-between gap-4 border-b border-border pb-4">
           <div>
-            <p className="text-xs font-black text-sky-600">작업등록</p>
-            <h2 className="mt-1 text-2xl font-black text-slate-800">{isEdit ? "작업 수정" : "새 작업 등록"}</h2>
-            <p className="mt-2 text-sm font-semibold text-slate-500">
+            <p className="text-xs font-medium text-muted-foreground">작업등록</p>
+            <h2 className="mt-1 text-lg font-semibold text-foreground">{isEdit ? "작업 수정" : "새 작업 등록"}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
               {isEdit ? "검수 시작 전 작업만 수정할 수 있습니다. 이미 출력된 지시서가 있으면 수정 후 재출력하세요." : "저장하면 작업지시 대기 목록에 추가됩니다."}
             </p>
           </div>
@@ -635,35 +636,41 @@ function WorkRegisterModal({
             type="button"
             onClick={onClose}
             aria-label="작업등록 팝업 닫기"
-            className="inline-flex size-10 items-center justify-center rounded-full bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:bg-sky-50"
+            className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
-            <X className="size-5" />
+            <X className="size-4" />
           </button>
         </div>
         <form className="space-y-5" onSubmit={handleSubmit}>
           <section>
             <div className="mb-2 flex items-center justify-between">
-              <h3 className="text-sm font-black text-slate-800">완성품정보</h3>
-              <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-black text-sky-700">표 입력</span>
+              <h3 className="text-sm font-semibold text-foreground">완성품정보</h3>
+              <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">표 입력</span>
             </div>
-            <div className="overflow-x-auto rounded-[1.2rem] border border-white/80 bg-white/75">
+            <div className="overflow-x-auto rounded-md border border-border bg-card">
               <table className="w-full min-w-[1340px] text-left text-xs">
-                <thead className="bg-sky-50/80 font-black text-sky-700">
+                <thead className="bg-muted/60 text-xs font-medium text-muted-foreground">
                   <tr>
                     {["작업구분", "문서번호", "완성품코드", "완성품명", "LOT", "작업수량", "완료요청일", "비고"].map((header) => (
-                      <th key={header} className="px-3 py-3">
+                      <th
+                        key={header}
+                        className={`h-10 whitespace-nowrap px-3${["작업수량", "단위수량", "필요수량", "할당수량"].includes(header) ? " text-right" : ""}${
+                          // 선택칸 글자가 화살표에 가려 잘리지 않도록 최소 폭을 둔다.
+                          header === "작업구분" ? " min-w-32" : header === "완성품코드" ? " min-w-48" : ""
+                        }`}
+                      >
                         {header}
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  <tr className="text-slate-600">
-                    <td className="px-3 py-3">
+                  <tr className="text-foreground">
+                    <td className="px-3 py-2.5">
                       <select
                         name="workType"
                         defaultValue={editWork?.workType}
-                        className="h-10 w-full rounded-xl border border-sky-100 bg-white px-3 text-sm font-bold outline-none focus:ring-2 focus:ring-sky-200"
+                        className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                         required
                       >
                         {workTypeOptions.map((workType) => (
@@ -673,21 +680,21 @@ function WorkRegisterModal({
                         ))}
                       </select>
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-2.5">
                       <input
                         name="documentNo"
                         defaultValue={editWork?.documentNo}
-                        className="h-10 w-full rounded-xl border border-sky-100 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-sky-200"
+                        className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                         placeholder="DOC-2026-0000"
                         required
                       />
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-2.5">
                       <select
                         name="workMasterId"
                         value={selectedWorkMasterId}
                         onChange={(event) => handleWorkMasterChange(event.target.value)}
-                        className="h-10 w-full rounded-xl border border-sky-100 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-sky-200"
+                        className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                         required
                       >
                         {workMasters.map((workMaster) => (
@@ -697,46 +704,46 @@ function WorkRegisterModal({
                         ))}
                       </select>
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-2.5">
                       <input
                         value={selectedWorkMaster?.name ?? ""}
                         readOnly
-                        className="h-10 w-full rounded-xl border border-sky-100 bg-sky-50 px-3 text-sm font-bold text-slate-700 outline-none"
+                        className="h-9 w-full rounded-md border border-input bg-muted px-3 text-sm font-medium text-foreground outline-none"
                         aria-label="완성품명"
                       />
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-2.5">
                       <input
                         name="finishedProductLot"
                         defaultValue={editWork?.finishedProductLot}
-                        className="h-10 w-full rounded-xl border border-sky-100 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-sky-200"
+                        className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                         placeholder="LOT-260708-A"
                         required
                       />
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-2.5">
                       <input
                         name="quantity"
                         type="number"
                         min={1}
                         value={quantity}
                         onChange={(event) => handleQuantityChange(Math.max(1, Math.floor(Number(event.target.value || 1))))}
-                        className="h-10 w-full rounded-xl border border-sky-100 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-sky-200"
+                        className="text-right tabular-nums h-9 w-full rounded-md border border-input bg-card px-3 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                       />
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-2.5">
                       <input
                         name="dueDate"
                         type="date"
                         defaultValue={editWork?.dueDate ?? addDays(new Date().toISOString().slice(0, 10), 2)}
-                        className="h-10 w-full rounded-xl border border-sky-100 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-sky-200"
+                        className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                       />
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-2.5">
                       <input
                         name="memo"
                         defaultValue={editWork?.memo}
-                        className="h-10 w-full rounded-xl border border-sky-100 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-sky-200"
+                        className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                         placeholder="현장 메모"
                       />
                     </td>
@@ -749,27 +756,27 @@ function WorkRegisterModal({
           <section>
             <div className="mb-2 flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-black text-slate-800">구성품 정보</h3>
-                <p className="mt-1 text-xs font-semibold text-slate-500">완성품코드 기준 작업마스터의 제품/부자재 구성입니다.</p>
+                <h3 className="text-sm font-semibold text-foreground">구성품 정보</h3>
+                <p className="mt-1 text-xs text-muted-foreground">완성품코드 기준 작업마스터의 제품/부자재 구성입니다.</p>
               </div>
               {productAllocationErrors.length > 0 ? (
-                <span className="rounded-full bg-rose-50 px-3 py-1 text-xs font-black text-rose-700">수량 확인 필요</span>
+                <span className="rounded-md bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 ring-1 ring-inset ring-red-600/20">수량 확인 필요</span>
               ) : (
-                <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">수량 일치</span>
+                <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20">수량 일치</span>
               )}
             </div>
-            <div className="overflow-x-auto rounded-[1.2rem] border border-white/80 bg-white/75">
+            <div className="overflow-x-auto rounded-md border border-border bg-card">
               <table className="w-full min-w-[1560px] text-left text-xs">
-                <thead className="bg-violet-50/80 font-black text-violet-700">
+                <thead className="bg-muted/60 text-xs font-medium text-muted-foreground">
                   <tr>
                     {["구분", "제품코드", "제품명", "단위수량", "필요수량", "LOT", "할당수량", "OCR 검수 텍스트", "비고", "LOT분할"].map((header) => (
-                      <th key={header} className="px-3 py-3">
+                      <th key={header} className={`h-10 whitespace-nowrap px-3${["작업수량", "단위수량", "필요수량", "할당수량"].includes(header) ? " text-right" : ""}`}>
                         {header}
                       </th>
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-border">
                   {componentRows.map((row) => {
                     const productGroupRows = componentRows.filter((item) => item.kind === "제품" && item.groupId === row.groupId);
                     const allocatedSum = productGroupRows.reduce((sum, item) => sum + Number(item.allocatedQuantity || 0), 0);
@@ -778,42 +785,42 @@ function WorkRegisterModal({
                     const ocrTextMissing = Boolean(ocrMaterial) && !row.ocrExpectedText?.trim();
 
                     return (
-                      <tr key={row.rowId} className={invalidProductAllocation ? "bg-rose-50/60 text-slate-600" : "text-slate-600"}>
-                        <td className="px-3 py-3">
-                          <span className={row.kind === "제품" ? "rounded-full bg-sky-100 px-2 py-1 font-black text-sky-700" : "rounded-full bg-violet-100 px-2 py-1 font-black text-violet-700"}>
+                      <tr key={row.rowId} className={invalidProductAllocation ? "bg-red-50/60 text-foreground" : "text-foreground"}>
+                        <td className="px-3 py-2.5">
+                          <span className={row.kind === "제품" ? "rounded-md bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-600/20" : "rounded-md bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700 ring-1 ring-inset ring-violet-600/20"}>
                             {row.kind}
                           </span>
                           {ocrMaterial && (
-                            <span className="ml-1 rounded-full bg-amber-100 px-2 py-1 font-black text-amber-700">OCR</span>
+                            <span className="ml-1 rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-inset ring-amber-600/20">OCR</span>
                           )}
                         </td>
-                        <td className="px-3 py-3 font-black text-slate-800">{row.code}</td>
-                        <td className="px-3 py-3 font-bold">{row.name}</td>
-                        <td className="px-3 py-3 font-bold">{row.unitQuantity.toLocaleString()}</td>
-                        <td className="px-3 py-3 font-black text-slate-800">{row.requiredQuantity.toLocaleString()}</td>
-                        <td className="px-3 py-3">
+                        <td className="px-3 py-2.5 font-medium text-foreground">{row.code}</td>
+                        <td className="px-3 py-2.5">{row.name}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums">{row.unitQuantity.toLocaleString()}</td>
+                        <td className="px-3 py-2.5 text-right font-medium tabular-nums text-foreground">{row.requiredQuantity.toLocaleString()}</td>
+                        <td className="px-3 py-2.5">
                           <input
                             value={row.lot}
                             onChange={(event) => updateComponentRow(row.rowId, { lot: event.target.value })}
-                            className="h-9 w-full rounded-xl border border-sky-100 bg-white px-3 text-xs outline-none focus:ring-2 focus:ring-sky-200"
+                            className="h-9 w-full rounded-md border border-input bg-card px-3 text-xs shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                             placeholder={row.kind === "제품" ? "제품 LOT" : "부자재 LOT"}
                           />
                         </td>
-                        <td className="px-3 py-3">
+                        <td className="px-3 py-2.5">
                           <input
                             type="number"
                             min={0}
                             value={row.allocatedQuantity}
                             onChange={(event) => updateComponentRow(row.rowId, { allocatedQuantity: Number(event.target.value || 0) })}
-                            className="h-9 w-full rounded-xl border border-sky-100 bg-white px-3 text-xs outline-none focus:ring-2 focus:ring-sky-200"
+                            className="text-right tabular-nums h-9 w-full rounded-md border border-input bg-card px-3 text-xs shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                           />
                           {row.kind === "제품" && productGroupRows.length > 1 && (
-                            <p className={invalidProductAllocation ? "mt-1 text-[10px] font-black text-rose-600" : "mt-1 text-[10px] font-black text-emerald-600"}>
+                            <p className={invalidProductAllocation ? "mt-1 text-[11px] font-medium text-red-600" : "mt-1 text-[11px] font-medium text-emerald-600"}>
                               합계 {allocatedSum.toLocaleString()}
                             </p>
                           )}
                         </td>
-                        <td className="px-3 py-3">
+                        <td className="px-3 py-2.5">
                           {ocrMaterial ? (
                             <div className="w-72 space-y-1">
                               <textarea
@@ -823,8 +830,8 @@ function WorkRegisterModal({
                                 rows={2}
                                 aria-label={`${row.code} OCR 검수 텍스트`}
                                 aria-invalid={showOcrErrors && ocrTextMissing}
-                                className={`w-full resize-y rounded-xl border bg-white px-3 py-2 text-xs outline-none focus:ring-2 ${
-                                  showOcrErrors && ocrTextMissing ? "border-rose-400 focus:ring-rose-200" : "border-sky-100 focus:ring-sky-200"
+                                className={`w-full resize-y rounded-md border bg-card px-3 py-2 text-xs shadow-xs outline-none focus-visible:ring-2 ${
+                                  showOcrErrors && ocrTextMissing ? "border-red-400 focus-visible:ring-red-500/30" : "border-input focus-visible:ring-ring/40"
                                 }`}
                                 placeholder="OCR로 확인할 LOT·유효일자 등 (필수)"
                               />
@@ -832,34 +839,34 @@ function WorkRegisterModal({
                                 <button
                                   type="button"
                                   onClick={() => importMasterOcrText(row, ocrMaterial)}
-                                  className="rounded-full bg-amber-100 px-3 py-1 text-[11px] font-black text-amber-700"
+                                  className="rounded-md border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-medium text-amber-800 transition-colors hover:bg-amber-100"
                                 >
                                   마스터값 가져오기
                                 </button>
                                 {showOcrErrors && ocrTextMissing && (
-                                  <span className="text-[10px] font-black text-rose-600">필수 입력</span>
+                                  <span className="text-[11px] font-medium text-red-600">필수 입력</span>
                                 )}
                               </div>
                             </div>
                           ) : (
-                            <span className="text-slate-300">-</span>
+                            <span className="text-muted-foreground">-</span>
                           )}
                         </td>
-                        <td className="px-3 py-3">
+                        <td className="px-3 py-2.5">
                           <input
                             value={row.memo}
                             onChange={(event) => updateComponentRow(row.rowId, { memo: event.target.value })}
-                            className="h-9 w-full rounded-xl border border-sky-100 bg-white px-3 text-xs outline-none focus:ring-2 focus:ring-sky-200"
+                            className="h-9 w-full rounded-md border border-input bg-card px-3 text-xs shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                             placeholder="비고"
                           />
                         </td>
-                        <td className="px-3 py-3">
+                        <td className="px-3 py-2.5">
                           {row.kind === "제품" ? (
                             <div className="flex gap-1">
                               <button
                                 type="button"
                                 onClick={() => addProductLotSplit(row)}
-                                className="rounded-full bg-sky-100 px-3 py-1 text-xs font-black text-sky-700"
+                                className="rounded-md border border-input bg-card px-3 py-1 text-xs font-medium text-foreground shadow-xs transition-colors hover:bg-accent"
                               >
                                 행추가
                               </button>
@@ -867,14 +874,14 @@ function WorkRegisterModal({
                                 <button
                                   type="button"
                                   onClick={() => removeProductLotSplit(row.rowId)}
-                                  className="rounded-full bg-rose-100 px-3 py-1 text-xs font-black text-rose-700"
+                                  className="rounded-md border border-red-200 bg-red-50 px-3 py-1 text-xs font-medium text-red-700 transition-colors hover:bg-red-100"
                                 >
                                   삭제
                                 </button>
                               )}
                             </div>
                           ) : (
-                            <span className="text-slate-300">-</span>
+                            <span className="text-muted-foreground">-</span>
                           )}
                         </td>
                       </tr>
@@ -882,7 +889,7 @@ function WorkRegisterModal({
                   })}
                   {componentRows.length === 0 && (
                     <tr>
-                      <td colSpan={10} className="px-4 py-8 text-center text-sm font-bold text-slate-400">
+                      <td colSpan={10} className="px-4 py-8 text-center text-sm text-muted-foreground">
                         작업마스터에 등록된 구성품이 없습니다.
                       </td>
                     </tr>
@@ -891,12 +898,12 @@ function WorkRegisterModal({
               </table>
             </div>
             {missingProducts && (
-              <div className="mt-2 rounded-2xl bg-rose-50 px-4 py-3 text-xs font-bold leading-5 text-rose-700">
+              <div className="mt-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-xs font-medium leading-5 text-red-700">
                 제품 구성 미등록 — 작업마스터에서 사용제품코드를 먼저 등록하세요.
               </div>
             )}
             {productAllocationErrors.length > 0 && (
-              <div className="mt-2 rounded-2xl bg-rose-50 px-4 py-3 text-xs font-bold leading-5 text-rose-700">
+              <div className="mt-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-xs font-medium leading-5 text-red-700">
                 {productAllocationErrors.map((error) => (
                   <p key={error}>{error}</p>
                 ))}
@@ -904,11 +911,11 @@ function WorkRegisterModal({
             )}
           </section>
 
-          <div className="grid grid-cols-2 gap-2">
-            <CloudButton type="button" tone="soft" onClick={onClose}>
+          <div className="flex justify-end gap-2 border-t border-border pt-4">
+            <CloudButton type="button" tone="soft" className="min-w-24" onClick={onClose}>
               취소
             </CloudButton>
-            <CloudButton type="submit" disabled={missingProducts}>
+            <CloudButton type="submit" className="min-w-24" disabled={missingProducts}>
               <Save className="size-4" />
               {isEdit ? "수정 저장" : "작업지시 대기 목록에 등록"}
             </CloudButton>
@@ -958,13 +965,13 @@ function WorkDetailModal({
   }, [materials, materialRowsByWork, productRowsByWork, work]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/35 px-4 py-8 backdrop-blur-sm">
-      <div className="w-full max-w-6xl rounded-[1.5rem] border border-white/80 bg-[#f8fbff] p-5 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
-        <div className="mb-5 flex items-start justify-between gap-4">
+    <div className="fixed inset-0 z-50 flex items-center-safe justify-center overflow-y-auto bg-slate-950/50 px-4 py-8">
+      <div className="w-full max-w-6xl rounded-lg border border-border bg-card p-5 shadow-lg">
+        <div className="mb-5 flex items-start justify-between gap-4 border-b border-border pb-4">
           <div>
-            <p className="text-xs font-black text-sky-600">작업 상세정보</p>
-            <h2 className="mt-1 text-2xl font-black text-slate-800">{work.documentNo}</h2>
-            <p className="mt-2 text-sm font-semibold text-slate-500">
+            <p className="text-xs font-medium text-muted-foreground">작업 상세정보</p>
+            <h2 className="mt-1 text-lg font-semibold text-foreground">{work.documentNo}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
               등록된 완성품정보와 구성품 정보를 확인합니다.
             </p>
           </div>
@@ -972,37 +979,37 @@ function WorkDetailModal({
             type="button"
             onClick={onClose}
             aria-label="작업 상세정보 닫기"
-            className="inline-flex size-10 items-center justify-center rounded-full bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:bg-sky-50"
+            className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
-            <X className="size-5" />
+            <X className="size-4" />
           </button>
         </div>
 
         <div className="space-y-5">
           <section>
-            <h3 className="mb-2 text-sm font-black text-slate-800">완성품정보</h3>
-            <div className="overflow-x-auto rounded-[1.2rem] border border-white/80 bg-white/75">
+            <h3 className="mb-2 text-sm font-semibold text-foreground">완성품정보</h3>
+            <div className="overflow-x-auto rounded-md border border-border bg-card">
               <table className="w-full min-w-[1180px] text-left text-xs">
-                <thead className="bg-sky-50/80 font-black text-sky-700">
+                <thead className="bg-muted/60 text-xs font-medium text-muted-foreground">
                   <tr>
                     {["등록일자", "작업구분", "문서번호", "완성품코드", "완성품명", "LOT", "작업수량", "완료요청일", "비고"].map((header) => (
-                      <th key={header} className="px-3 py-3">
+                      <th key={header} className={`h-10 whitespace-nowrap px-3${["작업수량", "단위수량", "필요수량", "할당수량"].includes(header) ? " text-right" : ""}`}>
                         {header}
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  <tr className="text-slate-600">
-                    <td className="px-3 py-3 font-bold">{formatDate(work.registeredAt)}</td>
-                    <td className="px-3 py-3 font-black text-slate-800">{work.workType}</td>
-                    <td className="px-3 py-3 font-black text-sky-700">{work.documentNo}</td>
-                    <td className="px-3 py-3 font-bold">{work.finishedProductCode}</td>
-                    <td className="px-3 py-3 font-bold text-slate-700">{work.finishedProductName}</td>
-                    <td className="px-3 py-3 font-bold text-violet-700">{work.finishedProductLot}</td>
-                    <td className="px-3 py-3 font-bold">{work.quantity.toLocaleString()}</td>
-                    <td className="px-3 py-3 font-bold">{formatDate(work.dueDate)}</td>
-                    <td className="max-w-[260px] truncate px-3 py-3 text-slate-500">{work.memo || "-"}</td>
+                  <tr className="text-foreground">
+                    <td className="px-3 py-2.5">{formatDate(work.registeredAt)}</td>
+                    <td className="px-3 py-2.5 font-medium text-foreground">{work.workType}</td>
+                    <td className="px-3 py-2.5 font-medium text-primary">{work.documentNo}</td>
+                    <td className="px-3 py-2.5">{work.finishedProductCode}</td>
+                    <td className="px-3 py-2.5 text-foreground">{work.finishedProductName}</td>
+                    <td className="px-3 py-2.5 font-medium text-foreground">{work.finishedProductLot}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">{work.quantity.toLocaleString()}</td>
+                    <td className="px-3 py-2.5">{formatDate(work.dueDate)}</td>
+                    <td className="max-w-[260px] truncate px-3 py-2.5 text-muted-foreground">{work.memo || "-"}</td>
                   </tr>
                 </tbody>
               </table>
@@ -1010,34 +1017,34 @@ function WorkDetailModal({
           </section>
 
           <section>
-            <h3 className="mb-2 text-sm font-black text-slate-800">구성품 정보</h3>
-            <div className="overflow-x-auto rounded-[1.2rem] border border-white/80 bg-white/75">
+            <h3 className="mb-2 text-sm font-semibold text-foreground">구성품 정보</h3>
+            <div className="overflow-x-auto rounded-md border border-border bg-card">
               <table className="w-full min-w-[1120px] text-left text-xs">
-                <thead className="bg-violet-50/80 font-black text-violet-700">
+                <thead className="bg-muted/60 text-xs font-medium text-muted-foreground">
                   <tr>
                     {["구분", "제품코드", "제품명", "단위수량", "필요수량", "LOT", "할당수량", "OCR 검수 텍스트", "비고"].map((header) => (
-                      <th key={header} className="px-3 py-3">
+                      <th key={header} className={`h-10 whitespace-nowrap px-3${["작업수량", "단위수량", "필요수량", "할당수량"].includes(header) ? " text-right" : ""}`}>
                         {header}
                       </th>
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-border">
                   {componentRows.map((row) => (
-                    <tr key={row.rowId} className="text-slate-600">
-                      <td className="px-3 py-3">
-                        <span className={row.kind === "제품" ? "rounded-full bg-sky-100 px-2 py-1 font-black text-sky-700" : "rounded-full bg-violet-100 px-2 py-1 font-black text-violet-700"}>
+                    <tr key={row.rowId} className="text-foreground">
+                      <td className="px-3 py-2.5">
+                        <span className={row.kind === "제품" ? "rounded-md bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-600/20" : "rounded-md bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700 ring-1 ring-inset ring-violet-600/20"}>
                           {row.kind}
                         </span>
                       </td>
-                      <td className="px-3 py-3 font-black text-slate-800">{row.code}</td>
-                      <td className="px-3 py-3 font-bold">{row.name}</td>
-                      <td className="px-3 py-3 font-bold">{row.unitQuantity.toLocaleString()}</td>
-                      <td className="px-3 py-3 font-black text-slate-800">{row.requiredQuantity.toLocaleString()}</td>
-                      <td className="px-3 py-3 font-bold text-violet-700">{row.lot || "-"}</td>
-                      <td className="px-3 py-3 font-bold">{row.allocatedQuantity.toLocaleString()}</td>
-                      <td className="max-w-[260px] whitespace-pre-wrap break-all px-3 py-3 font-bold text-amber-700">{row.ocrExpectedText || "-"}</td>
-                      <td className="px-3 py-3 text-slate-500">{row.memo || "-"}</td>
+                      <td className="px-3 py-2.5 font-medium text-foreground">{row.code}</td>
+                      <td className="px-3 py-2.5">{row.name}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{row.unitQuantity.toLocaleString()}</td>
+                      <td className="px-3 py-2.5 text-right font-medium tabular-nums text-foreground">{row.requiredQuantity.toLocaleString()}</td>
+                      <td className="px-3 py-2.5 font-medium text-foreground">{row.lot || "-"}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{row.allocatedQuantity.toLocaleString()}</td>
+                      <td className="max-w-[260px] whitespace-pre-wrap break-all px-3 py-2.5 font-medium text-foreground">{row.ocrExpectedText || "-"}</td>
+                      <td className="px-3 py-2.5 text-muted-foreground">{row.memo || "-"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1045,9 +1052,11 @@ function WorkDetailModal({
             </div>
           </section>
 
-          <CloudButton type="button" tone="soft" className="w-full" onClick={onClose}>
-            닫기
-          </CloudButton>
+          <div className="flex justify-end gap-2 border-t border-border pt-4">
+            <CloudButton type="button" tone="soft" className="min-w-24" onClick={onClose}>
+              닫기
+            </CloudButton>
+          </div>
         </div>
       </div>
     </div>

@@ -91,20 +91,20 @@ export default function MobilePreInspectionPage() {
   }, [work?.id, inspections.length, closedWork]);
 
   if (isLoading) {
-    return <CuteCard className="p-5 text-center text-sm font-bold text-slate-500">작업 데이터를 불러오는 중이에요.</CuteCard>;
+    return <CuteCard className="p-5 text-center text-sm text-muted-foreground">작업 데이터를 불러오는 중입니다.</CuteCard>;
   }
 
   if (!work) {
-    return <CuteCard className="p-5 text-center text-sm font-bold text-slate-500">작업을 찾지 못했어요.</CuteCard>;
+    return <CuteCard className="p-5 text-center text-sm text-muted-foreground">작업을 찾을 수 없습니다.</CuteCard>;
   }
 
   if (closedWork) {
     return (
       <div className="space-y-4">
-        <CuteCard className="p-5 text-center text-sm font-bold leading-6 text-slate-500">
-          이미 {workStatusLabels[work.status]} 처리된 작업이라 작업전 검수를 진행할 수 없어요.
+        <CuteCard className="p-5 text-center text-sm leading-6 text-muted-foreground">
+          이미 {workStatusLabels[work.status]} 처리된 작업이라 작업전 검수를 진행할 수 없습니다.
         </CuteCard>
-        <CloudButton className="w-full" tone="soft" onClick={() => router.push("/mobile")}>
+        <CloudButton className="min-h-12 w-full" tone="soft" onClick={() => router.push("/mobile")}>
           작업문서 스캔으로
         </CloudButton>
       </div>
@@ -114,21 +114,21 @@ export default function MobilePreInspectionPage() {
   return (
     <div className="space-y-4">
       <CuteCard className="p-4">
-        <p className="text-xs font-black text-sky-600">작업전 검수</p>
-        <h1 className="mt-1 text-2xl font-black text-slate-800">{work.document_no}</h1>
-        <p className="mt-1 text-sm font-bold text-slate-500">
+        <p className="text-xs font-medium text-muted-foreground">작업전 검수</p>
+        <h1 className="mt-1 text-lg font-semibold text-foreground">{work.document_no}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
           {work.worker_name || "미할당"} · {getWorkStatusLabel(work.status, "start")}
         </p>
       </CuteCard>
 
       {(warning || error || prepareError) && (
-        <CuteCard className="flex items-center justify-between gap-3 p-3 text-xs font-bold leading-5 text-amber-700">
+        <CuteCard className="flex items-center justify-between gap-3 p-3 text-xs font-medium leading-5 text-amber-800">
           <span>{error || prepareError || warning}</span>
           {(error || prepareError) && (
             <button
               type="button"
               onClick={() => void refetch()}
-              className="shrink-0 rounded-full bg-amber-100 px-3 py-1.5 text-[11px] font-black text-amber-800"
+              className="inline-flex min-h-11 shrink-0 items-center rounded-md border border-amber-200 bg-amber-50 px-4 text-xs font-medium text-amber-800 hover:bg-amber-100"
             >
               다시 시도
             </button>
@@ -137,7 +137,7 @@ export default function MobilePreInspectionPage() {
       )}
 
       {preparing && (
-        <CuteCard className="flex items-center justify-center gap-2 p-4 text-sm font-bold text-slate-500">
+        <CuteCard className="flex items-center justify-center gap-2 p-4 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" />
           검수 대상 준비 중...
         </CuteCard>
@@ -167,25 +167,25 @@ export default function MobilePreInspectionPage() {
       {allDone ? (
         <>
           <CuteCard className="p-5 text-center">
-            <CheckCircle2 className="mx-auto size-14 text-emerald-500" />
-            <h2 className="mt-3 text-xl font-black text-slate-800">작업전 검수 완료</h2>
-            <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
-              작업상태가 "진행"으로 전환됐어요. 작업이 끝나면 같은 문서번호를 스캔해 완료검수를 진행하세요.
+            <CheckCircle2 className="mx-auto size-14 text-emerald-600" />
+            <h2 className="mt-3 text-base font-semibold text-foreground">작업전 검수 완료</h2>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              작업상태가 "진행"으로 전환되었습니다. 작업이 끝나면 같은 문서번호를 스캔해 완료검수를 진행하세요.
             </p>
           </CuteCard>
-          <CloudButton className="w-full" onClick={() => router.push(`/mobile/complete/${work.id}`)}>
+          <CloudButton className="min-h-12 w-full" onClick={() => router.push(`/mobile/complete/${work.id}`)}>
             <PackageCheck className="size-4" />
             완료검수로 이동
           </CloudButton>
-          <CloudButton className="w-full" tone="soft" onClick={() => router.push("/mobile")}>
+          <CloudButton className="min-h-12 w-full" tone="soft" onClick={() => router.push("/mobile")}>
             다음 작업문서 스캔
           </CloudButton>
         </>
       ) : (
-        <p className="text-center text-xs font-bold leading-5 text-slate-500">
+        <p className="text-center text-xs leading-5 text-muted-foreground">
           {photoInspections.length > 0
-            ? "제품·부자재 사진을 모두 제출하고 OCR·비전 검수를 마치면 관리자 승인 후 작업전 검수가 완료돼요."
-            : "제품내역을 확인하고 부자재 검수를 모두 저장하면 작업전 검수가 완료돼요."}
+            ? "제품·부자재 사진을 모두 제출하고 OCR·비전 검수를 마치면 관리자 승인 후 작업전 검수가 완료됩니다."
+            : "제품내역을 확인하고 부자재 검수를 모두 저장하면 작업전 검수가 완료됩니다."}
         </p>
       )}
     </div>

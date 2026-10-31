@@ -332,7 +332,7 @@ export default function MobileMaterialRegistrationPage() {
         <button
           type="button"
           onClick={backToList}
-          className="inline-flex min-h-10 items-center gap-2 rounded-full bg-white/85 px-4 text-sm font-black text-slate-600 shadow-sm ring-1 ring-white/80"
+          className="inline-flex min-h-11 items-center gap-2 rounded-md border border-input bg-card px-4 text-sm font-medium text-foreground shadow-xs"
         >
           <ArrowLeft className="size-4" />
           목록으로
@@ -341,27 +341,27 @@ export default function MobileMaterialRegistrationPage() {
         <CuteCard className="p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-xs font-black text-sky-600">{editing ? "수정등록" : "신규등록"}</p>
-              <h1 className="mt-1 text-2xl font-black text-slate-800">{selectedMaterial.name}</h1>
-              <p className="mt-2 text-sm font-bold text-slate-500">
+              <p className="text-xs font-medium text-muted-foreground">{editing ? "수정등록" : "신규등록"}</p>
+              <h1 className="mt-1 text-lg font-semibold text-foreground">{selectedMaterial.name}</h1>
+              <p className="mt-2 text-sm text-muted-foreground">
                 {selectedMaterial.code} / LOT {selectedMaterial.lot ?? "-"}
               </p>
               {selectedMaterial.verification_value && (
-                <p className="mt-1 text-xs font-bold text-emerald-600">검증값 {selectedMaterial.verification_value}</p>
+                <p className="mt-1 text-xs font-medium text-emerald-700">검증값 {selectedMaterial.verification_value}</p>
               )}
-              <div className="mt-3 flex gap-1 text-[10px] font-black">
+              <div className="mt-3 flex gap-1 text-[11px] font-medium">
                 <span
                   className={cn(
-                    "rounded-full px-2 py-1",
-                    ocrRegistered ? "bg-emerald-100 text-emerald-700" : ocrBlocked ? "bg-slate-100 text-slate-500" : "bg-sky-100 text-sky-700"
+                    "rounded-md px-2 py-0.5 ring-1 ring-inset",
+                    ocrRegistered ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20" : ocrBlocked ? "bg-slate-100 text-slate-700 ring-slate-500/20" : "bg-blue-50 text-blue-700 ring-blue-600/20"
                   )}
                 >
                   OCR {ocrRegistered ? "등록완료" : ocrBlocked ? "미사용" : "대기"}
                 </span>
                 <span
                   className={cn(
-                    "rounded-full px-2 py-1",
-                    visionRegistered ? "bg-emerald-100 text-emerald-700" : visionBlocked ? "bg-slate-100 text-slate-500" : "bg-violet-100 text-violet-700"
+                    "rounded-md px-2 py-0.5 ring-1 ring-inset",
+                    visionRegistered ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20" : visionBlocked ? "bg-slate-100 text-slate-700 ring-slate-500/20" : "bg-violet-50 text-violet-700 ring-violet-600/20"
                   )}
                 >
                   비전 {visionRegistered ? "등록완료" : visionBlocked ? "미사용" : "대기"}
@@ -374,36 +374,36 @@ export default function MobileMaterialRegistrationPage() {
                 onClick={deleteRegistration}
                 aria-label="등록 삭제"
                 disabled={deleteLoading}
-                className="inline-flex size-10 items-center justify-center rounded-full bg-rose-100 text-rose-700 disabled:opacity-50"
+                className="inline-flex size-11 items-center justify-center rounded-md border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50"
               >
                 <Trash2 className="size-5" />
               </button>
             )}
           </div>
           {deleteError && (
-            <div className="mt-3 rounded-2xl bg-rose-50 p-3 text-sm font-bold leading-6 text-rose-700">
+            <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm font-medium leading-6 text-red-700">
               삭제 오류: {deleteError}
             </div>
           )}
         </CuteCard>
 
         <CuteCard className="p-4">
-          <p className="text-sm font-black text-slate-800">등록 방식을 선택하세요</p>
-          <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
+          <p className="text-sm font-semibold text-foreground">등록 방식을 선택하세요</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
             선택하면 목록 아래가 아니라 별도 등록 화면으로 전환됩니다.
           </p>
           <div className="mt-4 grid gap-2">
-            <CloudButton tone={ocrBlocked ? "soft" : "primary"} disabled={ocrBlocked} onClick={() => setMode("OCR")}>
+            <CloudButton className="min-h-12" tone={ocrBlocked ? "soft" : "primary"} disabled={ocrBlocked} onClick={() => setMode("OCR")}>
               <ScanText className="size-4" />
               {ocrBlocked ? "OCR 미사용" : ocrRegistered ? "OCR 수정 화면으로" : "OCR 신규등록"}
             </CloudButton>
-            <CloudButton tone="soft" disabled={visionBlocked} onClick={() => setMode("VISION")}>
+            <CloudButton className="min-h-12" tone="soft" disabled={visionBlocked} onClick={() => setMode("VISION")}>
               <ImagePlus className="size-4" />
               {visionBlocked ? "비전 미사용" : visionRegistered ? "비전 수정 화면으로" : "비전 신규등록"}
             </CloudButton>
           </div>
           {(ocrBlocked || visionBlocked) && (
-            <div className="mt-3 space-y-1 rounded-2xl bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-700">
+            <div className="mt-3 space-y-1 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs font-medium leading-5 text-amber-800">
               {ocrBlocked && visionBlocked && selectedMaterial.inspection_method === "NONE" ? (
                 <p>{getReferenceBlockedMessage(selectedMaterial, "OCR")}</p>
               ) : (
@@ -422,10 +422,10 @@ export default function MobileMaterialRegistrationPage() {
   return (
     <div className="space-y-4">
       <CuteCard className="p-4">
-        <p className="text-xs font-black text-sky-600">부자재등록</p>
-        <h1 className="mt-1 text-2xl font-black text-slate-800">부자재 목록</h1>
-        <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">관리자웹에서 등록한 부자재 목록 중 하나를 선택합니다.</p>
-        <p className="mt-2 text-xs font-black text-slate-400">
+        <p className="text-xs font-medium text-muted-foreground">부자재등록</p>
+        <h1 className="mt-1 text-lg font-semibold text-foreground">부자재 목록</h1>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">관리자웹에서 등록한 부자재 목록 중 하나를 선택합니다.</p>
+        <p className="mt-2 text-xs text-muted-foreground">
           {isLoading
             ? "Supabase 부자재마스터 연결 확인 중"
             : error
@@ -439,13 +439,13 @@ export default function MobileMaterialRegistrationPage() {
       </CuteCard>
 
       {(warning || error) && (
-        <CuteCard className="flex items-center justify-between gap-3 p-3 text-xs font-bold leading-5 text-amber-700">
+        <CuteCard className="flex items-center justify-between gap-3 p-3 text-xs font-medium leading-5 text-amber-800">
           <span>{error || warning}</span>
           {error && (
             <button
               type="button"
               onClick={() => void reload()}
-              className="shrink-0 rounded-full bg-amber-100 px-3 py-1.5 text-[11px] font-black text-amber-800"
+              className="inline-flex min-h-11 shrink-0 items-center rounded-md border border-amber-200 bg-amber-50 px-4 text-xs font-medium text-amber-800 hover:bg-amber-100"
             >
               다시 시도
             </button>
@@ -464,8 +464,8 @@ export default function MobileMaterialRegistrationPage() {
               setSelectedMaterialId("");
             }}
             className={cn(
-              "min-h-11 rounded-2xl text-sm font-black transition",
-              filter === item.value ? "bg-sky-500 text-white shadow-sm" : "bg-white/80 text-slate-500 ring-1 ring-white/80"
+              "min-h-11 rounded-md text-sm font-medium transition-colors",
+              filter === item.value ? "bg-primary text-primary-foreground shadow-xs" : "border border-input bg-card text-muted-foreground hover:bg-accent hover:text-accent-foreground"
             )}
           >
             {item.label}
@@ -473,7 +473,7 @@ export default function MobileMaterialRegistrationPage() {
         ))}
       </div>
 
-      <div className="rounded-[1.1rem] bg-white/82 p-2 shadow-sm ring-1 ring-white/80">
+      <div className="rounded-lg border border-border bg-card p-2 shadow-xs">
         <div className="grid grid-cols-[1fr_1fr_1fr_auto] items-center gap-1.5">
           <input
             value={productCodeFilter}
@@ -482,7 +482,7 @@ export default function MobileMaterialRegistrationPage() {
               setSelectedMaterialId("");
               setMode(null);
             }}
-            className="h-9 min-w-0 rounded-xl border border-sky-100 bg-white px-2 text-xs font-bold outline-none focus:ring-2 focus:ring-sky-200"
+            className="h-11 min-w-0 rounded-md border border-input bg-card px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
             placeholder="부자재코드"
             aria-label="부자재코드 조회필터"
           />
@@ -493,7 +493,7 @@ export default function MobileMaterialRegistrationPage() {
               setSelectedMaterialId("");
               setMode(null);
             }}
-            className="h-9 min-w-0 rounded-xl border border-sky-100 bg-white px-2 text-xs font-bold outline-none focus:ring-2 focus:ring-sky-200"
+            className="h-11 min-w-0 rounded-md border border-input bg-card px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
             placeholder="부자재명"
             aria-label="부자재명 조회필터"
           />
@@ -504,33 +504,33 @@ export default function MobileMaterialRegistrationPage() {
               setSelectedMaterialId("");
               setMode(null);
             }}
-            className="h-9 min-w-0 rounded-xl border border-sky-100 bg-white px-2 text-xs font-bold outline-none focus:ring-2 focus:ring-sky-200"
+            className="h-11 min-w-0 rounded-md border border-input bg-card px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
             placeholder="LOT"
             aria-label="LOT 조회필터"
           />
-          <span className="whitespace-nowrap rounded-full bg-sky-50 px-2.5 py-2 text-[11px] font-black text-sky-700">{filteredMaterials.length}건</span>
+          <span className="whitespace-nowrap rounded-md bg-muted px-2.5 py-2 text-[11px] font-medium tabular-nums text-muted-foreground">{filteredMaterials.length}건</span>
         </div>
       </div>
 
       <CuteCard className="overflow-hidden p-0">
-        <div className="grid grid-cols-[1fr_70px_54px] bg-sky-50/80 px-3 py-3 text-[11px] font-black text-sky-700">
+        <div className="grid grid-cols-[1fr_70px_54px] bg-muted/60 px-3 py-3 text-[11px] font-medium text-muted-foreground">
           <span>부자재코드 / 부자재명 / LOT</span>
           <span className="text-center">상태</span>
           <span className="text-center">등록</span>
         </div>
-        <div className="divide-y divide-slate-100">
+        <div className="divide-y divide-border">
           {isInitialLoading && (
-            <div className="px-4 py-8 text-center text-sm font-bold leading-6 text-slate-500">
+            <div className="px-4 py-8 text-center text-sm leading-6 text-muted-foreground">
               Supabase 부자재마스터를 불러오는 중입니다.
             </div>
           )}
           {!isInitialLoading && error && (
-            <div className="space-y-3 px-4 py-8 text-center text-sm font-bold leading-6 text-rose-600">
+            <div className="space-y-3 px-4 py-8 text-center text-sm font-medium leading-6 text-red-700">
               <p>Supabase 부자재마스터 연결 오류가 발생했습니다.</p>
               <button
                 type="button"
                 onClick={() => void reload()}
-                className="rounded-full bg-rose-50 px-4 py-2 text-xs font-black text-rose-700"
+                className="inline-flex min-h-11 items-center rounded-md border border-red-200 bg-red-50 px-4 text-xs font-medium text-red-700 hover:bg-red-100"
               >
                 다시 시도
               </button>
@@ -548,30 +548,30 @@ export default function MobileMaterialRegistrationPage() {
                 <div
                   key={material.id}
                   className={cn(
-                    "grid grid-cols-[1fr_70px_54px] items-center gap-2 px-3 py-3 transition",
-                    selected ? "bg-sky-50/90" : "bg-white/70"
+                    "grid grid-cols-[1fr_70px_54px] items-center gap-2 px-3 py-3 transition-colors",
+                    selected ? "bg-accent" : "bg-card"
                   )}
                 >
                   <button type="button" onClick={() => openRegistration(material, registered)} className="text-left">
-                    <p className="text-xs font-black text-sky-600">{material.code}</p>
-                    <p className="mt-1 font-black text-slate-800">{material.name}</p>
-                    <p className="mt-1 text-xs font-bold text-slate-400">LOT {material.lot ?? "-"}</p>
+                    <p className="text-xs font-medium text-muted-foreground">{material.code}</p>
+                    <p className="mt-1 font-semibold text-foreground">{material.name}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">LOT {material.lot ?? "-"}</p>
                     {material.verification_value && (
-                      <p className="mt-1 text-xs font-bold text-emerald-600">검증값 {material.verification_value}</p>
+                      <p className="mt-1 text-xs font-medium text-emerald-700">검증값 {material.verification_value}</p>
                     )}
-                    <div className="mt-2 flex flex-wrap gap-1 text-[10px] font-black">
-                      <span className={cn("rounded-full px-2 py-0.5", ocrRegistered ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-400")}>
+                    <div className="mt-2 flex flex-wrap gap-1 text-[11px] font-medium">
+                      <span className={cn("rounded-md px-2 py-0.5 ring-1 ring-inset", ocrRegistered ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20" : "bg-slate-100 text-slate-600 ring-slate-500/20")}>
                         OCR {ocrRegistered ? "완료" : getReferenceButtonState(material, "OCR") === "unused" ? "미사용" : "대기"}
                       </span>
-                      <span className={cn("rounded-full px-2 py-0.5", visionRegistered ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-400")}>
+                      <span className={cn("rounded-md px-2 py-0.5 ring-1 ring-inset", visionRegistered ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20" : "bg-slate-100 text-slate-600 ring-slate-500/20")}>
                         비전 {visionRegistered ? "완료" : getReferenceButtonState(material, "VISION") === "unused" ? "미사용" : "대기"}
                       </span>
                     </div>
                   </button>
                   <span
                     className={cn(
-                      "rounded-full px-2 py-1 text-center text-[11px] font-black",
-                      registered ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
+                      "rounded-md px-2 py-1 text-center text-[11px] font-medium ring-1 ring-inset",
+                      registered ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20" : "bg-slate-100 text-slate-700 ring-slate-500/20"
                     )}
                   >
                     {registered ? "등록" : "미등록"}
@@ -581,8 +581,8 @@ export default function MobileMaterialRegistrationPage() {
                     onClick={() => openRegistration(material, registered)}
                     aria-label={registered ? `${material.name} 수정` : `${material.name} 등록`}
                     className={cn(
-                      "inline-flex size-10 items-center justify-center justify-self-center rounded-full transition",
-                      registered ? "bg-white text-sky-600 ring-1 ring-sky-100" : "bg-sky-500 text-white"
+                      "inline-flex size-11 items-center justify-center justify-self-center rounded-md transition-colors",
+                      registered ? "border border-input bg-card text-primary hover:bg-accent" : "bg-primary text-primary-foreground hover:bg-primary/90"
                     )}
                   >
                     {registered ? <Pencil className="size-4" /> : <Plus className="size-5" />}
@@ -591,7 +591,7 @@ export default function MobileMaterialRegistrationPage() {
               );
             })}
           {!isInitialLoading && !error && filteredMaterials.length === 0 && (
-            <div className="px-4 py-8 text-center text-sm font-bold text-slate-400">
+            <div className="px-4 py-8 text-center text-sm text-muted-foreground">
               조회된 부자재가 없습니다.
             </div>
           )}
@@ -748,7 +748,7 @@ function OcrRegistration({
       <button
         type="button"
         onClick={onBack}
-        className="inline-flex min-h-10 items-center gap-2 rounded-full bg-white/85 px-4 text-sm font-black text-slate-600 shadow-sm ring-1 ring-white/80"
+        className="inline-flex min-h-11 items-center gap-2 rounded-md border border-input bg-card px-4 text-sm font-medium text-foreground shadow-xs"
       >
         <ArrowLeft className="size-4" />
         등록 선택으로
@@ -757,13 +757,13 @@ function OcrRegistration({
       <CuteCard className="p-4">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-black text-sky-600">OCR등록</p>
-          <h1 className="mt-1 text-2xl font-black text-slate-800">{material.name}</h1>
-          <p className="mt-1 text-xs font-bold text-slate-400">
+          <p className="text-xs font-medium text-muted-foreground">OCR등록</p>
+          <h1 className="mt-1 text-lg font-semibold text-foreground">{material.name}</h1>
+          <p className="mt-1 text-xs text-muted-foreground">
             {material.code} · {alreadyRegistered ? "OCR 등록완료" : "OCR 신규등록"}
           </p>
         </div>
-        <button type="button" onClick={onCancel} className="rounded-full bg-white p-2 text-slate-400 ring-1 ring-slate-200">
+        <button type="button" onClick={onCancel} className="inline-flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">
           <XCircle className="size-5" />
         </button>
       </div>
@@ -778,21 +778,21 @@ function OcrRegistration({
           <img src={previewUrl} alt="OCR 촬영 이미지" className="pointer-events-none h-full w-full object-contain" />
         ) : (
           <div className="pointer-events-none flex h-full flex-col items-center justify-center text-center">
-            <Camera className="mb-3 size-12 text-sky-400" />
-            <p className="font-black text-slate-800">OCR 사진을 먼저 촬영하세요</p>
-            <p className="mt-2 text-xs font-semibold text-slate-500">촬영 후 전체 사진 기준으로 읽을 영역을 지정합니다.</p>
+            <Camera className="mb-3 size-12 text-muted-foreground" />
+            <p className="font-semibold text-foreground">OCR 사진을 먼저 촬영하세요</p>
+            <p className="mt-2 text-xs text-muted-foreground">촬영 후 전체 사진 기준으로 읽을 영역을 지정합니다.</p>
           </div>
         )}
       </TouchRegionSelector>
 
-      <label className="mt-4 flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-full bg-sky-500 px-4 text-sm font-extrabold text-white shadow-sm">
+      <label className="mt-4 flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow-xs">
         <Camera className="size-4" />
         {previewUrl ? "OCR 사진 다시 촬영" : "OCR 사진 촬영"}
         <input type="file" accept="image/*" capture="environment" className="sr-only" onChange={capture} aria-label="OCR 등록 사진 촬영" />
       </label>
 
       <CloudButton
-        className="mt-4 w-full"
+        className="mt-4 min-h-12 w-full"
         disabled={!selectedFile || ocrLoading}
         onClick={reviewOcr}
       >
@@ -801,7 +801,7 @@ function OcrRegistration({
       </CloudButton>
 
       {ocrError && (
-        <div className="mt-3 rounded-2xl bg-rose-50 p-3 text-sm font-bold leading-6 text-rose-700">
+        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm font-medium leading-6 text-red-700">
           OCR 오류: {ocrError}
         </div>
       )}
@@ -809,11 +809,11 @@ function OcrRegistration({
       {ocrReviewed && (
         <div
           className={cn(
-            "mt-3 rounded-2xl p-3 text-sm font-bold leading-6",
-            !ocrCanVerify ? "bg-amber-50 text-amber-700" : "bg-sky-50 text-sky-700"
+            "mt-3 rounded-md border p-3 text-sm font-medium leading-6",
+            !ocrCanVerify ? "border-amber-200 bg-amber-50 text-amber-800" : "border-blue-200 bg-blue-50 text-blue-700"
           )}
         >
-          <p className="text-xs font-black">
+          <p className="text-xs font-semibold">
             {!ocrCanVerify
               ? "⚠️ OCR 서버 검증 불가 — 텍스트 검증 없이 저장됩니다 (관리자에게 OCR 설정을 문의하세요)"
               : "OCR 검토 완료"}
@@ -825,15 +825,15 @@ function OcrRegistration({
             <textarea
               value={recognizedText || "인식된 텍스트 없음"}
               readOnly
-              className="mt-1 min-h-16 w-full rounded-2xl border border-white/80 bg-white/80 p-3 text-sm font-black text-slate-800 outline-none"
+              className="mt-1 min-h-16 w-full rounded-md border border-border bg-card p-3 text-sm font-medium text-foreground outline-none"
             />
           </label>
           <p className="mt-2 text-xs">기준 텍스트(부자재코드): {expectedText}</p>
           {ocrCanVerify && (
             <span
               className={cn(
-                "mt-2 inline-flex rounded-full px-2 py-1 text-[11px] font-black",
-                ocrMatched ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
+                "mt-2 inline-flex rounded-md px-2 py-1 text-[11px] font-medium ring-1 ring-inset",
+                ocrMatched ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20" : "bg-slate-100 text-slate-700 ring-slate-500/20"
               )}
             >
               {ocrMatched ? "코드와 일치" : "코드와 다름 (참고용, 저장 가능)"}
@@ -843,14 +843,15 @@ function OcrRegistration({
       )}
 
       <div className="mt-3 grid grid-cols-3 gap-2">
-        <CloudButton tone="soft" onClick={retry}>
+        <CloudButton tone="soft" className="min-h-12 px-2" onClick={retry}>
           <RotateCcw className="size-4" />
           재처리
         </CloudButton>
-        <CloudButton tone="danger" onClick={onCancel}>
+        <CloudButton tone="danger" className="min-h-12 px-2" onClick={onCancel}>
           취소
         </CloudButton>
         <CloudButton
+          className="min-h-12 px-2"
           disabled={!canSaveOcr || ocrLoading || saveLoading}
           onClick={async () => {
             if (!selectedFile) return;
@@ -883,13 +884,13 @@ function OcrRegistration({
       </div>
 
       {saveError && (
-        <div className="mt-3 rounded-2xl bg-rose-50 p-3 text-sm font-bold leading-6 text-rose-700">
+        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm font-medium leading-6 text-red-700">
           저장 오류: {saveError}
         </div>
       )}
 
       {saved && (
-        <div className="mt-3 rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700">
+        <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-700">
           <CheckCircle2 className="mb-1 size-5" />
           OCR 등록 저장 완료
         </div>
@@ -982,7 +983,7 @@ function VisionRegistration({
     if (!allRegionsConfirmed) {
       setSimilarity({
         status: "idle",
-        message: `사진별 영역 확정 ${confirmedRegionCount}/${visionMaxPhotos} · 각 사진을 선택해 비교할 영역을 맞춰주세요.`
+        message: `사진별 영역 확정 ${confirmedRegionCount}/${visionMaxPhotos} · 각 사진을 선택해 비교할 영역을 맞춰 주세요.`
       });
       return;
     }
@@ -1155,7 +1156,7 @@ function VisionRegistration({
       <button
         type="button"
         onClick={onBack}
-        className="inline-flex min-h-10 items-center gap-2 rounded-full bg-white/85 px-4 text-sm font-black text-slate-600 shadow-sm ring-1 ring-white/80"
+        className="inline-flex min-h-11 items-center gap-2 rounded-md border border-input bg-card px-4 text-sm font-medium text-foreground shadow-xs"
       >
         <ArrowLeft className="size-4" />
         등록 선택으로
@@ -1164,13 +1165,13 @@ function VisionRegistration({
       <CuteCard className="p-4">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-black text-violet-600">비전등록</p>
-          <h1 className="mt-1 text-2xl font-black text-slate-800">{material.name}</h1>
-          <p className="mt-1 text-xs font-bold text-slate-400">
+          <p className="text-xs font-medium text-muted-foreground">비전등록</p>
+          <h1 className="mt-1 text-lg font-semibold text-foreground">{material.name}</h1>
+          <p className="mt-1 text-xs text-muted-foreground">
             5장 압축 저장 · {alreadyRegistered ? "비전 등록완료" : "비전 신규등록"}
           </p>
         </div>
-        <button type="button" onClick={onCancel} className="rounded-full bg-white p-2 text-slate-400 ring-1 ring-slate-200">
+        <button type="button" onClick={onCancel} className="inline-flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">
           <XCircle className="size-5" />
         </button>
       </div>
@@ -1188,15 +1189,16 @@ function VisionRegistration({
           <img src={activePhoto.url} alt={`비전 영역 선택 ${activePhotoNumber}`} className="pointer-events-none h-full w-full object-contain" />
         ) : (
           <div className="pointer-events-none flex h-full flex-col items-center justify-center text-center">
-            <Camera className="mb-3 size-12 text-violet-400" />
-            <p className="font-black text-slate-800">비전 사진 5장 촬영</p>
-            <p className="mt-2 text-xs font-semibold text-slate-500">5장을 찍은 뒤 각 사진을 선택해 비교 영역을 지정합니다.</p>
+            <Camera className="mb-3 size-12 text-muted-foreground" />
+            <p className="font-semibold text-foreground">비전 사진 5장 촬영</p>
+            <p className="mt-2 text-xs text-muted-foreground">5장을 찍은 뒤 각 사진을 선택해 비교 영역을 지정합니다.</p>
           </div>
         )}
       </TouchRegionSelector>
 
       <div className="mt-3 grid grid-cols-2 gap-2">
         <CloudButton
+          className="min-h-12 px-2"
           tone={activePhoto?.regionConfirmed ? "success" : undefined}
           disabled={!activePhoto}
           onClick={confirmActiveRegion}
@@ -1204,20 +1206,20 @@ function VisionRegistration({
           <CheckCircle2 className="size-4" />
           {activePhoto ? `${activePhotoNumber}번 영역 확정` : "영역 확정"}
         </CloudButton>
-        <CloudButton tone="soft" disabled={!activePhoto?.regionConfirmed} onClick={editActiveRegion}>
+        <CloudButton tone="soft" className="min-h-12 px-2" disabled={!activePhoto?.regionConfirmed} onClick={editActiveRegion}>
           <Pencil className="size-4" />
           {activePhoto ? `${activePhotoNumber}번 다시 설정` : "다시 설정"}
         </CloudButton>
       </div>
 
-      <label className={cn("mt-4 flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-full px-4 text-sm font-extrabold shadow-sm", photos.length >= visionMaxPhotos ? "bg-slate-100 text-slate-300" : "bg-sky-500 text-white")}>
+      <label className={cn("mt-4 flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-md px-4 text-sm font-medium shadow-xs", photos.length >= visionMaxPhotos ? "bg-slate-100 text-slate-400" : "bg-primary text-primary-foreground")}>
         <Camera className="size-4" />
         {compressing ? "압축 중..." : `사진 촬영 ${photos.length}/${visionMaxPhotos}`}
         <input type="file" accept="image/*" capture="environment" multiple disabled={photos.length >= visionMaxPhotos || compressing} className="sr-only" onChange={capture} aria-label="비전 등록 사진 촬영" />
       </label>
 
       {captureError && (
-        <div className="mt-3 rounded-2xl bg-rose-50 p-3 text-sm font-bold leading-6 text-rose-700">
+        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm font-medium leading-6 text-red-700">
           비전 사진 오류: {captureError}
         </div>
       )}
@@ -1236,8 +1238,8 @@ function VisionRegistration({
                 if (photo) setActivePhotoId(photo.id);
               }}
               className={cn(
-                "relative aspect-square overflow-hidden rounded-xl bg-slate-100 text-left transition",
-                photo && photo.id === activePhoto?.id ? "ring-2 ring-violet-500 ring-offset-2 ring-offset-white" : "ring-1 ring-white/80",
+                "relative aspect-square overflow-hidden rounded-md bg-slate-100 text-left transition-shadow",
+                photo && photo.id === activePhoto?.id ? "ring-2 ring-violet-500 ring-offset-2 ring-offset-white" : "ring-1 ring-border",
                 !photo && "cursor-default"
               )}
             >
@@ -1245,37 +1247,37 @@ function VisionRegistration({
                 <>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={photo.url} alt={`비전 등록 ${index + 1}`} className="h-full w-full object-cover" />
-                  <span className={cn("absolute left-1 top-1 rounded-full px-1.5 py-0.5 text-[9px] font-black shadow-sm", photo.regionConfirmed ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700")}>
+                  <span className={cn("absolute left-1 top-1 rounded-full px-1.5 py-0.5 text-[9px] font-medium shadow-sm", photo.regionConfirmed ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800")}>
                     {photo.regionConfirmed ? "영역완료" : "영역대기"}
                   </span>
-                  <span className={cn("absolute right-1 top-1 rounded-full px-1.5 py-0.5 text-[9px] font-black shadow-sm", photo.id === activePhoto?.id ? "bg-violet-600 text-white" : "bg-white/90 text-slate-600")}>
+                  <span className={cn("absolute right-1 top-1 rounded-full px-1.5 py-0.5 text-[9px] font-medium shadow-sm", photo.id === activePhoto?.id ? "bg-violet-600 text-white" : "bg-white/90 text-slate-600")}>
                     {index + 1}
                   </span>
-                  <span className="absolute bottom-1 left-1 rounded-full bg-white/90 px-1.5 py-0.5 text-[9px] font-black text-violet-700 shadow-sm">
+                  <span className="absolute bottom-1 left-1 rounded-full bg-white/90 px-1.5 py-0.5 text-[9px] font-medium text-violet-700 shadow-sm">
                     {formatFileSize(photo.compressedSize)}
                   </span>
                 </>
               ) : (
-                <span className="flex h-full items-center justify-center text-[10px] font-black text-slate-300">{index + 1}</span>
+                <span className="flex h-full items-center justify-center text-[11px] font-medium text-slate-400">{index + 1}</span>
               )}
             </button>
           );
         })}
       </div>
 
-      <div className={cn("mt-3 rounded-2xl p-3 text-sm font-bold", allRegionsConfirmed ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>
+      <div className={cn("mt-3 rounded-md border p-3 text-sm font-medium", allRegionsConfirmed ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-800")}>
         {photos.length > 0 ? `사진 ${photos.length}/${visionMaxPhotos} · 영역 확정 ${confirmedRegionCount}/${photos.length}` : accuracyText(photos.length)}
       </div>
 
       <div
         className={cn(
-          "mt-3 rounded-2xl p-3 text-sm font-bold leading-6",
-          similarity.status === "ready" ? "bg-violet-50 text-violet-700" : similarity.status === "error" ? "bg-rose-50 text-rose-700" : "bg-white/75 text-slate-500"
+          "mt-3 rounded-md border p-3 text-sm font-medium leading-6",
+          similarity.status === "ready" ? "border-violet-200 bg-violet-50 text-violet-700" : similarity.status === "error" ? "border-red-200 bg-red-50 text-red-700" : "border-border bg-card text-muted-foreground"
         )}
       >
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-black">비전 이미지 일치율</p>
+            <p className="text-xs font-semibold">비전 이미지 일치율</p>
             <p className="mt-1 text-xs">
               {similarity.status === "ready"
                 ? `${photos.length}장 중 ${similarity.pairScores.length}개 조합을 선택 영역 기준으로 비교했습니다.`
@@ -1284,15 +1286,15 @@ function VisionRegistration({
           </div>
           {similarity.status === "ready" && (
             <div className="shrink-0 text-right">
-              <p className="text-2xl font-black text-slate-800">{formatPercent(similarity.average)}</p>
-              <p className="text-[10px] font-black text-violet-500">최저 {formatPercent(similarity.minimum)}</p>
+              <p className="text-xl font-semibold tabular-nums text-foreground">{formatPercent(similarity.average)}</p>
+              <p className="text-[11px] font-medium text-violet-700">최저 {formatPercent(similarity.minimum)}</p>
             </div>
           )}
         </div>
         {similarity.status === "ready" && (
-          <div className="mt-3 grid grid-cols-2 gap-1.5 text-[10px] font-black">
+          <div className="mt-3 grid grid-cols-2 gap-1.5 text-[11px] font-medium">
             {similarity.pairScores.map((pair) => (
-              <span key={`${pair.a}-${pair.b}`} className="rounded-full bg-white/85 px-2 py-1 text-center text-slate-600">
+              <span key={`${pair.a}-${pair.b}`} className="rounded-md border border-border bg-card px-2 py-1 text-center tabular-nums text-foreground">
                 {pair.a + 1}-{pair.b + 1}: {formatPercent(pair.similarity)}
               </span>
             ))}
@@ -1301,14 +1303,15 @@ function VisionRegistration({
       </div>
 
       <div className="mt-3 grid grid-cols-3 gap-2">
-        <CloudButton tone="soft" onClick={retry}>
+        <CloudButton tone="soft" className="min-h-12 px-2" onClick={retry}>
           <RotateCcw className="size-4" />
           재처리
         </CloudButton>
-        <CloudButton tone="danger" onClick={onCancel}>
+        <CloudButton tone="danger" className="min-h-12 px-2" onClick={onCancel}>
           취소
         </CloudButton>
         <CloudButton
+          className="min-h-12 px-2"
           disabled={!readyToSave || saveLoading}
           onClick={async () => {
             setSaveLoading(true);
@@ -1335,13 +1338,13 @@ function VisionRegistration({
       </div>
 
       {saveError && (
-        <div className="mt-3 rounded-2xl bg-rose-50 p-3 text-sm font-bold leading-6 text-rose-700">
+        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm font-medium leading-6 text-red-700">
           저장 오류: {saveError}
         </div>
       )}
 
       {saved && (
-        <div className="mt-3 rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700">
+        <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-700">
           <CheckCircle2 className="mb-1 size-5" />
           비전등록 저장 완료 · 압축 이미지 {photos.length}장 · 평균 일치율 {similarity.status === "ready" ? formatPercent(similarity.average) : "-"}
         </div>

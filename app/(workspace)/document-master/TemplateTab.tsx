@@ -194,19 +194,19 @@ export function TemplateTab({ departmentId }: { departmentId: string }) {
     }
   };
 
-  const iconButton = "inline-flex items-center gap-1 rounded-full px-2.5 py-1.5 text-xs font-black ring-1 transition";
+  const iconButton = "inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-xs font-medium ring-1 ring-inset transition-colors";
 
   return (
     <>
       <DataStatusBar
-        message={isLoading ? "문서양식을 불러오는 중이에요." : "선택된 부서의 작업지시서 양식을 관리합니다."}
+        message={isLoading ? "문서양식을 불러오는 중입니다." : "선택된 부서의 작업지시서 양식을 관리합니다."}
         source={source}
         loadError={loadError}
         onRetry={() => void load()}
       />
 
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <label className="inline-flex items-center gap-2 text-xs font-black text-slate-600">
+        <label className="inline-flex items-center gap-2 text-xs font-medium text-foreground">
           <input type="checkbox" checked={latestOnly} onChange={(event) => setLatestOnly(event.target.checked)} />
           최신 개정만 보기
         </label>
@@ -216,49 +216,49 @@ export function TemplateTab({ departmentId }: { departmentId: string }) {
         </CloudButton>
       </div>
 
-      <CuteCard>
+      <CuteCard className="border-0 bg-transparent p-0 shadow-none">
         <DataTable
           headers={["문서코드", "문서명", "개정일자", "분류·레이아웃", "사용여부", "매핑 화주", "관리"]}
           rows={visibleTemplates.map((template) => [
-            <span key="code" className="font-black text-sky-700">
+            <span key="code" className="font-medium text-foreground">
               {template.code}
             </span>,
-            <span key="name" className="font-black text-slate-800">
+            <span key="name" className="font-medium text-foreground">
               {template.name}
             </span>,
-            <span key="rev" className="font-bold text-slate-700">
+            <span key="rev" className="font-medium text-foreground">
               {template.revision_date}
             </span>,
-            <span key="layout" className="font-bold text-slate-600">
+            <span key="layout" className="text-muted-foreground">
               {templateTypeLabel(template.template_type, template.layout_key)}
             </span>,
             <span
               key="active"
-              className={`rounded-full px-3 py-1 text-xs font-black ${template.is_active ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}
+              className={`rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${template.is_active ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20" : "bg-slate-100 text-slate-700 ring-slate-500/20"}`}
             >
               {template.is_active ? "사용" : "중지"}
             </span>,
-            <span key="count" className="block text-right font-black text-slate-700">
+            <span key="count" className="block text-right font-medium text-foreground">
               {template.mappedShipperCount}
             </span>,
             <div key="actions" className="flex flex-wrap gap-1.5">
-              <button type="button" onClick={() => setPreview(template)} className={`${iconButton} bg-violet-50 text-violet-700 ring-violet-100 hover:bg-violet-100`}>
+              <button type="button" onClick={() => setPreview(template)} className={`${iconButton} bg-card text-foreground ring-input hover:bg-accent hover:text-accent-foreground`}>
                 <Eye className="size-3.5" />
                 미리보기
               </button>
-              <button type="button" disabled={template.template_type !== "layout"} title={template.template_type !== "layout" ? "준비 중(추후 정의)" : undefined} onClick={() => setForm({ mode: "edit", target: template })} className={`${iconButton} bg-white text-slate-600 ring-slate-200 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-40`}>
+              <button type="button" disabled={template.template_type !== "layout"} title={template.template_type !== "layout" ? "준비 중(추후 정의)" : undefined} onClick={() => setForm({ mode: "edit", target: template })} className={`${iconButton} bg-card text-foreground ring-input hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50`}>
                 <Pencil className="size-3.5" />
                 수정
               </button>
-              <button type="button" disabled={template.template_type !== "layout"} title={template.template_type !== "layout" ? "준비 중(추후 정의)" : undefined} onClick={() => setForm({ mode: "revise", target: template })} className={`${iconButton} bg-white text-slate-600 ring-slate-200 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-40`}>
+              <button type="button" disabled={template.template_type !== "layout"} title={template.template_type !== "layout" ? "준비 중(추후 정의)" : undefined} onClick={() => setForm({ mode: "revise", target: template })} className={`${iconButton} bg-card text-foreground ring-input hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50`}>
                 <GitBranchPlus className="size-3.5" />
                 개정
               </button>
-              <button type="button" onClick={() => void toggleActive(template)} className={`${iconButton} bg-amber-50 text-amber-800 ring-amber-100 hover:bg-amber-100`}>
+              <button type="button" onClick={() => void toggleActive(template)} className={`${iconButton} bg-amber-50 text-amber-800 ring-amber-600/20 hover:bg-amber-100`}>
                 <Power className="size-3.5" />
                 {template.is_active ? "사용중지" : "사용"}
               </button>
-              <button type="button" onClick={() => void removeTemplate(template)} className={`${iconButton} bg-rose-50 text-rose-700 ring-rose-100 hover:bg-rose-100`}>
+              <button type="button" onClick={() => void removeTemplate(template)} className={`${iconButton} bg-red-50 text-red-700 ring-red-600/20 hover:bg-red-100`}>
                 <Trash2 className="size-3.5" />
                 삭제
               </button>
@@ -266,9 +266,9 @@ export function TemplateTab({ departmentId }: { departmentId: string }) {
           ])}
         />
         {visibleTemplates.length === 0 && (
-          <p className="flex items-center justify-center gap-2 py-10 text-sm font-bold text-slate-400">
+          <p className="flex items-center justify-center gap-2 py-10 text-sm font-medium text-muted-foreground">
             <FilePlus2 className="size-4" />
-            {isLoading ? "불러오는 중..." : "등록된 양식이 없습니다. 양식 등록으로 시작해 보세요."}
+            {isLoading ? "불러오는 중..." : "등록된 양식이 없습니다. 양식 등록으로 시작하세요."}
           </p>
         )}
       </CuteCard>

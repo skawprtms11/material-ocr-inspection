@@ -36,7 +36,7 @@
          └─ 전체 합격/승인 시 이동 가능
             → /mobile/sign/[workId] (서명 패드)
                └─ 저장 시 자동 이동
-                  → /mobile/result/[workId] (결과 요약 + 컨페티)
+                  → /mobile/result/[workId] (결과 요약)
                      └─ "다음 문서 검수" 버튼
                         → /mobile/scan
 ```
@@ -141,8 +141,8 @@
 
 ### 7. `app/mobile/result/[workId]/page.tsx`
 - 경로: `/mobile/result/[workId]`
-- 주요 컴포넌트: `canvas-confetti`(동적 import), `CuteCard`
-- 하는 일: `findInspectionById`로 작업의 `inspections`를 상태별(합격/불합격/관리자 승인)로 집계해 요약 표시. 마운트 시 `canvas-confetti`로 축하 효과를 1회 실행.
+- 주요 컴포넌트: `CheckCircle2`(lucide-react), `CuteCard`, `CloudButton`
+- 하는 일: `findInspectionById`로 작업의 `inspections`를 상태별(합격/불합격/관리자 승인)로 집계해 요약 표시. 완료 표시는 `CheckCircle2` 아이콘이며 confetti 효과는 제거됨(2026-10-31 리디자인).
 - 다음 화면 조건: "다음 문서 검수" 버튼 클릭 시 `/mobile/scan`으로 이동(조건 없음).
 
 ### 8. `app/mobile/status/page.tsx`

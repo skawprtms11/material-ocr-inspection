@@ -17,7 +17,7 @@ export function BarcodeScannerPanel() {
   function matchWork() {
     const row = findWorkByDocumentNo(rows, documentNo);
     if (!row) {
-      setError("이 문서번호를 찾지 못했어요.");
+      setError("이 문서번호를 찾을 수 없습니다.");
       return;
     }
     router.push(`/mobile/inspection/${row.work.id}`);
@@ -25,18 +25,18 @@ export function BarcodeScannerPanel() {
 
   return (
     <CuteCard className="p-4">
-      <div className="mb-4 flex aspect-square flex-col items-center justify-center rounded-[1.8rem] border-2 border-dashed border-sky-200 bg-sky-50/70 text-center">
-        <Barcode className="mb-4 size-16 text-sky-400" />
-        <p className="font-black text-slate-800">바코드를 구름 안에 맞춰주세요</p>
-        <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
+      <div className="mb-4 flex aspect-square flex-col items-center justify-center rounded-lg border border-dashed border-input bg-muted/30 text-center">
+        <Barcode className="mb-4 size-16 text-muted-foreground" />
+        <p className="font-semibold text-foreground">바코드를 스캔 영역 안에 맞춰주세요</p>
+        <p className="mt-2 text-xs leading-5 text-muted-foreground">
           TODO: BarcodeDetector 또는 @zxing/browser 카메라 스캐너 연결
         </p>
-        <p className="mt-2 text-[11px] font-black text-slate-400">
+        <p className="mt-2 text-[11px] text-muted-foreground">
           데이터: {source === "supabase" ? "Supabase" : "Mock/Fallback"}
         </p>
       </div>
       <label className="block">
-        <span className="mb-1 flex items-center gap-1 text-xs font-black text-slate-500">
+        <span className="mb-1 flex items-center gap-1 text-xs font-medium text-muted-foreground">
           <Keyboard className="size-3.5" />
           직접 문서번호 입력
         </span>
@@ -46,16 +46,16 @@ export function BarcodeScannerPanel() {
             setDocumentNo(event.target.value);
             setError("");
           }}
-          className="h-12 w-full rounded-2xl border border-sky-100 bg-white px-4 text-base font-bold outline-none focus:ring-2 focus:ring-sky-200"
+          className="h-12 w-full rounded-md border border-input bg-card px-4 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           placeholder="DOC-2026-1001"
         />
       </label>
       {(error || loadError || warning) && (
-        <div className="mt-3 rounded-2xl bg-rose-50 p-3 text-sm font-bold text-rose-600">
+        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-700">
           {error || loadError || warning}
         </div>
       )}
-      <CloudButton className="mt-4 w-full" disabled={isLoading || rows.length === 0} onClick={matchWork}>
+      <CloudButton className="mt-4 min-h-12 w-full" disabled={isLoading || rows.length === 0} onClick={matchWork}>
         작업 찾기
       </CloudButton>
     </CuteCard>

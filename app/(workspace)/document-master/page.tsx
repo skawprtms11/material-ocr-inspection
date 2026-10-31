@@ -19,14 +19,14 @@ export default function DocumentMasterPage() {
   const [activeTab, setActiveTab] = useState<TabKey>("template");
 
   if (!departmentId) {
-    return <EmptyCloudState title="양식이 소속될 부서를 먼저 골라주세요." description="문서양식은 반드시 부서에 소속되어야 해요." />;
+    return <EmptyCloudState title="부서를 먼저 선택하세요." description="문서양식은 부서 단위로 관리됩니다." />;
   }
 
   return (
     <>
       <PageHeader title="문서마스터" description="작업지시서 양식을 등록하고 화주별로 사용할 양식을 지정합니다." />
 
-      <div role="tablist" className="mb-4 inline-flex gap-1 rounded-full bg-white/70 p-1 ring-1 ring-white/80">
+      <div role="tablist" className="mb-4 inline-flex h-9 items-center rounded-lg bg-muted p-1">
         {TABS.map((tab) => (
           <button
             key={tab.key}
@@ -34,8 +34,8 @@ export default function DocumentMasterPage() {
             role="tab"
             aria-selected={activeTab === tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`rounded-full px-5 py-2 text-sm font-extrabold transition ${
-              activeTab === tab.key ? "bg-sky-500 text-white shadow-md shadow-sky-100" : "text-slate-500 hover:bg-white hover:text-sky-600"
+            className={`h-7 rounded-md px-3 text-sm font-medium transition-colors ${
+              activeTab === tab.key ? "bg-card text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
             }`}
           >
             {tab.label}
