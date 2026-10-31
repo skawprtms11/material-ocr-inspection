@@ -213,42 +213,42 @@ export function ReferenceRegisterModal({
   const tone = isOcr ? "sky" : "violet";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/35 px-4 py-8 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/50 px-4 py-8">
       <div
         role="dialog"
         aria-label={`${isOcr ? "OCR" : "비전"} 기준 ${isReregister ? "재등록" : "등록"}`}
-        className="w-full max-w-4xl rounded-[1.4rem] border border-white/80 bg-[#f8fbff] p-5 shadow-[0_24px_80px_rgba(15,23,42,0.22)]"
+        className="w-full max-w-4xl rounded-lg border border-border bg-card p-5 shadow-lg"
       >
-        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mb-5 flex flex-col gap-3 border-b border-border pb-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className={cn("text-xs font-black", isOcr ? "text-sky-600" : "text-violet-600")}>
+            <p className={cn("text-xs font-medium", isOcr ? "text-blue-600" : "text-violet-600")}>
               {isOcr ? "OCR" : "비전스캔"} 기준 {isReregister ? "재등록" : "등록"}
             </p>
-            <h2 className="mt-1 text-2xl font-black tracking-normal text-slate-800">
-              {material.name} <span className="text-base text-slate-400">{material.code}</span>
+            <h2 className="mt-1 text-lg font-semibold text-foreground">
+              {material.name} <span className="text-base text-muted-foreground">{material.code}</span>
             </h2>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="팝업 닫기"
-            className="inline-flex size-10 items-center justify-center rounded-full bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:bg-sky-50"
+            className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
-            <X className="size-5" />
+            <X className="size-4" />
           </button>
         </div>
 
         {isReregister && (
-          <div className="mb-4 flex items-start gap-2 rounded-2xl bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-800 ring-1 ring-amber-100">
+          <div className="mb-4 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs font-medium leading-5 text-amber-800">
             <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-            재등록입니다. 저장하면 기존 기준 이미지·영역{isOcr ? "·검증값" : ""}이 교체되고 이전 이미지는 삭제됩니다. 이미지를 새로 붙여넣어야 저장할 수 있어요.
+            재등록입니다. 저장하면 기존 기준 이미지·영역{isOcr ? "·검증값" : ""}이 교체되고 이전 이미지는 삭제됩니다. 이미지를 새로 붙여넣어야 저장할 수 있습니다.
           </div>
         )}
 
         <div className="grid gap-5">
-          <CuteCard>
-            <h3 className="mb-1 text-lg font-black text-slate-800">1. 기준 이미지 {isOcr ? "붙여넣기" : `붙여넣기 (1~${visionMaxImages}장)`}</h3>
-            <p className="mb-3 text-xs font-semibold text-slate-500">
+          <CuteCard className="shadow-none">
+            <h3 className="mb-1 text-base font-semibold text-foreground">1. 기준 이미지 {isOcr ? "붙여넣기" : `붙여넣기 (1~${visionMaxImages}장)`}</h3>
+            <p className="mb-3 text-xs text-muted-foreground">
               {isOcr
                 ? "라벨이 보이는 캡처 이미지를 붙여넣으세요. 새로 붙여넣으면 이미지가 교체됩니다."
                 : "기준이 될 캡처 이미지를 붙여넣으세요. 여러 장은 반복해서 붙여넣으면 추가됩니다. 첫 번째 이미지가 대표입니다."}
@@ -263,17 +263,17 @@ export function ReferenceRegisterModal({
             {!isOcr && images.length > 0 && (
               <ul data-testid="vision-image-list" className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
                 {images.map((image, index) => (
-                  <li key={image.id} className="relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+                  <li key={image.id} className="relative overflow-hidden rounded-md border border-border bg-muted">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={image.url} alt={`기준 이미지 ${index + 1}`} className="aspect-[4/3] w-full object-cover" />
-                    <span className="absolute left-1.5 top-1.5 rounded-full bg-violet-500 px-2 py-0.5 text-[10px] font-black text-white">
+                    <span className="absolute left-1.5 top-1.5 rounded-full bg-violet-500 px-2 py-0.5 text-[11px] font-medium text-white">
                       {index === 0 ? "대표 1" : index + 1}
                     </span>
                     <button
                       type="button"
                       aria-label={`기준 이미지 ${index + 1} 삭제`}
                       onClick={() => removeImage(image.id)}
-                      className="absolute right-1.5 top-1.5 inline-flex size-6 items-center justify-center rounded-full bg-white/90 text-rose-600 shadow-sm"
+                      className="absolute right-1.5 top-1.5 inline-flex size-6 items-center justify-center rounded-full bg-white/90 text-red-600 shadow-sm"
                     >
                       <Trash2 className="size-3.5" />
                     </button>
@@ -284,9 +284,9 @@ export function ReferenceRegisterModal({
           </CuteCard>
 
           {representative && (
-            <CuteCard>
-              <h3 className="mb-1 text-lg font-black text-slate-800">2. 영역 지정</h3>
-              <p className="mb-3 text-xs font-semibold text-slate-500">
+            <CuteCard className="shadow-none">
+              <h3 className="mb-1 text-base font-semibold text-foreground">2. 영역 지정</h3>
+              <p className="mb-3 text-xs text-muted-foreground">
                 박스를 마우스로 끌어 이동하고 모서리를 끌어 크기를 조정하세요.
                 {!isOcr && " 대표 이미지에서 지정한 영역이 모든 기준 이미지에 적용됩니다."}
               </p>
@@ -305,32 +305,32 @@ export function ReferenceRegisterModal({
           )}
 
           {representative && isOcr && (
-            <CuteCard>
-              <h3 className="mb-1 text-lg font-black text-slate-800">3. 텍스트 인식 · 검증값 확정</h3>
+            <CuteCard className="shadow-none">
+              <h3 className="mb-1 text-base font-semibold text-foreground">3. 텍스트 인식 · 검증값 확정</h3>
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 <CloudButton type="button" disabled={isRecognizing || isSaving} onClick={() => void handleRecognize()}>
                   {isRecognizing ? <Loader2 className="size-4 animate-spin" /> : <ScanText className="size-4" />}
                   텍스트 인식
                 </CloudButton>
-                {ocrStale && <span className="text-xs font-black text-amber-700">영역이 바뀌었어요. 다시 인식해주세요.</span>}
+                {ocrStale && <span className="text-xs font-medium text-amber-700">영역이 바뀌었습니다. 다시 인식하세요.</span>}
               </div>
 
               {ocrResult && (
-                <div data-testid="ocr-result" className="mb-3 rounded-2xl bg-slate-50 p-3 text-xs font-bold leading-5 text-slate-600">
+                <div data-testid="ocr-result" className="mb-3 rounded-md bg-muted/40 p-3 text-xs leading-5 text-muted-foreground">
                   <p>
-                    인식 원문: <span className="text-slate-800">{ocrResult.extractedText || "(없음)"}</span> · 제공자 {ocrResult.provider}
+                    인식 원문: <span className="text-foreground">{ocrResult.extractedText || "(없음)"}</span> · 제공자 {ocrResult.provider}
                   </p>
                   {ocrResult.extractedText && <p>부자재코드와 {ocrResult.matched ? "일치" : "다름"} (참고)</p>}
                 </div>
               )}
               {isMockOcr && (
-                <div data-testid="ocr-mock-notice" className="mb-3 flex items-start gap-2 rounded-2xl bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-800 ring-1 ring-amber-100">
+                <div data-testid="ocr-mock-notice" className="mb-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs font-medium leading-5 text-amber-800">
                   <AlertTriangle className="mt-0.5 size-4 shrink-0" />
                   OCR 서버가 mock 모드(미설정)라 실제 글자를 인식하지 못합니다. 위 결과는 실제 인쇄 문구가 아닐 수 있으니 검증값을 직접 확인·입력하세요.
                 </div>
               )}
 
-              <label className="block text-xs font-black text-slate-600">
+              <label className="block text-sm font-medium text-foreground">
                 검증값 (현장 OCR 합격 기준)
                 <input
                   data-testid="verification-input"
@@ -338,22 +338,22 @@ export function ReferenceRegisterModal({
                   onChange={(event) => setVerifyValue(event.target.value)}
                   disabled={!ocrResult}
                   placeholder={ocrResult ? "라벨에 인쇄된 문구" : "먼저 텍스트 인식을 실행하세요"}
-                  className="mt-1 h-11 w-full rounded-2xl border border-sky-100 bg-white px-3 text-sm font-bold text-slate-800 disabled:bg-slate-50"
+                  className="mt-1 h-9 w-full rounded-md border border-input bg-card px-3 text-sm text-foreground shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:bg-muted"
                 />
               </label>
               {manualEdited && trimmedValue && (
-                <p data-testid="manual-edit-warning" className="mt-2 flex items-start gap-1.5 text-xs font-black leading-5 text-amber-700">
+                <p data-testid="manual-edit-warning" className="mt-2 flex items-start gap-1.5 text-xs font-medium leading-5 text-amber-700">
                   <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-                  인식 원문과 다르게 수정했어요. 현장 OCR은 이 값과 완전 일치해야 합격합니다(공백·대소문자 무시).
+                  인식 원문과 다르게 수정했습니다. 현장 OCR은 이 값과 완전 일치해야 합격합니다(공백·대소문자 무시).
                 </p>
               )}
             </CuteCard>
           )}
 
           {representative && !isOcr && (
-            <CuteCard>
-              <h3 className="mb-1 text-lg font-black text-slate-800">3. 일치율 미리보기 (참고용)</h3>
-              <p className="mb-3 text-xs font-semibold text-slate-500">
+            <CuteCard className="shadow-none">
+              <h3 className="mb-1 text-base font-semibold text-foreground">3. 일치율 미리보기 (참고용)</h3>
+              <p className="mb-3 text-xs text-muted-foreground">
                 현장 비전은 기준 이미지를 참고 사진으로 보여주며 서버 일치율 판정은 하지 않습니다. 저장 조건이 아닙니다.
               </p>
               <div className="flex flex-wrap items-center gap-2">
@@ -361,34 +361,34 @@ export function ReferenceRegisterModal({
                   {isRecognizing ? <Loader2 className="size-4 animate-spin" /> : <ScanEye className="size-4" />}
                   비전 인식(미리보기)
                 </CloudButton>
-                {images.length < 2 && <span className="text-xs font-bold text-slate-500">비교 대상 없음 — 기준만 저장됩니다.</span>}
-                {visionStale && <span className="text-xs font-black text-amber-700">이미지·영역이 바뀌었어요. 다시 계산해주세요.</span>}
+                {images.length < 2 && <span className="text-xs font-medium text-muted-foreground">비교 대상 없음 — 기준만 저장됩니다.</span>}
+                {visionStale && <span className="text-xs font-medium text-amber-700">이미지·영역이 바뀌었습니다. 다시 계산하세요.</span>}
               </div>
               {visionResult && (
-                <p data-testid="vision-result" className="mt-3 rounded-2xl bg-violet-50 p-3 text-xs font-black text-violet-700">
+                <p data-testid="vision-result" className="mt-3 rounded-md bg-violet-50 p-3 text-xs font-medium text-violet-700">
                   영역 평균 일치율 {formatPercent(visionResult.average)} · 최저 {formatPercent(visionResult.minimum)}
                 </p>
               )}
             </CuteCard>
           )}
 
-          {recognizeError && <p className="rounded-2xl bg-rose-50 p-3 text-sm font-bold text-rose-600">{recognizeError}</p>}
+          {recognizeError && <p className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-xs font-medium text-red-700">{recognizeError}</p>}
           {saveError && (
-            <p data-testid="save-error" className="rounded-2xl bg-rose-50 p-3 text-sm font-bold text-rose-600">
+            <p data-testid="save-error" className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-xs font-medium text-red-700">
               {saveError}
             </p>
           )}
 
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
+          <div className="flex flex-col-reverse gap-2 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-end">
             {!canSave && (
-              <span className="text-xs font-bold text-slate-400 sm:mr-auto">
-                {isOcr ? "이미지 붙여넣기 → 텍스트 인식 → 검증값 입력 후 저장할 수 있어요." : "이미지를 1장 이상 붙여넣으면 저장할 수 있어요."}
+              <span className="text-xs font-medium text-muted-foreground sm:mr-auto">
+                {isOcr ? "이미지 붙여넣기 → 텍스트 인식 → 검증값 입력 후 저장할 수 있습니다." : "이미지를 1장 이상 붙여넣으면 저장할 수 있습니다."}
               </span>
             )}
-            <CloudButton type="button" tone="soft" onClick={onClose}>
+            <CloudButton type="button" tone="soft" className="min-w-24" onClick={onClose}>
               취소
             </CloudButton>
-            <CloudButton type="button" disabled={!canSave || isSaving} onClick={() => void handleSave()}>
+            <CloudButton type="button" className="min-w-24" disabled={!canSave || isSaving} onClick={() => void handleSave()}>
               {isSaving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
               {isReregister ? "재등록 저장" : "저장"}
             </CloudButton>

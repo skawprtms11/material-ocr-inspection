@@ -13,12 +13,12 @@ type CuteCardProps = {
 export function CuteCard({ children, className, hover = false }: CuteCardProps) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      whileHover={hover ? { y: -3, scale: 1.005 } : undefined}
-      transition={{ duration: 0.22, ease: "easeOut" }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.15 }}
       className={cn(
-        "rounded-[1.4rem] border border-white/80 bg-white/82 p-5 shadow-[0_18px_50px_rgba(118,139,172,0.16)] backdrop-blur",
+        "rounded-lg border border-border bg-card p-5 text-card-foreground shadow-xs",
+        hover && "transition-shadow hover:shadow-md",
         className
       )}
     >

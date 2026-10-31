@@ -54,24 +54,24 @@ export default function UsersPage() {
   return (
     <>
       <PageHeader title="사용자관리" description="역할과 부서/화주 접근 권한을 관리합니다. 우측 상단 필터 목록은 이 권한 기준으로 제한됩니다." action={<CloudButton><Plus className="size-4" />사용자 추가</CloudButton>} />
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white/60 px-4 py-2 text-xs font-black text-slate-500 ring-1 ring-white/80">
-        <span>{isLoading ? "사용자 정보를 불러오는 중이에요." : "Supabase 사용자/권한 기준으로 목록을 조회합니다."}</span>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-card px-4 py-2 text-xs text-muted-foreground">
+        <span>{isLoading ? "사용자 정보를 불러오는 중입니다." : "Supabase 사용자/권한 기준으로 목록을 조회합니다."}</span>
         <div className="flex items-center gap-2">
-          <span className={`rounded-full px-3 py-1 ring-1 ${loadError ? "bg-rose-50 text-rose-700 ring-rose-100" : "bg-sky-50 text-sky-700 ring-sky-100"}`}>
+          <span className={`rounded-md px-2 py-0.5 font-medium ring-1 ring-inset ${loadError ? "bg-red-50 text-red-700 ring-red-600/20" : "bg-muted text-muted-foreground ring-border"}`}>
             데이터: {loadError ? "연결 오류" : dataSource === "supabase" ? "Supabase" : dataSource === "mock" ? "Mock/Fallback" : "연결 확인 중"}
           </span>
           {loadError && (
-            <button type="button" onClick={() => void loadUsers()} className="rounded-full bg-rose-100 px-3 py-1 text-rose-800">
+            <button type="button" onClick={() => void loadUsers()} className="rounded-md border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-100">
               다시 시도
             </button>
           )}
         </div>
       </div>
-      <CuteCard>
+      <CuteCard className="border-0 bg-transparent p-0 shadow-none">
         <DataTable
           headers={["이름", "이메일", "역할", "부서 권한", "화주 권한", "사용여부", "권한 편집"]}
           rows={users.map((user) => [
-            <span key="name" className="font-black text-slate-800">{user.name}</span>,
+            <span key="name" className="font-medium text-foreground">{user.name}</span>,
             user.email,
             roleLabels[user.role],
             departments.filter((department) => user.department_ids.includes(department.id)).map((department) => department.name).join(", "),
@@ -81,7 +81,7 @@ export default function UsersPage() {
               key="permissions"
               type="button"
               onClick={() => setEditingUser(user)}
-              className="inline-flex items-center gap-1.5 rounded-full bg-sky-50 px-3 py-1.5 text-xs font-black text-sky-700 shadow-sm ring-1 ring-sky-100 transition hover:bg-sky-100"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-card px-3 text-xs font-medium text-foreground shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground"
             >
               <KeyRound className="size-3.5" />
               편집
@@ -160,22 +160,22 @@ function PermissionModal({
   };
 
   const checkboxClass = (checked: boolean, tone: "sky" | "violet") =>
-    `inline-flex size-6 shrink-0 items-center justify-center rounded-full ring-1 transition ${
+    `inline-flex size-6 shrink-0 items-center justify-center rounded-full ring-1 transition-colors ${
       checked
         ? tone === "sky"
-          ? "bg-sky-500 text-white ring-sky-500"
+          ? "bg-primary text-primary-foreground ring-primary"
           : "bg-violet-500 text-white ring-violet-500"
-        : "bg-white text-transparent ring-slate-200"
+        : "bg-card text-transparent ring-input"
     }`;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/35 px-4 py-8 backdrop-blur-sm">
-      <div role="dialog" aria-modal="true" aria-label="권한 편집" className="w-full max-w-2xl rounded-[1.5rem] border border-white/80 bg-[#f8fbff] p-5 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
-        <div className="mb-5 flex items-start justify-between gap-4">
+    <div className="fixed inset-0 z-50 flex items-center-safe justify-center overflow-y-auto bg-slate-950/50 px-4 py-8">
+      <div role="dialog" aria-modal="true" aria-label="권한 편집" className="w-full max-w-2xl rounded-lg border border-border bg-card p-5 shadow-lg">
+        <div className="mb-5 flex items-start justify-between gap-4 border-b border-border pb-4">
           <div>
-            <p className="text-xs font-black text-sky-600">권한 편집</p>
-            <h2 className="mt-1 text-2xl font-black text-slate-800">{user.name}</h2>
-            <p className="mt-2 text-sm font-semibold text-slate-500">
+            <p className="text-xs font-medium text-muted-foreground">권한 편집</p>
+            <h2 className="mt-1 text-lg font-semibold text-foreground">{user.name}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
               부서를 선택한 뒤 그 부서 소속 화주를 선택하세요. 부서 권한을 빼면 소속 화주 권한도 함께 빠집니다.
             </p>
           </div>
@@ -183,9 +183,9 @@ function PermissionModal({
             type="button"
             onClick={onClose}
             aria-label="권한 편집 팝업 닫기"
-            className="inline-flex size-10 items-center justify-center rounded-full bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:bg-sky-50"
+            className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
-            <X className="size-5" />
+            <X className="size-4" />
           </button>
         </div>
 
@@ -195,7 +195,7 @@ function PermissionModal({
             const childShippers = shippers.filter((shipper) => shipper.department_id === department.id);
 
             return (
-              <div key={department.id} className="rounded-[1.2rem] border border-white/80 bg-white/75 p-3">
+              <div key={department.id} className="rounded-lg border border-border bg-card p-3">
                 <button
                   type="button"
                   role="checkbox"
@@ -206,8 +206,8 @@ function PermissionModal({
                   <span className={checkboxClass(departmentChecked, "sky")}>
                     <Check className="size-3.5" />
                   </span>
-                  <span className="font-black text-slate-800">{department.name}</span>
-                  {!department.is_active && <span className="text-xs font-black text-slate-400">(중지)</span>}
+                  <span className="font-medium text-foreground">{department.name}</span>
+                  {!department.is_active && <span className="text-xs font-medium text-muted-foreground">(중지)</span>}
                 </button>
                 {childShippers.length > 0 ? (
                   <div className="mt-2 flex flex-wrap gap-2 pl-9">
@@ -221,31 +221,31 @@ function PermissionModal({
                           aria-checked={shipperChecked}
                           disabled={!departmentChecked}
                           onClick={() => toggleShipper(shipper.id)}
-                          className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-black text-slate-600 ring-1 ring-slate-200 transition hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-40"
+                          className="inline-flex items-center gap-2 rounded-md bg-card px-3 py-1.5 text-xs font-medium text-foreground ring-1 ring-input transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           <span className={checkboxClass(shipperChecked, "violet")}>
                             <Check className="size-3" />
                           </span>
                           {shipper.name}
-                          {!shipper.is_active && <span className="text-slate-400">(중지)</span>}
+                          {!shipper.is_active && <span className="text-muted-foreground">(중지)</span>}
                         </button>
                       );
                     })}
                   </div>
                 ) : (
-                  <p className="mt-2 pl-9 text-xs font-bold text-slate-400">소속 화주가 없습니다.</p>
+                  <p className="mt-2 pl-9 text-xs font-medium text-muted-foreground">소속 화주가 없습니다.</p>
                 )}
               </div>
             );
           })}
         </div>
 
-        {error && <p className="mt-4 rounded-2xl bg-rose-50 p-3 text-sm font-bold text-rose-600">{error}</p>}
-        <div className="mt-5 grid grid-cols-2 gap-2">
-          <CloudButton type="button" tone="soft" onClick={onClose}>
+        {error && <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-xs font-medium text-red-700">{error}</p>}
+        <div className="mt-5 flex justify-end gap-2 border-t border-border pt-4">
+          <CloudButton type="button" tone="soft" className="min-w-24" onClick={onClose}>
             취소
           </CloudButton>
-          <CloudButton type="button" disabled={isSaving} onClick={() => void handleSave()}>
+          <CloudButton type="button" className="min-w-24" disabled={isSaving} onClick={() => void handleSave()}>
             <Check className="size-4" />
             {isSaving ? "저장 중..." : "저장"}
           </CloudButton>

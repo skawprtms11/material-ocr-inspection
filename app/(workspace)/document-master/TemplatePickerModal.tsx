@@ -25,7 +25,7 @@ function Highlight({ text, keyword }: { text: string; keyword: string }) {
   return (
     <>
       {text.slice(0, index)}
-      <mark className="rounded bg-amber-100 px-0.5 text-slate-900">{text.slice(index, index + normalized.length)}</mark>
+      <mark className="rounded bg-amber-100 px-0.5 text-foreground">{text.slice(index, index + normalized.length)}</mark>
       {text.slice(index + normalized.length)}
     </>
   );
@@ -84,26 +84,26 @@ export function TemplatePickerModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/35 px-4 py-8 backdrop-blur-sm">
-      <div className="w-full max-w-2xl rounded-[1.5rem] border border-white/80 bg-[#f8fbff] p-5 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
-        <div className="mb-4 flex items-start justify-between gap-6">
+    <div className="fixed inset-0 z-50 flex items-center-safe justify-center overflow-y-auto bg-slate-950/50 px-4 py-8">
+      <div className="w-full max-w-2xl rounded-lg border border-border bg-card p-5 shadow-lg">
+        <div className="mb-4 flex items-start justify-between gap-6 border-b border-border pb-4">
           <div>
-            <p className="text-xs font-black text-violet-600">화주별양식등록</p>
-            <h2 className="mt-1 text-xl font-black text-slate-800">양식 추가 · {shipperName}</h2>
-            <p className="mt-1 text-xs font-bold text-slate-500">같은 부서의 사용 중인 양식 중 아직 연결되지 않은 양식만 표시합니다.</p>
+            <p className="text-xs font-medium text-muted-foreground">화주별양식등록</p>
+            <h2 className="mt-1 text-lg font-semibold text-foreground">양식 추가 · {shipperName}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">같은 부서의 사용 중인 양식 중 아직 연결되지 않은 양식만 표시합니다.</p>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="양식 추가 닫기"
-            className="inline-flex size-10 items-center justify-center rounded-full bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:bg-sky-50"
+            className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
-            <X className="size-5" />
+            <X className="size-4" />
           </button>
         </div>
 
         <div className="relative">
-          <Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+          <Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <input
             ref={inputRef}
             autoFocus
@@ -122,10 +122,10 @@ export function TemplatePickerModal({
             role="combobox"
             aria-expanded={suggestOpen && suggestions.length > 0}
             aria-autocomplete="list"
-            className="min-h-11 w-full rounded-full border border-slate-200 bg-white pl-11 pr-4 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-sky-300"
+            className="h-9 w-full rounded-md border border-input bg-card pl-11 pr-4 text-sm text-foreground shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           />
           {suggestOpen && suggestions.length > 0 && (
-            <ul role="listbox" className="absolute left-0 right-0 top-full z-10 mt-1 max-h-72 overflow-y-auto rounded-2xl bg-white py-1 shadow-lg ring-1 ring-slate-200">
+            <ul role="listbox" className="absolute left-0 right-0 top-full z-10 mt-1 max-h-72 overflow-y-auto rounded-md bg-popover py-1 shadow-md ring-1 ring-border">
               {suggestions.map((template, index) => (
                 <li
                   key={template.id}
@@ -136,25 +136,25 @@ export function TemplatePickerModal({
                     pick(template);
                   }}
                   onMouseEnter={() => setActiveIndex(index)}
-                  className={`cursor-pointer px-4 py-2 text-sm font-bold ${index === activeIndex ? "bg-sky-50" : ""}`}
+                  className={`cursor-pointer px-4 py-2 text-sm font-medium ${index === activeIndex ? "bg-accent" : ""}`}
                 >
-                  <span className="text-sky-700">
+                  <span className="font-medium text-foreground">
                     <Highlight text={template.code} keyword={keyword} />
                   </span>
-                  <span className="text-slate-400"> · </span>
-                  <span className="text-slate-800">
+                  <span className="text-muted-foreground"> · </span>
+                  <span className="text-foreground">
                     <Highlight text={template.name} keyword={keyword} />
                   </span>
-                  <span className="ml-2 text-xs text-slate-400">개정 {template.revision_date}</span>
+                  <span className="ml-2 text-xs text-muted-foreground">개정 {template.revision_date}</span>
                 </li>
               ))}
             </ul>
           )}
         </div>
 
-        <div className="mt-4 max-h-80 overflow-y-auto rounded-2xl bg-white ring-1 ring-slate-100">
+        <div className="mt-4 max-h-80 overflow-y-auto rounded-md bg-card ring-1 ring-border">
           <table className="w-full text-left text-sm">
-            <thead className="sticky top-0 bg-sky-50 text-xs font-black text-slate-600">
+            <thead className="sticky top-0 bg-muted text-xs font-medium text-muted-foreground">
               <tr>
                 <th className="w-10 px-3 py-2" />
                 <th className="px-3 py-2">문서코드</th>
@@ -170,29 +170,29 @@ export function TemplatePickerModal({
                   <tr
                     key={template.id}
                     onClick={() => setSelectedId(template.id)}
-                    className={`cursor-pointer border-t border-slate-100 font-bold ${isSelected ? "bg-sky-50" : "hover:bg-slate-50"}`}
+                    className={`cursor-pointer border-t border-border ${isSelected ? "bg-accent" : "hover:bg-muted/50"}`}
                   >
                     <td className="px-3 py-2">
                       <span
-                        className={`inline-flex size-5 items-center justify-center rounded-full ring-1 ${isSelected ? "bg-sky-500 text-white ring-sky-500" : "bg-white ring-slate-300"}`}
+                        className={`inline-flex size-5 items-center justify-center rounded-full ring-1 ${isSelected ? "bg-primary text-primary-foreground ring-primary" : "bg-card ring-input"}`}
                       >
                         {isSelected && <Check className="size-3.5" />}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-sky-700">
+                    <td className="px-3 py-2 font-medium text-foreground">
                       <Highlight text={template.code} keyword={keyword} />
                     </td>
-                    <td className="px-3 py-2 text-slate-800">
+                    <td className="px-3 py-2 text-foreground">
                       <Highlight text={template.name} keyword={keyword} />
                     </td>
-                    <td className="px-3 py-2 text-slate-500">{template.revision_date}</td>
-                    <td className="px-3 py-2 text-slate-500">{templateTypeLabel(template.template_type, template.layout_key)}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{template.revision_date}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{templateTypeLabel(template.template_type, template.layout_key)}</td>
                   </tr>
                 );
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-3 py-8 text-center text-xs font-bold text-slate-400">
+                  <td colSpan={5} className="px-3 py-8 text-center text-xs font-medium text-muted-foreground">
                     {candidates.length === 0 ? "추가할 수 있는 양식이 없습니다. 문서양식등록에서 양식을 먼저 등록하세요." : "검색 결과가 없습니다."}
                   </td>
                 </tr>
@@ -201,15 +201,15 @@ export function TemplatePickerModal({
           </table>
         </div>
 
-        <div className="mt-4 flex items-center justify-between gap-3">
-          <p className="truncate text-xs font-bold text-slate-500">
+        <div className="mt-5 flex items-center justify-between gap-3 border-t border-border pt-4">
+          <p className="truncate text-xs font-medium text-muted-foreground">
             {selected ? `선택: ${selected.code} · ${selected.name} (개정 ${selected.revision_date})` : "목록에서 양식을 선택하세요."}
           </p>
           <div className="flex shrink-0 gap-2">
-            <CloudButton type="button" tone="soft" onClick={onClose}>
+            <CloudButton type="button" tone="soft" className="min-w-24" onClick={onClose}>
               취소
             </CloudButton>
-            <CloudButton type="button" disabled={!selected || isBusy} onClick={() => selected && onSubmit(selected)}>
+            <CloudButton type="button" className="min-w-24" disabled={!selected || isBusy} onClick={() => selected && onSubmit(selected)}>
               등록
             </CloudButton>
           </div>

@@ -54,8 +54,8 @@ export function MaterialInspectionList({
 
   if (visible.length === 0) {
     return (
-      <CuteCard className="p-4 text-center text-xs font-bold leading-5 text-slate-400">
-        검수할 부자재가 없어요.
+      <CuteCard className="p-4 text-center text-xs leading-5 text-muted-foreground">
+        검수할 부자재가 없습니다.
       </CuteCard>
     );
   }
@@ -64,10 +64,10 @@ export function MaterialInspectionList({
     <>
       <CuteCard className="flex items-center justify-between gap-2 p-4">
         <div className="flex items-center gap-2">
-          <ClipboardList className="size-4 text-sky-500" />
-          <h3 className="text-sm font-black text-slate-800">부자재 검수</h3>
+          <ClipboardList className="size-4 text-primary" />
+          <h3 className="text-sm font-semibold text-foreground">부자재 검수</h3>
         </div>
-        <span className="rounded-full bg-sky-50 px-3 py-1 text-[11px] font-black text-sky-700">
+        <span className="rounded-md bg-muted px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
           완료 {doneCount}/{visible.length}
         </span>
       </CuteCard>

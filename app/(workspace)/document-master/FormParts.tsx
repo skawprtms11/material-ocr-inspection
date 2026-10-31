@@ -3,7 +3,7 @@
 import { Check } from "lucide-react";
 
 export const inputClass =
-  "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-sky-300 disabled:bg-slate-50 disabled:text-slate-400";
+  "w-full rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:bg-muted disabled:text-muted-foreground";
 
 export function todayString() {
   const now = new Date();
@@ -14,7 +14,7 @@ export function todayString() {
 export function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-black text-slate-500">{label}</span>
+      <span className="mb-1 block text-sm font-medium text-foreground">{label}</span>
       {children}
     </label>
   );
@@ -26,8 +26,8 @@ export function Toggle({ label, checked, onChange }: { label: string; checked: b
       type="button"
       aria-pressed={checked}
       onClick={() => onChange(!checked)}
-      className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-black ring-1 transition ${
-        checked ? "bg-sky-500 text-white ring-sky-500" : "bg-white text-slate-500 ring-slate-200 hover:bg-sky-50"
+      className={`inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium ring-1 transition-colors ${
+        checked ? "bg-primary text-primary-foreground ring-primary" : "bg-card text-muted-foreground ring-input hover:bg-muted hover:text-foreground"
       }`}
     >
       {checked && <Check className="size-3.5" />}

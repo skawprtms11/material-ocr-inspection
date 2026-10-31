@@ -3,20 +3,25 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Boxes,
   ClipboardCheck,
   ClipboardList,
-  Cloud,
   Factory,
   FileText,
   Home,
   LayoutDashboard,
   PackageCheck,
   PackageSearch,
-  Sparkles,
   Truck,
   Users
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
+
+const menuGroups: Record<string, string> = {
+  "/work-register": "업무",
+  "/work-master": "기준정보",
+  "/users": "시스템"
+};
 
 const menuItems = [
   { href: "/work-register", label: "작업등록", icon: ClipboardList },
@@ -34,52 +39,60 @@ export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="flex min-h-screen w-16 shrink-0 flex-col border-r border-white/70 bg-white/75 p-2 backdrop-blur sm:w-20 lg:w-72 lg:p-5">
+    <aside className="sticky top-0 flex h-screen w-16 shrink-0 flex-col overflow-y-auto border-r border-sidebar-border bg-sidebar text-sidebar-foreground sm:w-20 lg:w-64">
       <Link
         href="/work-register"
-        className="mb-6 flex items-center justify-center gap-3 rounded-[1.2rem] bg-sky-50 p-3 lg:mb-8 lg:justify-start lg:rounded-[1.5rem] lg:p-4"
-        aria-label="솜솜 검수실 홈"
+        className="flex h-14 shrink-0 items-center justify-center gap-2.5 border-b border-sidebar-border px-3 lg:justify-start lg:px-4"
+        aria-label="유통가공관리시스템 홈"
       >
-        <div className="relative rounded-full bg-white p-3 text-sky-500 shadow-sm">
-          <Cloud className="size-7" fill="currentColor" />
-          <Sparkles className="absolute -bottom-1 -right-1 size-4 text-amber-400" />
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground">
+          <Boxes className="size-4" />
         </div>
         <div className="hidden lg:block">
-          <p className="text-sm font-black text-slate-800">솜솜 검수실</p>
-          <p className="text-xs font-bold text-sky-500">부자재 OCR/Vision</p>
+          <p className="text-sm font-semibold text-white">유통가공관리시스템</p>
+          <p className="text-[11px] text-sidebar-foreground/70">부자재 검수 · 작업관리</p>
         </div>
       </Link>
-      <nav className="space-y-2">
+      <nav className="flex-1 space-y-0.5 p-2 lg:p-3">
         {menuItems.map((item) => {
           const isActive = pathname === item.href || (pathname === "/dashboard" && item.href === "/work-register");
           const Icon = item.icon;
+          const groupLabel = menuGroups[item.href];
 
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              title={item.label}
-              className={cn(
-                "flex items-center justify-center gap-3 rounded-full px-2 py-3 text-sm font-extrabold text-slate-500 transition lg:justify-start lg:px-4",
-                isActive ? "bg-sky-500 text-white shadow-lg shadow-sky-100" : "hover:bg-white hover:text-sky-600"
-              )}
-            >
-              <span className={cn("rounded-full p-1.5", isActive ? "bg-white/18" : "bg-sky-50 text-sky-500")}>
-                <Icon className="size-4" />
-              </span>
-              <span className="hidden lg:inline">{item.label}</span>
-            </Link>
+            <div key={item.href}>
+              {groupLabel ? (
+                <p className="hidden px-3 pb-1 pt-4 text-[11px] font-medium uppercase tracking-wider text-sidebar-foreground/50 first:pt-1 lg:block">
+                  {groupLabel}
+                </p>
+              ) : null}
+              <Link
+                href={item.href}
+                title={item.label}
+                className={cn(
+                  "flex h-9 items-center justify-center gap-3 rounded-md px-2 text-sm font-medium transition-colors lg:justify-start lg:px-3",
+                  isActive
+                    ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                    : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                )}
+              >
+                <Icon className="size-4 shrink-0" />
+                <span className="hidden lg:inline">{item.label}</span>
+              </Link>
+            </div>
           );
         })}
       </nav>
-      <Link
-        href="/mobile"
-        title="모바일 검수 바로가기"
-        className="mt-8 flex items-center justify-center gap-3 rounded-[1.2rem] bg-gradient-to-br from-violet-100 to-amber-50 p-3 text-sm font-black text-violet-700 lg:justify-start lg:p-4"
-      >
-        <Home className="size-5" />
-        <span className="hidden lg:inline">모바일 검수 바로가기</span>
-      </Link>
+      <div className="mt-auto border-t border-sidebar-border p-2 lg:p-3">
+        <Link
+          href="/mobile"
+          title="모바일 검수 바로가기"
+          className="flex h-9 items-center justify-center gap-3 rounded-md px-2 text-sm font-medium text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground lg:justify-start lg:px-3"
+        >
+          <Home className="size-4 shrink-0" />
+          <span className="hidden lg:inline">모바일 검수 바로가기</span>
+        </Link>
+      </div>
     </aside>
   );
 }

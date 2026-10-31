@@ -33,14 +33,14 @@ export function TemplateFormModal({ mode, source, templates, layouts, isSaving, 
   const fixed = mode !== "create";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/35 px-4 py-8 backdrop-blur-sm">
-      <div className="w-full max-w-6xl rounded-[1.5rem] border border-white/80 bg-[#f8fbff] p-5 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
-        <div className="mb-4 flex items-start justify-between gap-4">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/50 px-4 py-8">
+      <div className="w-full max-w-6xl rounded-lg border border-border bg-card p-5 shadow-lg">
+        <div className="mb-4 flex items-start justify-between gap-4 border-b border-border pb-4">
           <div>
-            <p className="text-xs font-black text-violet-600">문서양식등록</p>
-            <h2 className="mt-1 text-2xl font-black text-slate-800">{MODE_TITLE[mode]}</h2>
+            <p className="text-xs font-medium text-muted-foreground">문서양식등록</p>
+            <h2 className="mt-1 text-lg font-semibold text-foreground">{MODE_TITLE[mode]}</h2>
             {mode === "revise" && source && (
-              <p className="mt-1 text-sm font-semibold text-slate-500">
+              <p className="mt-1 text-sm text-muted-foreground">
                 {source.code} 양식을 불러왔습니다. 새 개정으로 저장하면 같은 코드로 개정일자만 달리해 등록됩니다.
               </p>
             )}
@@ -49,14 +49,14 @@ export function TemplateFormModal({ mode, source, templates, layouts, isSaving, 
             type="button"
             onClick={onClose}
             aria-label="닫기"
-            className="inline-flex size-10 items-center justify-center rounded-full bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:bg-sky-50"
+            className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
-            <X className="size-5" />
+            <X className="size-4" />
           </button>
         </div>
 
         <div className="mb-4">
-          <p className="mb-2 text-xs font-black text-slate-500">양식 분류</p>
+          <p className="mb-2 text-xs font-medium text-muted-foreground">양식 분류</p>
           <div className="grid gap-2 sm:grid-cols-3">
             {TEMPLATE_TYPES.map((type) => (
               <button
@@ -65,12 +65,12 @@ export function TemplateFormModal({ mode, source, templates, layouts, isSaving, 
                 disabled={fixed && type !== "layout"}
                 onClick={() => setCategory(type)}
                 aria-pressed={category === type}
-                className={`rounded-2xl p-3 text-left ring-1 transition disabled:cursor-not-allowed disabled:opacity-40 ${
-                  category === type ? "bg-violet-50 ring-2 ring-violet-400" : "bg-white ring-slate-200 hover:bg-violet-50/50"
+                className={`rounded-md p-3 text-left ring-1 transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                  category === type ? "bg-accent ring-2 ring-primary" : "bg-card ring-input hover:bg-muted/50"
                 }`}
               >
-                <span className="block text-sm font-black text-slate-800">{TEMPLATE_TYPE_META[type].label}</span>
-                <span className="mt-1 block text-xs font-semibold text-slate-500">{TYPE_HINT[type]}</span>
+                <span className="block text-sm font-medium text-foreground">{TEMPLATE_TYPE_META[type].label}</span>
+                <span className="mt-1 block text-xs text-muted-foreground">{TYPE_HINT[type]}</span>
               </button>
             ))}
           </div>

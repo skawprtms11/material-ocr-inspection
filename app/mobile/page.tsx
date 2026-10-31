@@ -32,20 +32,20 @@ export default function MobileInspectionEntryPage() {
     const keyword = documentNo.trim().toLowerCase();
 
     if (!keyword) {
-      setScanError("문서번호를 입력해주세요.");
+      setScanError("문서번호를 입력해 주세요.");
       return;
     }
 
     // 스캐너의 Enter 입력은 비활성 버튼을 거치지 않으므로, 동기화 전 빈 목록으로 "찾지 못함"을 띄우지 않게 막는다.
     if (isLoading || routing) {
-      setScanError(isLoading ? "데이터 동기화 중이에요. 잠시 후 다시 스캔해주세요." : "");
+      setScanError(isLoading ? "데이터 동기화 중입니다. 잠시 후 다시 스캔해 주세요." : "");
       return;
     }
 
     const matched = rows.find((row) => row.work.document_no.toLowerCase() === keyword);
 
     if (!matched) {
-      setScanError("이 문서번호를 찾지 못했어요.");
+      setScanError("이 문서번호를 찾을 수 없습니다.");
       return;
     }
 
@@ -100,7 +100,7 @@ export default function MobileInspectionEntryPage() {
       : "complete";
 
     setScanError(
-      `현재 작업상태가 "${getWorkStatusLabel(status, reviewStage)}"라서 검수를 진행할 수 없어요. 대기(작업전 검수)·진행(완료검수)·불합격(재촬영·재검수)·승인대기(상태 확인) 상태만 검수할 수 있습니다.`
+      `현재 작업상태가 "${getWorkStatusLabel(status, reviewStage)}"라서 검수를 진행할 수 없습니다. 대기(작업전 검수)·진행(완료검수)·불합격(재촬영·재검수)·승인대기(상태 확인) 상태만 검수할 수 있습니다.`
     );
   };
 
@@ -108,23 +108,23 @@ export default function MobileInspectionEntryPage() {
     <div className="space-y-4">
       <CuteCard className="p-4">
         <div className="flex items-center gap-2">
-          <ClipboardCheck className="size-5 text-sky-500" />
-          <p className="text-xs font-black text-sky-600">작업검수</p>
+          <ClipboardCheck className="size-5 text-primary" />
+          <p className="text-xs font-medium text-muted-foreground">작업검수</p>
         </div>
-        <h1 className="mt-2 text-2xl font-black text-slate-800">작업문서스캔</h1>
-        <p className="mt-2 text-xs font-black text-slate-400">
+        <h1 className="mt-2 text-lg font-semibold text-foreground">작업문서스캔</h1>
+        <p className="mt-2 text-xs text-muted-foreground">
           {isLoading ? "데이터 동기화 중" : `데이터: ${source === "supabase" ? "Supabase" : "Mock/Fallback"}`}
         </p>
       </CuteCard>
 
       {(warning || error) && (
-        <CuteCard className="flex items-center justify-between gap-3 p-3 text-xs font-bold leading-5 text-amber-700">
+        <CuteCard className="flex items-center justify-between gap-3 p-3 text-xs font-medium leading-5 text-amber-800">
           <span>{error || warning}</span>
           {error && (
             <button
               type="button"
               onClick={() => void refetch()}
-              className="shrink-0 rounded-full bg-amber-100 px-3 py-1.5 text-[11px] font-black text-amber-800"
+              className="inline-flex min-h-11 shrink-0 items-center rounded-md border border-amber-200 bg-amber-50 px-4 text-xs font-medium text-amber-800 hover:bg-amber-100"
             >
               다시 시도
             </button>
@@ -133,15 +133,15 @@ export default function MobileInspectionEntryPage() {
       )}
 
       <CuteCard className="p-4">
-        <div className="mb-4 flex aspect-square flex-col items-center justify-center rounded-[1.6rem] border-2 border-dashed border-sky-200 bg-sky-50/70 text-center">
-          <Barcode className="mb-4 size-16 text-sky-400" />
-          <p className="font-black text-slate-800">작업문서 바코드 스캔</p>
-          <p className="mt-2 px-6 text-xs font-semibold leading-5 text-slate-500">
+        <div className="mb-4 flex aspect-square flex-col items-center justify-center rounded-lg border border-dashed border-input bg-muted/30 text-center">
+          <Barcode className="mb-4 size-16 text-muted-foreground" />
+          <p className="font-semibold text-foreground">작업문서 바코드 스캔</p>
+          <p className="mt-2 px-6 text-xs leading-5 text-muted-foreground">
             스캔하면 작업상태에 따라 작업전 검수 또는 완료검수로 바로 이동합니다.
           </p>
         </div>
         <label className="block">
-          <span className="mb-1 block text-xs font-black text-slate-500">문서번호</span>
+          <span className="mb-1 block text-xs font-medium text-muted-foreground">문서번호</span>
           <input
             value={documentNo}
             onChange={(event) => {
@@ -151,13 +151,13 @@ export default function MobileInspectionEntryPage() {
             onKeyDown={(event) => {
               if (event.key === "Enter") handleScan();
             }}
-            className="h-12 w-full rounded-2xl border border-sky-100 bg-white px-4 text-base font-bold outline-none focus:ring-2 focus:ring-sky-200"
+            className="h-12 w-full rounded-md border border-input bg-card px-4 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
             placeholder="DOC-2026-1001"
             aria-label="작업문서 번호"
           />
         </label>
-        {scanError && <p className="mt-3 rounded-2xl bg-rose-50 p-3 text-sm font-bold leading-6 text-rose-600">{scanError}</p>}
-        <CloudButton className="mt-4 w-full" disabled={isLoading || routing} onClick={handleScan}>
+        {scanError && <p className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm font-medium leading-6 text-red-700">{scanError}</p>}
+        <CloudButton className="mt-4 min-h-12 w-full text-base" disabled={isLoading || routing} onClick={handleScan}>
           {routing ? <Loader2 className="size-4 animate-spin" /> : <FileSearch className="size-4" />}
           {routing ? "검수 화면으로 이동 중..." : "스캔"}
         </CloudButton>

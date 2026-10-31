@@ -1,10 +1,10 @@
 {
-  "name": "솜솜 부자재 검수",
-  "short_name": "솜솜검수",
+  "name": "유통가공관리시스템",
+  "short_name": "유통가공",
   "start_url": "/mobile",
   "display": "standalone",
-  "background_color": "#f8fbff",
-  "theme_color": "#e8f7ff",
+  "background_color": "#f6f5f2",
+  "theme_color": "#ffffff",
   "icons": [
     {
       "src": "/icons/icon-192.png",

@@ -58,29 +58,29 @@ export default function DepartmentMasterPage() {
             부서 추가
           </CloudButton>
         } />
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white/60 px-4 py-2 text-xs font-black text-slate-500 ring-1 ring-white/80">
-        <span>{isLoading ? "부서마스터를 불러오는 중이에요." : "Supabase 부서 기준으로 목록을 조회합니다."}</span>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-card px-4 py-2 text-xs text-muted-foreground">
+        <span>{isLoading ? "부서마스터를 불러오는 중입니다." : "Supabase 부서 기준으로 목록을 조회합니다."}</span>
         <div className="flex items-center gap-2">
-          <span className={`rounded-full px-3 py-1 ring-1 ${loadError ? "bg-rose-50 text-rose-700 ring-rose-100" : "bg-sky-50 text-sky-700 ring-sky-100"}`}>
+          <span className={`rounded-md px-2 py-0.5 font-medium ring-1 ring-inset ${loadError ? "bg-red-50 text-red-700 ring-red-600/20" : "bg-muted text-muted-foreground ring-border"}`}>
             데이터: {loadError ? "연결 오류" : dataSource === "supabase" ? "Supabase" : dataSource === "mock" ? "Mock/Fallback" : "연결 확인 중"}
           </span>
           {loadError && (
             <button
               type="button"
               onClick={() => void loadDepartments()}
-              className="rounded-full bg-rose-100 px-3 py-1 text-rose-800"
+              className="rounded-md border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-100"
             >
               다시 시도
             </button>
           )}
         </div>
       </div>
-      <CuteCard>
+      <CuteCard className="border-0 bg-transparent p-0 shadow-none">
         <DataTable
           headers={["정렬", "부서명", "화주 수", "사용자 수", "사용여부"]}
           rows={departments.map((department) => [
             department.sort_order,
-            <span key="name" className="font-black text-slate-800">{department.name}</span>,
+            <span key="name" className="font-medium text-foreground">{department.name}</span>,
             shipperCounts[department.id] ?? 0,
             userCounts[department.id] ?? 0,
             department.is_active ? "사용" : "중지"
@@ -140,20 +140,20 @@ function AddDepartmentModal({ onClose, onCreated }: { onClose: () => void; onCre
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/35 px-4 py-8 backdrop-blur-sm">
-      <div role="dialog" aria-modal="true" aria-label="부서 추가" className="w-full max-w-md rounded-[1.5rem] border border-white/80 bg-[#f8fbff] p-5 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
-        <div className="mb-5 flex items-start justify-between gap-4">
+    <div className="fixed inset-0 z-50 flex items-center-safe justify-center overflow-y-auto bg-slate-950/50 px-4 py-8">
+      <div role="dialog" aria-modal="true" aria-label="부서 추가" className="w-full max-w-md rounded-lg border border-border bg-card p-5 shadow-lg">
+        <div className="mb-5 flex items-start justify-between gap-4 border-b border-border pb-4">
           <div>
-            <p className="text-xs font-black text-sky-600">부서마스터</p>
-            <h2 className="mt-1 text-2xl font-black text-slate-800">부서 추가</h2>
+            <p className="text-xs font-medium text-muted-foreground">부서마스터</p>
+            <h2 className="mt-1 text-lg font-semibold text-foreground">부서 추가</h2>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="부서 추가 팝업 닫기"
-            className="inline-flex size-10 items-center justify-center rounded-full bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:bg-sky-50"
+            className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
-            <X className="size-5" />
+            <X className="size-4" />
           </button>
         </div>
 
@@ -165,36 +165,36 @@ function AddDepartmentModal({ onClose, onCreated }: { onClose: () => void; onCre
           }}
         >
           <label className="block">
-            <span className="mb-1 block text-xs font-black text-slate-500">부서명 (필수)</span>
+            <span className="mb-1 block text-sm font-medium text-foreground">부서명 (필수)</span>
             <input
               value={name}
               onChange={(event) => setName(event.target.value)}
               maxLength={50}
               autoFocus
-              className="h-11 w-full rounded-2xl border border-sky-100 bg-white px-4 text-sm font-bold outline-none focus:ring-2 focus:ring-sky-200"
+              className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
               placeholder="예: 풀필먼트 2팀"
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs font-black text-slate-500">정렬순서</span>
+            <span className="mb-1 block text-sm font-medium text-foreground">정렬순서</span>
             <input
               value={sortOrder}
               onChange={(event) => setSortOrder(event.target.value)}
               inputMode="numeric"
-              className="h-11 w-full rounded-2xl border border-sky-100 bg-white px-4 text-sm font-bold outline-none focus:ring-2 focus:ring-sky-200"
+              className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
               placeholder="비우면 마지막 순서로 자동 지정"
             />
           </label>
-          <label className="flex items-center gap-2 text-sm font-black text-slate-600">
-            <input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} className="size-4 accent-sky-500" />
+          <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+            <input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} className="size-4 accent-primary" />
             사용
           </label>
-          {error && <p className="rounded-2xl bg-rose-50 p-3 text-sm font-bold text-rose-600">{error}</p>}
-          <div className="grid grid-cols-2 gap-2 pt-1">
-            <CloudButton type="button" tone="soft" onClick={onClose}>
+          {error && <p className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-xs font-medium text-red-700">{error}</p>}
+          <div className="mt-5 flex justify-end gap-2 border-t border-border pt-4">
+            <CloudButton type="button" tone="soft" className="min-w-24" onClick={onClose}>
               취소
             </CloudButton>
-            <CloudButton type="submit" disabled={isSaving}>
+            <CloudButton type="submit" className="min-w-24" disabled={isSaving}>
               <Check className="size-4" />
               {isSaving ? "저장 중..." : "저장"}
             </CloudButton>

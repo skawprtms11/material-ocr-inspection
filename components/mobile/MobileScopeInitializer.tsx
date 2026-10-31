@@ -77,7 +77,7 @@ export function MobileScopeInitializer({ children }: { children: ReactNode }) {
 
   if (!isReady) {
     return (
-      <div className="rounded-2xl bg-white/80 p-4 text-center text-sm font-black text-slate-500 shadow-sm ring-1 ring-white/70">
+      <div className="rounded-lg border border-border bg-card p-4 text-center text-sm font-medium text-muted-foreground shadow-xs">
         데이터 동기화 중
       </div>
     );

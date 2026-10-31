@@ -105,7 +105,7 @@ export function CompletionProductPhotoCard({
   };
 
   const removePhoto = async (imageId: string) => {
-    if (!window.confirm("이 사진을 삭제할까요?")) return;
+    if (!window.confirm("이 사진을 삭제하시겠습니까?")) return;
 
     setDeletingId(imageId);
     setErrorMessage("");
@@ -135,14 +135,14 @@ export function CompletionProductPhotoCard({
     <CuteCard className="p-4">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-black text-violet-600">완료검수</p>
-          <h3 className="mt-1 text-lg font-black text-slate-800">완료제품 사진등록</h3>
-          <p className="mt-1 text-xs font-bold text-slate-400">작업이 완료된 제품을 촬영해 최소 1장 ~ 최대 3장 저장</p>
+          <p className="text-xs font-medium text-muted-foreground">완료검수</p>
+          <h3 className="mt-1 text-base font-semibold text-foreground">완료제품 사진등록</h3>
+          <p className="mt-1 text-xs text-muted-foreground">작업이 완료된 제품을 촬영해 최소 1장 ~ 최대 3장 저장</p>
         </div>
         <span
           className={cn(
-            "shrink-0 rounded-full px-3 py-1 text-xs font-black",
-            saved ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
+            "shrink-0 whitespace-nowrap rounded-md px-2 py-0.5 text-[11px] font-medium tabular-nums ring-1 ring-inset",
+            saved ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20" : "bg-slate-100 text-slate-700 ring-slate-500/20"
           )}
         >
           {photos.length}/{maxPhotoCount}장
@@ -150,18 +150,18 @@ export function CompletionProductPhotoCard({
       </div>
 
       {loading ? (
-        <p className="rounded-2xl bg-slate-50 p-4 text-center text-xs font-bold text-slate-400">
-          저장된 사진을 불러오는 중이에요.
+        <p className="rounded-md bg-muted/40 p-4 text-center text-xs text-muted-foreground">
+          저장된 사진을 불러오는 중입니다.
         </p>
       ) : (
         <div className="grid grid-cols-3 gap-2">
           {photos.map((photo, index) => (
-            <div key={photo.id} className="relative overflow-hidden rounded-2xl ring-1 ring-sky-200">
+            <div key={photo.id} className="relative overflow-hidden rounded-md ring-1 ring-border">
               {photo.url ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={photo.url} alt={`완료제품 사진 ${index + 1}`} className="aspect-square w-full object-cover" />
               ) : (
-                <div className="flex aspect-square w-full items-center justify-center bg-slate-100 text-[11px] font-bold text-slate-400">
+                <div className="flex aspect-square w-full items-center justify-center bg-muted text-[11px] font-medium text-muted-foreground">
                   사진 {index + 1}
                 </div>
               )}
@@ -169,10 +169,12 @@ export function CompletionProductPhotoCard({
                 type="button"
                 disabled={Boolean(deletingId)}
                 onClick={() => void removePhoto(photo.id)}
-                className="absolute right-1 top-1 rounded-full bg-white/90 p-1.5 text-rose-600 shadow-sm disabled:opacity-50"
+                className="absolute right-0 top-0 flex size-11 items-start justify-end p-1 text-red-600 disabled:opacity-50"
                 aria-label={`완료제품 사진 ${index + 1} 삭제`}
               >
-                <Trash2 className="size-3.5" />
+                <span className="flex size-8 items-center justify-center rounded-full bg-white/90 shadow-sm">
+                  <Trash2 className="size-4" />
+                </span>
               </button>
             </div>
           ))}
@@ -180,12 +182,12 @@ export function CompletionProductPhotoCard({
           {!reachedMax && (
             <label
               className={cn(
-                "flex aspect-square cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed text-center transition",
-                uploading ? "cursor-not-allowed border-slate-200 bg-slate-100" : "border-sky-200 bg-sky-50/70"
+                "flex aspect-square cursor-pointer flex-col items-center justify-center gap-1 rounded-md border border-dashed text-center transition-colors",
+                uploading ? "cursor-not-allowed border-slate-200 bg-slate-100" : "border-input bg-muted/30"
               )}
             >
-              {photos.length === 0 ? <Camera className="size-6 text-sky-400" /> : <ImagePlus className="size-6 text-sky-400" />}
-              <span className="px-1 text-[11px] font-black text-slate-600">{uploading ? "저장 중..." : "촬영"}</span>
+              {photos.length === 0 ? <Camera className="size-6 text-primary" /> : <ImagePlus className="size-6 text-primary" />}
+              <span className="px-1 text-[11px] font-medium text-foreground">{uploading ? "저장 중..." : "촬영"}</span>
               <input
                 type="file"
                 accept="image/*"
@@ -201,18 +203,18 @@ export function CompletionProductPhotoCard({
       )}
 
       {errorMessage && (
-        <div className="mt-3 rounded-2xl bg-rose-50 p-3 text-sm font-bold leading-6 text-rose-700">{errorMessage}</div>
+        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm font-medium leading-6 text-red-700">{errorMessage}</div>
       )}
 
       {saved && !errorMessage && (
-        <div className="mt-3 flex items-center gap-2 rounded-2xl bg-emerald-50 p-3 text-xs font-bold leading-5 text-emerald-700">
+        <div className="mt-3 flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-xs font-medium leading-5 text-emerald-700">
           <CheckCircle2 className="size-4 shrink-0" />
           완료제품 사진 {photos.length}장 저장 완료 (압축 저장)
         </div>
       )}
 
       {!saved && !loading && !errorMessage && (
-        <p className="mt-3 text-center text-[11px] font-bold text-slate-400">최소 1장은 촬영해야 완료 처리돼요.</p>
+        <p className="mt-3 text-center text-[11px] text-muted-foreground">최소 1장은 촬영해야 완료 처리됩니다.</p>
       )}
     </CuteCard>
   );

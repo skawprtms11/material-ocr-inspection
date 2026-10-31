@@ -7,6 +7,7 @@
 
 관리자 웹(`app/(workspace)`) + 모바일 현장 검수(`app/mobile`)로 구성된 자재 검수 시스템.
 스택: Next.js 15(App Router) / React 19 / TypeScript / Tailwind v4 / Supabase / zustand
+UI 디자인 기준: `docs/design/business-redesign-spec.md` (shadcn 토큰 + Pretendard, 주색 주황 계열)
 
 ### 시스템 로직 (핵심 규칙 — 모든 작업에 적용)
 

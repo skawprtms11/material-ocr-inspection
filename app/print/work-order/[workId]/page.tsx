@@ -38,7 +38,7 @@ function WorkOrderPrintContent() {
   const load = useCallback(
     async (signal?: AbortSignal) => {
       if (!departmentId || !shipperId || (!issueId && !templateId)) {
-        setError("출력 조건(부서/화주/양식)이 없습니다. 작업등록 화면에서 다시 출력해주세요.");
+        setError("출력 조건(부서/화주/양식)이 없습니다. 작업등록 화면에서 다시 출력해 주세요.");
         return;
       }
 
@@ -88,24 +88,24 @@ function WorkOrderPrintContent() {
 
   return (
     <>
-      <div className="sticky top-0 z-10 flex items-center justify-between gap-3 bg-white px-4 py-3 shadow-sm print:hidden">
-        <div className="min-w-0 text-sm font-black text-slate-700">
+      <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border bg-card px-4 py-3 shadow-xs print:hidden">
+        <div className="min-w-0 text-sm font-semibold text-foreground">
           작업지시서 인쇄
-          {result && <span className="ml-2 font-bold text-slate-500">{result.data.work.documentNo}</span>}
+          {result && <span className="ml-2 font-normal text-muted-foreground">{result.data.work.documentNo}</span>}
         </div>
         <div className="flex gap-2">
           <button
             type="button"
             onClick={() => window.print()}
             disabled={!result}
-            className="rounded-full bg-sky-500 px-4 py-2 text-sm font-extrabold text-white transition hover:bg-sky-600 disabled:opacity-50"
+            className="inline-flex min-h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             인쇄
           </button>
           <button
             type="button"
             onClick={() => window.close()}
-            className="rounded-full bg-white px-4 py-2 text-sm font-extrabold text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50"
+            className="inline-flex min-h-9 items-center rounded-md border border-input bg-card px-4 text-sm font-medium text-foreground shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground"
           >
             닫기
           </button>
@@ -113,15 +113,15 @@ function WorkOrderPrintContent() {
       </div>
 
       {error && (
-        <div className="mx-auto mt-10 max-w-md rounded-2xl bg-rose-50 px-5 py-4 text-sm font-bold text-rose-700 print:hidden">
+        <div className="mx-auto mt-10 max-w-md rounded-md border border-red-200 bg-red-50 px-5 py-4 text-sm font-medium text-red-700 print:hidden">
           <p>연결 오류: {error}</p>
-          <button type="button" onClick={() => void load()} className="mt-3 rounded-full bg-rose-100 px-4 py-1.5 text-rose-800">
+          <button type="button" onClick={() => void load()} className="mt-3 inline-flex min-h-9 items-center rounded-md border border-red-200 bg-card px-4 text-sm font-medium text-red-700 hover:bg-red-100">
             다시 시도
           </button>
         </div>
       )}
 
-      {!result && !error && <p className="mt-10 text-center text-sm font-bold text-slate-500 print:hidden">작업지시서를 불러오는 중입니다...</p>}
+      {!result && !error && <p className="mt-10 text-center text-sm text-muted-foreground print:hidden">작업지시서를 불러오는 중입니다...</p>}
 
       {result && (
         <div className="py-6 print:py-0">

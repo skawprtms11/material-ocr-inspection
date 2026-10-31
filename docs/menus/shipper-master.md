@@ -6,7 +6,7 @@
 ## 화면 구조
 - `app/(workspace)/shipper-master/page.tsx` (`ShipperMasterPage`)
 - 사용 컴포넌트: `PageHeader`, `CloudButton`, `CuteCard`, `DataTable`, `EmptyCloudState`(`components/common/EmptyCloudState.tsx`)
-- `departmentId`가 없으면 `EmptyCloudState`("화주가 소속될 부서를 먼저 골라주세요.")를 렌더링하고 조회를 하지 않는다.
+- `departmentId`가 없으면 `EmptyCloudState`("부서를 먼저 선택하세요." / "화주는 부서 단위로 관리됩니다.")를 렌더링하고 조회를 하지 않는다.
 - 테이블 컬럼: 화주코드, 화주명, 작업반장(`foreman_name`), 작업조장(인원수 배지 버튼), 사용여부.
 - "화주 추가" 버튼 → `AddShipperModal`(같은 파일 내부): 화주코드(필수, 영문·숫자·-·_ 30자 이하, 대문자로 저장), 화주명(필수, 50자 이하), 작업반장(선택), 사용여부 입력. 현재 필터의 `departmentId` 소속으로 저장하고 성공 시 목록 재조회.
 - "작업조장" 버튼 클릭 시 `CrewLeaderModal`(같은 파일 내부 컴포넌트) 팝업이 열리며, `workerCandidates`(활성 + role이 worker/manager/admin인 사용자) 중에서 체크박스로 다중 선택 후 저장한다.

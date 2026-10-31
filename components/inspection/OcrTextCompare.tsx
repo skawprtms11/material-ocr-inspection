@@ -6,13 +6,13 @@ type OcrExpectedSource = "work" | "master" | "none";
 const sourceLabels: Record<OcrExpectedSource, string> = { work: "작업등록", master: "마스터", none: "미등록" };
 
 function Highlighted({ chars, tone }: { chars: { char: string; diff: boolean }[]; tone: "expected" | "recognized" }) {
-  if (chars.length === 0) return <span className="text-slate-400">-</span>;
+  if (chars.length === 0) return <span className="text-muted-foreground">-</span>;
   return (
     <span className="break-all font-mono">
       {chars.map((item, index) => (
         <span
           key={index}
-          className={cn(item.diff && (tone === "expected" ? "rounded bg-sky-200 text-sky-900" : "rounded bg-rose-200 text-rose-900"))}
+          className={cn(item.diff && (tone === "expected" ? "rounded-sm bg-blue-200 text-blue-900" : "rounded-sm bg-red-200 text-red-900"))}
         >
           {item.char}
         </span>
@@ -45,23 +45,23 @@ export function OcrTextCompare({
     <div className={cn("space-y-2 text-xs", className)}>
       {hasRate && (
         <p className="flex flex-wrap items-baseline gap-2">
-          <span className={cn("text-lg font-black", passed ? "text-emerald-600" : "text-rose-600")}>일치율 {matchRate}%</span>
-          {typeof threshold === "number" && <span className="font-bold text-slate-500">(기준 {threshold}%)</span>}
+          <span className={cn("text-lg font-semibold", passed ? "text-emerald-600" : "text-red-600")}>일치율 {matchRate}%</span>
+          {typeof threshold === "number" && <span className="text-muted-foreground">(기준 {threshold}%)</span>}
         </p>
       )}
-      <div className="rounded-xl bg-white/80 p-2 ring-1 ring-slate-100">
-        <p className="font-black text-slate-500">
+      <div className="rounded-md border border-border bg-card p-2">
+        <p className="font-medium text-muted-foreground">
           등록 텍스트{expectedSource ? ` (${sourceLabels[expectedSource]})` : ""}
         </p>
-        <p className="mt-0.5 whitespace-pre-wrap break-all font-bold text-slate-800">{expectedText || "-"}</p>
+        <p className="mt-0.5 whitespace-pre-wrap break-all text-foreground">{expectedText || "-"}</p>
       </div>
-      <div className="rounded-xl bg-white/80 p-2 ring-1 ring-slate-100">
-        <p className="font-black text-slate-500">스캔 텍스트</p>
-        <p className="mt-0.5 whitespace-pre-wrap break-all font-bold text-slate-800">{recognizedText || "-"}</p>
+      <div className="rounded-md border border-border bg-card p-2">
+        <p className="font-medium text-muted-foreground">스캔 텍스트</p>
+        <p className="mt-0.5 whitespace-pre-wrap break-all text-foreground">{recognizedText || "-"}</p>
       </div>
       {hasRate && matchRate < 100 && (
-        <div className="rounded-xl bg-slate-50 p-2 ring-1 ring-slate-100">
-          <p className="font-black text-slate-500">정규화 비교 (공백 제거·대문자, 다른 글자 강조)</p>
+        <div className="rounded-md border border-border bg-muted/40 p-2">
+          <p className="font-medium text-muted-foreground">정규화 비교 (공백 제거·대문자, 다른 글자 강조)</p>
           <p className="mt-0.5">
             <Highlighted chars={diff.expected} tone="expected" />
           </p>

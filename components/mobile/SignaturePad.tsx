@@ -53,15 +53,15 @@ export function SignaturePad({ onSave }: { onSave: () => void }) {
         onPointerMove={move}
         onPointerUp={() => setDrawing(false)}
         onPointerLeave={() => setDrawing(false)}
-        className="h-56 w-full touch-none rounded-[1.5rem] border border-sky-100 bg-white shadow-inner"
+        className="h-56 w-full touch-none rounded-lg border border-input bg-card"
         aria-label="작업자 서명 입력 패드"
       />
       <div className="mt-4 grid grid-cols-2 gap-2">
-        <CloudButton tone="soft" onClick={clear}>
+        <CloudButton tone="soft" className="min-h-12" onClick={clear}>
           <Eraser className="size-4" />
           초기화
         </CloudButton>
-        <CloudButton onClick={onSave}>
+        <CloudButton className="min-h-12" onClick={onSave}>
           <Save className="size-4" />
           저장
         </CloudButton>

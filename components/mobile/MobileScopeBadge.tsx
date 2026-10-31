@@ -52,7 +52,7 @@ export function MobileScopeBadge() {
     <Link
       href="/mobile/settings"
       aria-label="현재 부서/화주 — 설정에서 변경"
-      className="max-w-[45vw] truncate rounded-full bg-sky-50 px-3 py-1 text-[11px] font-bold text-sky-700 ring-1 ring-sky-100"
+      className="max-w-[45vw] truncate rounded-md bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground"
     >
       {departmentName} · {shipperName}
     </Link>

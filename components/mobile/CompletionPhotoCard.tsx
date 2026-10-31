@@ -28,9 +28,9 @@ function statusLabel(status?: string) {
 }
 
 function statusTone(status?: string) {
-  if (status === "passed" || status === "admin_approved") return "bg-emerald-100 text-emerald-700";
-  if (status === "admin_requested") return "bg-amber-100 text-amber-700";
-  return "bg-slate-100 text-slate-500";
+  if (status === "passed" || status === "admin_approved") return "bg-emerald-50 text-emerald-700 ring-emerald-600/20";
+  if (status === "admin_requested") return "bg-amber-50 text-amber-800 ring-amber-600/20";
+  return "bg-slate-100 text-slate-700 ring-slate-500/20";
 }
 
 // 체크리스트 없이 사진 1장을 촬영하면 압축 후 즉시 서버에 저장·합격 처리한다.
@@ -170,45 +170,45 @@ export function CompletionPhotoCard({
     <CuteCard className="p-4">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-black text-violet-600">{eyebrow}</p>
-          <h3 className="mt-1 text-lg font-black text-slate-800">{title}</h3>
-          {subtitle && <p className="mt-1 text-xs font-bold text-slate-400">{subtitle}</p>}
+          <p className="text-xs font-medium text-muted-foreground">{eyebrow}</p>
+          <h3 className="mt-1 text-base font-semibold text-foreground">{title}</h3>
+          {subtitle && <p className="mt-1 text-xs text-muted-foreground">{subtitle}</p>}
         </div>
-        <span className={cn("rounded-full px-3 py-1 text-xs font-black", statusTone(inspection.status))}>
+        <span className={cn("shrink-0 whitespace-nowrap rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset", statusTone(inspection.status))}>
           {statusLabel(inspection.status)}
         </span>
       </div>
 
       {canRequestReview && (
-        <CloudButton tone="soft" className="mb-3 w-full" disabled={reviewLoading} onClick={() => void requestReview()}>
+        <CloudButton tone="soft" className="mb-3 min-h-12 w-full" disabled={reviewLoading} onClick={() => void requestReview()}>
           <AlertTriangle className="size-4" />
           {reviewLoading ? "요청 중..." : "확인요청"}
         </CloudButton>
       )}
 
       {isAdminRequested && (
-        <div className="mb-3 flex items-center gap-2 rounded-2xl bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-700">
+        <div className="mb-3 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs font-medium leading-5 text-amber-800">
           <AlertTriangle className="size-4 shrink-0" />
-          관리자 확인 대기 중입니다. 관리자 처리 결과를 기다려주세요.
+          관리자 확인 대기 중입니다. 관리자 처리 결과를 기다려 주세요.
         </div>
       )}
 
       {materialId && referenceLoading && (
-        <div className="mb-3 rounded-2xl bg-slate-50 p-3 text-center text-xs font-bold text-slate-400">
+        <div className="mb-3 rounded-md bg-muted/40 p-3 text-center text-xs text-muted-foreground">
           비전 참고 사진을 불러오는 중입니다.
         </div>
       )}
 
       {materialId && !referenceLoading && referenceImages.length === 0 && (
-        <div className="mb-3 flex items-start gap-2 rounded-2xl bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-700">
+        <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs font-medium leading-5 text-amber-800">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-          비전 참고 사진 미등록 — 부자재등록에서 먼저 등록하면 아래에 기준 사진이 표시돼요.
+          비전 참고 사진 미등록 — 부자재등록에서 먼저 등록하면 아래에 기준 사진이 표시됩니다.
         </div>
       )}
 
       {referenceImages.length > 0 && (
         <div className="mb-3">
-          <p className="mb-2 text-xs font-black text-slate-500">등록된 비전 참고 사진(기준)</p>
+          <p className="mb-2 text-xs font-medium text-muted-foreground">등록된 비전 참고 사진(기준)</p>
           <div className="flex gap-2 overflow-x-auto">
             {referenceImages.map((url, index) => (
               // eslint-disable-next-line @next/next/no-img-element
@@ -216,7 +216,7 @@ export function CompletionPhotoCard({
                 key={url}
                 src={url}
                 alt={`${title} 비전 참고 사진 ${index + 1}`}
-                className="h-20 w-20 shrink-0 rounded-xl object-cover ring-1 ring-sky-200"
+                className="h-20 w-20 shrink-0 rounded-md object-cover ring-1 ring-border"
               />
             ))}
           </div>
@@ -225,8 +225,8 @@ export function CompletionPhotoCard({
 
       <label
         className={cn(
-          "flex min-h-13 cursor-pointer items-center justify-center gap-2 rounded-full px-4 text-sm font-extrabold text-white shadow-sm transition",
-          uploading || isAdminRequested ? "cursor-not-allowed bg-slate-300" : "bg-sky-500"
+          "flex min-h-13 cursor-pointer items-center justify-center gap-2 rounded-md px-4 text-sm font-medium text-white shadow-xs transition-colors",
+          uploading || isAdminRequested ? "cursor-not-allowed bg-slate-300" : "bg-primary"
         )}
       >
         <Camera className="size-4" />
@@ -243,22 +243,22 @@ export function CompletionPhotoCard({
       </label>
 
       {uploadError && (
-        <div className="mt-3 rounded-2xl bg-rose-50 p-3 text-sm font-bold leading-6 text-rose-700">{uploadError}</div>
+        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm font-medium leading-6 text-red-700">{uploadError}</div>
       )}
 
       {(resultSummary || inspection.status === "passed" || inspection.status === "admin_approved") && !uploadError && (
-        <div className="mt-3 flex items-center gap-2 rounded-2xl bg-emerald-50 p-3 text-xs font-bold leading-5 text-emerald-700">
+        <div className="mt-3 flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-xs font-medium leading-5 text-emerald-700">
           <CheckCircle2 className="size-4 shrink-0" />
           {resultSummary || "저장 완료"}
         </div>
       )}
 
       {(inspection.status === "passed" || inspection.status === "admin_approved") && !uploading && !isAdminRequested && (
-        <p className="mt-2 text-center text-[11px] font-bold text-slate-400">다시 촬영하면 최신 사진으로 덮어씁니다.</p>
+        <p className="mt-2 text-center text-[11px] text-muted-foreground">다시 촬영하면 최신 사진으로 덮어씁니다.</p>
       )}
 
       {reviewError && (
-        <div className="mt-3 rounded-2xl bg-rose-50 p-3 text-sm font-bold leading-6 text-rose-700">{reviewError}</div>
+        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm font-medium leading-6 text-red-700">{reviewError}</div>
       )}
     </CuteCard>
   );

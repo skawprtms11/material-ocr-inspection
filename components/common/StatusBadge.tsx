@@ -13,24 +13,24 @@ type StatusBadgeProps = {
 };
 
 const toneMap: Record<string, string> = {
-  registered: "bg-sky-100 text-sky-700 ring-sky-200",
-  in_progress: "bg-violet-100 text-violet-700 ring-violet-200",
-  on_hold: "bg-amber-100 text-amber-800 ring-amber-200",
-  canceled: "bg-rose-100 text-rose-700 ring-rose-200",
-  inspection_failed: "bg-rose-100 text-rose-700 ring-rose-200",
-  admin_review_requested: "bg-amber-100 text-amber-800 ring-amber-200",
-  passed: "bg-emerald-100 text-emerald-700 ring-emerald-200",
-  completed: "bg-teal-100 text-emerald-800 ring-emerald-200",
-  pending: "bg-slate-100 text-slate-600 ring-slate-200",
-  failed: "bg-rose-100 text-rose-700 ring-rose-200",
-  retrying: "bg-orange-100 text-orange-700 ring-orange-200",
-  admin_requested: "bg-amber-100 text-amber-800 ring-amber-200",
-  admin_approved: "bg-emerald-100 text-emerald-700 ring-emerald-200",
-  requested: "bg-amber-100 text-amber-800 ring-amber-200",
-  approved: "bg-emerald-100 text-emerald-700 ring-emerald-200",
-  retry_requested: "bg-orange-100 text-orange-700 ring-orange-200",
-  rejected: "bg-rose-100 text-rose-700 ring-rose-200",
-  submitted: "bg-indigo-100 text-indigo-700 ring-indigo-200"
+  registered: "bg-slate-100 text-slate-700 ring-slate-500/20",
+  in_progress: "bg-blue-50 text-blue-700 ring-blue-600/20",
+  on_hold: "bg-amber-50 text-amber-800 ring-amber-600/20",
+  canceled: "bg-red-50 text-red-700 ring-red-600/20",
+  inspection_failed: "bg-red-50 text-red-700 ring-red-600/20",
+  admin_review_requested: "bg-amber-50 text-amber-800 ring-amber-600/20",
+  passed: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
+  completed: "bg-emerald-600 text-white ring-emerald-600",
+  pending: "bg-slate-100 text-slate-700 ring-slate-500/20",
+  failed: "bg-red-50 text-red-700 ring-red-600/20",
+  retrying: "bg-orange-50 text-orange-700 ring-orange-600/20",
+  admin_requested: "bg-amber-50 text-amber-800 ring-amber-600/20",
+  admin_approved: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
+  requested: "bg-amber-50 text-amber-800 ring-amber-600/20",
+  approved: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
+  retry_requested: "bg-orange-50 text-orange-700 ring-orange-600/20",
+  rejected: "bg-red-50 text-red-700 ring-red-600/20",
+  submitted: "bg-indigo-50 text-indigo-700 ring-indigo-600/20"
 };
 
 export function StatusBadge({ status, type = "work", reviewStage, reviewKind, className }: StatusBadgeProps) {
@@ -42,7 +42,7 @@ export function StatusBadge({ status, type = "work", reviewStage, reviewKind, cl
         : getWorkStatusLabel(status as WorkStatus, reviewStage, reviewKind);
 
   return (
-    <span className={cn("inline-flex rounded-full px-3 py-1 text-xs font-bold ring-1", toneMap[status], className)}>
+    <span className={cn("inline-flex items-center whitespace-nowrap rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset", toneMap[status], className)}>
       {label}
     </span>
   );

@@ -26,10 +26,10 @@ const viewStatusLabel: Record<PhotoViewStatus, string> = {
 };
 
 const viewStatusTone: Record<PhotoViewStatus, string> = {
-  pending: "bg-slate-100 text-slate-500",
-  submitted: "bg-amber-100 text-amber-700",
-  approved: "bg-emerald-100 text-emerald-700",
-  rejected: "bg-rose-100 text-rose-700"
+  pending: "bg-slate-100 text-slate-700 ring-slate-500/20",
+  submitted: "bg-indigo-50 text-indigo-700 ring-indigo-600/20",
+  approved: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
+  rejected: "bg-red-50 text-red-700 ring-red-600/20"
 };
 
 // 사진검수(PHOTO) 항목 1개: 제품 1건 또는 사진검수 대상 부자재 1건당 사진 1장을 촬영·제출하고 관리자 승인을 기다린다.
@@ -116,26 +116,26 @@ export function PhotoReviewCard({
     <CuteCard className="p-4">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-black text-violet-600">{eyebrow}</p>
-          <h3 className="mt-1 truncate text-lg font-black text-slate-800">{title}</h3>
+          <p className="text-xs font-medium text-muted-foreground">{eyebrow}</p>
+          <h3 className="mt-1 truncate text-base font-semibold text-foreground">{title}</h3>
           {(codeText || lotText) && (
-            <p className="mt-1 text-xs font-bold text-slate-400">
+            <p className="mt-1 text-xs text-muted-foreground">
               {[codeText, lotText ? `LOT ${lotText}` : ""].filter(Boolean).join(" · ")}
             </p>
           )}
         </div>
-        <span className={cn("shrink-0 rounded-full px-3 py-1 text-xs font-black", viewStatusTone[viewStatus])}>
+        <span className={cn("shrink-0 whitespace-nowrap rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset", viewStatusTone[viewStatus])}>
           {viewStatusLabel[viewStatus]}
         </span>
       </div>
 
       {viewStatus === "rejected" && (
-        <div className="mb-3 rounded-2xl bg-rose-50 p-3 text-xs font-bold leading-5 text-rose-700">
-          <p className="flex items-center gap-2 font-black">
+        <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-3 text-xs font-medium leading-5 text-red-700">
+          <p className="flex items-center gap-2 font-semibold">
             <AlertTriangle className="size-4 shrink-0" />
-            관리자가 반려했어요. 다시 촬영해 제출하세요.
+            관리자가 반려했습니다. 다시 촬영해 제출하세요.
           </p>
-          <p className="mt-1">반려 사유: {reason || "사유가 입력되지 않았어요."}</p>
+          <p className="mt-1">반려 사유: {reason || "사유가 입력되지 않았습니다."}</p>
         </div>
       )}
 
@@ -145,42 +145,42 @@ export function PhotoReviewCard({
           src={photoUrl}
           alt={`${title} 제출 사진`}
           className={cn(
-            "mb-3 rounded-2xl object-cover ring-1",
-            viewStatus === "rejected" ? "h-24 w-24 opacity-70 ring-rose-200" : "max-h-64 w-full ring-sky-100"
+            "mb-3 rounded-md object-cover ring-1",
+            viewStatus === "rejected" ? "h-24 w-24 opacity-70 ring-red-200" : "max-h-64 w-full ring-border"
           )}
         />
       )}
 
       {viewStatus === "submitted" && (
-        <div className="mb-3 flex items-center gap-2 rounded-2xl bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-700">
+        <div className="mb-3 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs font-medium leading-5 text-amber-800">
           <Clock className="size-4 shrink-0" />
-          {locked ? "관리자 승인 대기 중입니다. 승인 결과를 기다려주세요." : "제출 완료 · 관리자 승인 대기 중입니다. 승인대기 전까지 사진을 교체할 수 있어요."}
+          {locked ? "관리자 승인 대기 중입니다. 승인 결과를 기다려 주세요." : "제출 완료 · 관리자 승인 대기 중입니다. 승인대기 전까지 사진을 교체할 수 있습니다."}
         </div>
       )}
 
       {viewStatus === "approved" && (
-        <div className="flex items-center gap-2 rounded-2xl bg-emerald-50 p-3 text-xs font-bold leading-5 text-emerald-700">
+        <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-xs font-medium leading-5 text-emerald-700">
           <CheckCircle2 className="size-4 shrink-0" />
-          관리자가 승인했어요.
+          관리자가 승인했습니다.
         </div>
       )}
 
       {locked && viewStatus !== "approved" && viewStatus !== "submitted" && (
-        <div className="flex items-center gap-2 rounded-2xl bg-slate-50 p-3 text-xs font-bold leading-5 text-slate-500">
+        <div className="flex items-center gap-2 rounded-md border border-border bg-muted/40 p-3 text-xs font-medium leading-5 text-muted-foreground">
           <Clock className="size-4 shrink-0" />
-          작업이 관리자 승인 검토 중이라 지금은 촬영할 수 없어요.
+          작업이 관리자 승인 검토 중이라 지금은 촬영할 수 없습니다.
         </div>
       )}
 
       {canCapture && (
         <label
           className={cn(
-            "flex min-h-13 cursor-pointer items-center justify-center gap-2 rounded-full px-4 text-sm font-extrabold shadow-sm transition",
+            "flex min-h-13 cursor-pointer items-center justify-center gap-2 rounded-md px-4 text-sm font-medium shadow-xs transition-colors",
             uploading
               ? "cursor-not-allowed bg-slate-300 text-white"
               : viewStatus === "submitted"
-                ? "bg-white text-slate-700 ring-1 ring-slate-200"
-                : "bg-sky-500 text-white"
+                ? "border border-input bg-card text-foreground"
+                : "bg-primary text-primary-foreground"
           )}
         >
           {viewStatus === "rejected" || viewStatus === "submitted" ? <RotateCcw className="size-4" /> : <Camera className="size-4" />}
@@ -198,7 +198,7 @@ export function PhotoReviewCard({
       )}
 
       {uploadError && (
-        <div className="mt-3 rounded-2xl bg-rose-50 p-3 text-sm font-bold leading-6 text-rose-700">{uploadError}</div>
+        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm font-medium leading-6 text-red-700">{uploadError}</div>
       )}
     </CuteCard>
   );
@@ -224,19 +224,19 @@ export function PhotoReviewSummaryBanner({
   return (
     <CuteCard className="p-4">
       <div className="flex items-center justify-between gap-2">
-        <h3 className="text-sm font-black text-slate-800">사진검수</h3>
-        <span className="rounded-full bg-violet-50 px-3 py-1 text-[11px] font-black text-violet-700">
+        <h3 className="text-sm font-semibold text-foreground">사진검수</h3>
+        <span className="rounded-md bg-muted px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
           제출 {submitted}/{total} · 승인 {approved} · 반려 {rejected}
         </span>
       </div>
       {underReview && (
-        <p className="mt-3 rounded-2xl bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-700">
-          관리자 승인 대기 중이에요. 승인 또는 반려 결과가 나올 때까지 촬영이 잠겨 있어요.
+        <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs font-medium leading-5 text-amber-800">
+          관리자 승인 대기 중입니다. 승인 또는 반려 결과가 나올 때까지 촬영이 잠겨 있습니다.
         </p>
       )}
       {!underReview && rejected > 0 && (
-        <p className="mt-3 rounded-2xl bg-rose-50 p-3 text-xs font-bold leading-5 text-rose-700">
-          반려된 사진이 {rejected}건 있어요. 반려 사유를 확인하고 다시 촬영해 제출하세요.
+        <p className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-xs font-medium leading-5 text-red-700">
+          반려된 사진이 {rejected}건 있습니다. 반려 사유를 확인하고 다시 촬영해 제출하세요.
         </p>
       )}
     </CuteCard>

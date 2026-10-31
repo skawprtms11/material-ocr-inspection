@@ -39,12 +39,12 @@ function sourceLabel(source: string | undefined) {
 
 function RoiOverlayImage({ imageUrl, roi, method }: { imageUrl: string; roi: RoiRect; method: ReferenceMethod }) {
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+    <div className="relative overflow-hidden rounded-md border border-border bg-muted">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={imageUrl} alt="기준 이미지" className="block w-full max-w-full" />
       <div
         data-testid="roi-overlay"
-        className={cn("absolute rounded-md border-2 bg-white/20 shadow-sm", method === "OCR" ? "border-sky-400" : "border-violet-400")}
+        className={cn("absolute rounded-md border-2 bg-white/20 shadow-sm", method === "OCR" ? "border-blue-400" : "border-violet-400")}
         style={{ left: `${roi.x}%`, top: `${roi.y}%`, width: `${roi.width}%`, height: `${roi.height}%` }}
       />
     </div>
@@ -122,17 +122,17 @@ export function ReferenceDetailModal({
   const isMobileOcrCrop = isOcr && regionSource === "mobile";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/35 px-4 py-8 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/50 px-4 py-8">
       <div
         role="dialog"
         aria-label={`${isOcr ? "OCR" : "비전"} 등록 내역`}
-        className="w-full max-w-3xl rounded-[1.4rem] border border-white/80 bg-[#f8fbff] p-5 shadow-[0_24px_80px_rgba(15,23,42,0.22)]"
+        className="w-full max-w-3xl rounded-lg border border-border bg-card p-5 shadow-lg"
       >
-        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mb-5 flex flex-col gap-3 border-b border-border pb-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className={cn("text-xs font-black", isOcr ? "text-sky-600" : "text-violet-600")}>{isOcr ? "OCR" : "비전스캔"} 등록 내역</p>
-            <h2 className="mt-1 text-2xl font-black tracking-normal text-slate-800">
-              {material.name} <span className="text-base text-slate-400">{material.code}</span>
+            <p className={cn("text-xs font-medium", isOcr ? "text-blue-600" : "text-violet-600")}>{isOcr ? "OCR" : "비전스캔"} 등록 내역</p>
+            <h2 className="mt-1 text-lg font-semibold text-foreground">
+              {material.name} <span className="text-base text-muted-foreground">{material.code}</span>
             </h2>
           </div>
           <div className="flex items-center gap-2">
@@ -144,42 +144,42 @@ export function ReferenceDetailModal({
               type="button"
               onClick={onClose}
               aria-label="팝업 닫기"
-              className="inline-flex size-10 items-center justify-center rounded-full bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:bg-sky-50"
+              className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
             >
-              <X className="size-5" />
+              <X className="size-4" />
             </button>
           </div>
         </div>
 
         {isLoading ? (
-          <div className="flex min-h-40 flex-col items-center justify-center gap-2 rounded-[1.2rem] bg-white/70 text-sm font-bold text-slate-500">
-            <Loader2 className="size-6 animate-spin text-sky-400" />
-            등록 내역을 불러오는 중이에요.
+          <div className="flex min-h-40 flex-col items-center justify-center gap-2 rounded-lg bg-card text-sm font-medium text-muted-foreground">
+            <Loader2 className="size-6 animate-spin text-primary" />
+            등록 내역을 불러오는 중입니다.
           </div>
         ) : error ? (
-          <div className="flex flex-col items-center gap-3 rounded-[1.2rem] bg-rose-50 p-6 text-center text-sm font-bold text-rose-600">
+          <div className="flex flex-col items-center gap-3 rounded-md border border-red-200 bg-red-50 p-6 text-center text-sm font-medium text-red-700">
             {error}
-            <button type="button" onClick={() => void load(() => false)} className="rounded-full bg-rose-100 px-3 py-1 text-rose-800">
+            <button type="button" onClick={() => void load(() => false)} className="rounded-md border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-100">
               다시 시도
             </button>
           </div>
         ) : (
           <div className="grid gap-4">
             {missingReasons.length > 0 && (
-              <div data-testid="missing-reasons" className="flex items-start gap-2 rounded-2xl bg-amber-50 p-3 text-xs font-black leading-5 text-amber-800 ring-1 ring-amber-100">
+              <div data-testid="missing-reasons" className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs font-medium leading-5 text-amber-800">
                 <AlertTriangle className="mt-0.5 size-4 shrink-0" />
                 보완 필요: {missingReasons.join(" · ")} — 재등록으로 기준을 다시 저장하세요.
               </div>
             )}
             {isMobileOcrCrop && (
-              <div className="flex items-start gap-2 rounded-2xl bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-800 ring-1 ring-amber-100">
+              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs font-medium leading-5 text-amber-800">
                 <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-                모바일 등록본은 크롭 이미지 위에 원본 기준 영역이 저장돼 표시가 어긋날 수 있어요. 재등록을 권장합니다.
+                모바일 등록본은 크롭 이미지 위에 원본 기준 영역이 저장돼 표시가 어긋날 수 있습니다. 재등록을 권장합니다.
               </div>
             )}
 
-            <CuteCard>
-              <h3 className="mb-3 text-lg font-black text-slate-800">기준 이미지</h3>
+            <CuteCard className="shadow-none">
+              <h3 className="mb-3 text-base font-semibold text-foreground">기준 이미지</h3>
               {region && region.imageUrls.length > 0 ? (
                 <div className={cn("grid gap-3", !isOcr && "sm:grid-cols-2")}>
                   {(isOcr ? region.imageUrls.slice(0, 1) : region.imageUrls.slice(0, 5)).map((imageUrl, index) => (
@@ -187,14 +187,14 @@ export function ReferenceDetailModal({
                   ))}
                 </div>
               ) : (
-                <div className="rounded-[1.2rem] bg-slate-50 p-6 text-center text-sm font-bold text-slate-400">
+                <div className="rounded-md bg-muted/40 p-6 text-center text-sm text-muted-foreground">
                   {source === "mock" ? "Mock 모드 — 이미지 미보관" : "표시할 기준 이미지가 없습니다."}
                 </div>
               )}
             </CuteCard>
 
-            <CuteCard>
-              <h3 className="mb-3 text-lg font-black text-slate-800">등록 정보</h3>
+            <CuteCard className="shadow-none">
+              <h3 className="mb-3 text-base font-semibold text-foreground">등록 정보</h3>
               <dl className="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-2">
                 {isOcr ? (
                   <>
@@ -225,9 +225,9 @@ export function ReferenceDetailModal({
 
 function Item({ label, value, testId }: { label: string; value: string; testId?: string }) {
   return (
-    <div className="flex items-start justify-between gap-3 rounded-2xl bg-slate-50 px-3 py-2">
-      <dt className="shrink-0 text-xs font-black text-slate-500">{label}</dt>
-      <dd data-testid={testId} className="break-all text-right font-bold text-slate-800">
+    <div className="flex items-start justify-between gap-3 rounded-md bg-muted/40 px-3 py-2">
+      <dt className="shrink-0 text-xs font-medium text-muted-foreground">{label}</dt>
+      <dd data-testid={testId} className="break-all text-right font-medium text-foreground">
         {value}
       </dd>
     </div>

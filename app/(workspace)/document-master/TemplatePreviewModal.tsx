@@ -22,26 +22,26 @@ export function TemplatePreview({ template, data, scale }: { template: Renderabl
 
 export function TemplatePreviewModal({ template, onClose }: { template: DocumentTemplate; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/35 px-4 py-8 backdrop-blur-sm">
-      <div className="w-full max-w-fit rounded-[1.5rem] border border-white/80 bg-[#f8fbff] p-5 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
-        <div className="mb-4 flex items-start justify-between gap-6">
+    <div className="fixed inset-0 z-50 flex items-center-safe justify-center overflow-y-auto bg-slate-950/50 px-4 py-8">
+      <div className="w-full max-w-fit rounded-lg border border-border bg-card p-5 shadow-lg">
+        <div className="mb-4 flex items-start justify-between gap-6 border-b border-border pb-4">
           <div>
-            <p className="text-xs font-black text-violet-600">양식 미리보기 (샘플 데이터)</p>
-            <h2 className="mt-1 text-xl font-black text-slate-800">
+            <p className="text-xs font-medium text-muted-foreground">양식 미리보기 (샘플 데이터)</p>
+            <h2 className="mt-1 text-lg font-semibold text-foreground">
               {template.code} · {template.name}
             </h2>
-            <p className="mt-1 text-xs font-bold text-slate-500">개정일자 {template.revision_date}</p>
+            <p className="mt-1 text-xs font-medium text-muted-foreground">개정일자 {template.revision_date}</p>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="미리보기 닫기"
-            className="inline-flex size-10 items-center justify-center rounded-full bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:bg-sky-50"
+            className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
-            <X className="size-5" />
+            <X className="size-4" />
           </button>
         </div>
-        <div className="overflow-auto rounded-xl bg-slate-100 p-3">
+        <div className="overflow-auto rounded-md bg-slate-100 p-3">
           <TemplatePreview
             template={{ templateType: template.template_type, layoutKey: template.layout_key, settings: template.settings }}
             data={buildSampleData(template.code, template.name, template.revision_date)}

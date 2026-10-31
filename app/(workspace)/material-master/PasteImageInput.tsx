@@ -60,13 +60,13 @@ export function PasteImageInput({
 
   handleFilesRef.current = async (files: File[]) => {
     const images = files.filter((file) => allowedTypes.includes(file.type));
-    if (images.length < files.length) toast.error("PNG, JPEG, WEBP 이미지만 사용할 수 있어요.");
+    if (images.length < files.length) toast.error("PNG, JPEG, WEBP 이미지만 사용할 수 있습니다.");
     if (images.length === 0) return;
 
     // 단일 이미지(OCR)는 새로 붙여넣으면 교체하고, 다중(비전)은 남은 칸만큼만 받는다.
     const accepted = maxFiles === 1 ? images.slice(0, 1) : images.slice(0, Math.max(0, maxFiles - currentCount));
     if (accepted.length === 0) {
-      toast.error(`이미지는 최대 ${maxFiles}장까지 등록할 수 있어요.`);
+      toast.error(`이미지는 최대 ${maxFiles}장까지 등록할 수 있습니다.`);
       return;
     }
     if (accepted.length < images.length && maxFiles !== 1) toast.warning(`최대 ${maxFiles}장까지만 추가됩니다.`);
@@ -77,7 +77,7 @@ export function PasteImageInput({
       const picked = await Promise.all(accepted.map((file, index) => normalizeImage(file, `${namePrefix}-${stamp}${accepted.length > 1 ? `-${index + 1}` : ""}`)));
       onPicked(picked);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "이미지를 처리하지 못했어요.");
+      toast.error(error instanceof Error ? error.message : "이미지를 처리하지 못했습니다.");
     } finally {
       setIsProcessing(false);
     }
@@ -126,12 +126,12 @@ export function PasteImageInput({
       }
 
       if (files.length === 0) {
-        toast.warning("클립보드에 이미지가 없어요. 화면을 캡처한 뒤 다시 시도해주세요.");
+        toast.warning("클립보드에 이미지가 없습니다. 화면을 캡처한 뒤 다시 시도하세요.");
         return;
       }
       await handleFilesRef.current(files);
     } catch {
-      toast.warning("클립보드를 직접 읽을 수 없어요. Ctrl/Cmd+V로 붙여넣어주세요.");
+      toast.warning("클립보드를 직접 읽을 수 없습니다. Ctrl/Cmd+V로 붙여넣으세요.");
     }
   };
 
@@ -145,22 +145,22 @@ export function PasteImageInput({
       onDragLeave={() => setIsDragging(false)}
       onDrop={handleDrop}
       className={cn(
-        "flex flex-col items-center justify-center gap-2 rounded-[1.4rem] border border-dashed p-5 text-center transition",
-        isDragging ? "border-sky-400 bg-sky-50" : "border-sky-200 bg-white/75",
+        "flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-5 text-center transition-colors",
+        isDragging ? "border-primary bg-accent" : "border-input bg-card",
         disabled && "opacity-50"
       )}
     >
-      {isProcessing ? <Loader2 className="size-8 animate-spin text-sky-400" /> : <ClipboardPaste className="size-8 text-sky-400" />}
-      <p className="font-black text-slate-700">캡처 이미지를 Ctrl/Cmd+V로 붙여넣으세요</p>
-      <p className="text-xs font-semibold leading-5 text-slate-500">
-        파일을 이 영역에 끌어다 놓거나 아래 버튼으로 선택할 수도 있어요. PNG·JPEG·WEBP, 최대 2400px로 자동 압축됩니다.
+      {isProcessing ? <Loader2 className="size-8 animate-spin text-primary" /> : <ClipboardPaste className="size-8 text-muted-foreground" />}
+      <p className="font-medium text-foreground">캡처 이미지를 Ctrl/Cmd+V로 붙여넣으세요</p>
+      <p className="text-xs leading-5 text-muted-foreground">
+        파일을 이 영역에 끌어다 놓거나 아래 버튼으로 선택할 수도 있습니다. PNG·JPEG·WEBP, 최대 2400px로 자동 압축됩니다.
       </p>
       <div className="flex flex-wrap items-center justify-center gap-2">
         <button
           type="button"
           disabled={disabled || isProcessing}
           onClick={() => void handleClipboardRead()}
-          className="inline-flex min-h-9 items-center gap-1.5 rounded-full bg-sky-50 px-3 text-xs font-extrabold text-sky-700 ring-1 ring-sky-100 transition hover:bg-sky-100 disabled:opacity-50"
+          className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <ClipboardPaste className="size-3.5" />
           클립보드에서 붙여넣기
@@ -169,7 +169,7 @@ export function PasteImageInput({
           type="button"
           disabled={disabled || isProcessing}
           onClick={() => fileInputRef.current?.click()}
-          className="inline-flex min-h-9 items-center gap-1.5 rounded-full bg-white px-3 text-xs font-extrabold text-slate-600 ring-1 ring-slate-200 transition hover:bg-sky-50 disabled:opacity-50"
+          className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-card px-3 text-xs font-medium text-foreground ring-1 ring-input transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50"
         >
           <ImagePlus className="size-3.5" />
           파일 선택

@@ -22,14 +22,14 @@ export function WorkProgressTimeline({ currentStatus }: { currentStatus: WorkSta
           <div key={step.key} className="flex flex-1 items-center gap-1">
             <div
               className={cn(
-                "flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-black",
-                done ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-400"
+                "flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-medium",
+                done ? "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20" : "bg-slate-100 text-muted-foreground"
               )}
               title={step.label}
             >
               {done ? <Check className="size-3" /> : index + 1}
             </div>
-            {index < steps.length - 1 && <div className={cn("h-1 flex-1 rounded-full", done ? "bg-emerald-100" : "bg-slate-100")} />}
+            {index < steps.length - 1 && <div className={cn("h-1 flex-1 rounded-full", done ? "bg-emerald-200" : "bg-slate-100")} />}
           </div>
         );
       })}

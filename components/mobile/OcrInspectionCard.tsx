@@ -41,11 +41,11 @@ type ReviewActionResponse = {
 
 function GuideRoiOverlay({ imageUrl, roi }: { imageUrl: string; roi: RoiRect }) {
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-sky-200 bg-slate-100">
+    <div className="relative overflow-hidden rounded-lg border border-border bg-slate-100">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={imageUrl} alt="기준 사진" className="block w-full max-w-full" />
       <div
-        className="absolute rounded-md border-2 border-sky-500 bg-sky-400/20 shadow-sm"
+        className="absolute rounded-md border-2 border-blue-500 bg-blue-400/20 shadow-sm"
         style={{ left: `${roi.x}%`, top: `${roi.y}%`, width: `${roi.width}%`, height: `${roi.height}%` }}
       />
     </div>
@@ -60,10 +60,10 @@ function statusLabel(status?: string) {
 }
 
 function statusTone(status?: string) {
-  if (status === "passed" || status === "admin_approved") return "bg-emerald-100 text-emerald-700";
-  if (status === "failed" || status === "retrying") return "bg-rose-100 text-rose-700";
-  if (status === "admin_requested") return "bg-amber-100 text-amber-700";
-  return "bg-slate-100 text-slate-500";
+  if (status === "passed" || status === "admin_approved") return "bg-emerald-50 text-emerald-700 ring-emerald-600/20";
+  if (status === "failed" || status === "retrying") return "bg-red-50 text-red-700 ring-red-600/20";
+  if (status === "admin_requested") return "bg-amber-50 text-amber-800 ring-amber-600/20";
+  return "bg-slate-100 text-slate-700 ring-slate-500/20";
 }
 
 export function OcrInspectionCard({
@@ -331,11 +331,11 @@ export function OcrInspectionCard({
     <CuteCard className="p-4">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-black text-sky-600">부자재 {index + 1} · OCR 검수</p>
-          <h3 className="mt-1 text-lg font-black text-slate-800">{material?.name ?? inspection.material_id}</h3>
-          <p className="mt-1 text-xs font-bold text-slate-400">부자재코드 {material?.code ?? "-"}</p>
+          <p className="text-xs font-medium text-muted-foreground">부자재 {index + 1} · OCR 검수</p>
+          <h3 className="mt-1 text-base font-semibold text-foreground">{material?.name ?? inspection.material_id}</h3>
+          <p className="mt-1 text-xs text-muted-foreground">부자재코드 {material?.code ?? "-"}</p>
         </div>
-        <span className={cn("rounded-full px-3 py-1 text-xs font-black", statusTone(inspection.status))}>
+        <span className={cn("shrink-0 whitespace-nowrap rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset", statusTone(inspection.status))}>
           {statusLabel(inspection.status)}
         </span>
       </div>
@@ -343,7 +343,7 @@ export function OcrInspectionCard({
       {canRequestReview && (
         <CloudButton
           tone={noGuide ? "warning" : "soft"}
-          className="mb-3 w-full"
+          className="mb-3 min-h-12 w-full"
           disabled={cancelLoading}
           onClick={() => void (noGuide ? requestNoGuideReview() : requestReview())}
         >
@@ -353,20 +353,20 @@ export function OcrInspectionCard({
       )}
 
       {guideLoading && (
-        <div className="rounded-2xl bg-slate-50 p-4 text-center text-xs font-bold text-slate-400">
+        <div className="rounded-md bg-muted/40 p-4 text-center text-xs text-muted-foreground">
           기준 사진을 불러오는 중입니다.
         </div>
       )}
 
       {noText && (
-        <div className="flex items-start gap-2 rounded-2xl bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-700">
+        <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs font-medium leading-5 text-amber-800">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-          <span>기준 텍스트 미등록 — 작업등록 또는 부자재등록에서 OCR 텍스트를 등록하세요. 현장에서는 관리자 확인요청을 눌러주세요.</span>
+          <span>기준 텍스트 미등록 — 작업등록 또는 부자재등록에서 OCR 텍스트를 등록하세요. 현장에서는 관리자 확인요청을 눌러 주세요.</span>
         </div>
       )}
 
       {!noText && !guideLoading && (guideError || !guideImageUrl) && (
-        <div className="flex items-start gap-2 rounded-2xl bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-700">
+        <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs font-medium leading-5 text-amber-800">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" />
           <span>{guideError || "기준 사진 미등록 — 부자재등록에서 먼저 등록하세요."}</span>
         </div>
@@ -374,12 +374,12 @@ export function OcrInspectionCard({
 
       {!guideLoading && guideImageUrl && region && !noText && (
         <>
-          <p className="mb-2 text-xs font-black text-slate-500">표시된 위치가 보이도록 촬영하세요</p>
+          <p className="mb-2 text-xs font-medium text-muted-foreground">표시된 위치가 보이도록 촬영하세요</p>
           <GuideRoiOverlay imageUrl={guideImageUrl} roi={region.roi} />
-          <p className="mt-2 text-xs font-bold text-emerald-600">
+          <p className="mt-2 text-xs font-medium text-emerald-700">
             등록 텍스트 {expectedValue || "-"}
             {expectedSource && (
-              <span className="ml-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-black text-emerald-700">
+              <span className="ml-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
                 {expectedSource === "work" ? "작업지정" : "마스터"}
               </span>
             )}
@@ -387,7 +387,7 @@ export function OcrInspectionCard({
 
           {/* 1단계: 촬영 */}
           {!rawFile && (
-            <label className="mt-3 flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-full bg-sky-500 px-4 text-sm font-extrabold text-white shadow-sm">
+            <label className="mt-3 flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow-xs">
               <Camera className="size-4" />
               촬영
               <input
@@ -404,7 +404,7 @@ export function OcrInspectionCard({
           {/* 2단계: 촬영한 사진 위에서 위치 조정 */}
           {rawFile && !croppedFile && adjustRoi && (
             <div className="mt-3">
-              <p className="mb-2 text-xs font-black text-slate-500">인식할 위치를 드래그/리사이즈로 조정한 뒤 확정하세요</p>
+              <p className="mb-2 text-xs font-medium text-muted-foreground">인식할 위치를 드래그/리사이즈로 조정한 뒤 확정하세요</p>
               <TouchRegionSelector
                 rect={adjustRoi}
                 onChange={setAdjustRoi}
@@ -416,11 +416,11 @@ export function OcrInspectionCard({
               </TouchRegionSelector>
 
               <div className="mt-3 grid grid-cols-2 gap-2">
-                <CloudButton tone="soft" onClick={resetAll}>
+                <CloudButton tone="soft" className="min-h-12" onClick={resetAll}>
                   <RotateCcw className="size-4" />
                   다시 촬영
                 </CloudButton>
-                <CloudButton onClick={confirmPosition}>
+                <CloudButton className="min-h-12" onClick={confirmPosition}>
                   <CheckCircle2 className="size-4" />
                   위치 확정
                 </CloudButton>
@@ -431,16 +431,16 @@ export function OcrInspectionCard({
           {/* 3단계: 확정된 위치로 크롭한 미리보기 + 검수 실행 */}
           {croppedFile && previewUrl && (
             <div className="mt-3">
-              <p className="mb-2 text-xs font-black text-slate-500">촬영한 영역 미리보기</p>
+              <p className="mb-2 text-xs font-medium text-muted-foreground">촬영한 영역 미리보기</p>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={previewUrl} alt="촬영 미리보기" className="w-full max-w-full rounded-2xl border border-sky-200" />
+              <img src={previewUrl} alt="촬영 미리보기" className="w-full max-w-full rounded-lg border border-border" />
 
               <div className="mt-3 grid grid-cols-2 gap-2">
-                <CloudButton tone="soft" disabled={submitLoading} onClick={adjustAgain}>
+                <CloudButton tone="soft" className="min-h-12" disabled={submitLoading} onClick={adjustAgain}>
                   <RotateCcw className="size-4" />
                   위치 다시 조정
                 </CloudButton>
-                <CloudButton disabled={submitLoading} onClick={submit}>
+                <CloudButton className="min-h-12" disabled={submitLoading} onClick={submit}>
                   <ScanText className="size-4" />
                   {submitLoading ? "검수 중..." : "검수 실행"}
                 </CloudButton>
@@ -451,15 +451,15 @@ export function OcrInspectionCard({
       )}
 
       {cropError && (
-        <div className="mt-3 rounded-2xl bg-rose-50 p-3 text-sm font-bold leading-6 text-rose-700">{cropError}</div>
+        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm font-medium leading-6 text-red-700">{cropError}</div>
       )}
 
       {submitError && (
-        <div className="mt-3 rounded-2xl bg-rose-50 p-3 text-sm font-bold leading-6 text-rose-700">{submitError}</div>
+        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm font-medium leading-6 text-red-700">{submitError}</div>
       )}
 
       {result && result.canVerify === false && (
-        <div className="mt-3 rounded-2xl bg-amber-50 p-3 text-xs font-black text-amber-700">
+        <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800">
           <p className="flex items-center gap-2">
             <AlertTriangle className="size-4" />
             OCR 서버 미설정 — 판정 불가
@@ -470,11 +470,11 @@ export function OcrInspectionCard({
       {shownRate !== undefined && (
         <div
           className={cn(
-            "mt-3 rounded-2xl p-3 text-sm font-bold leading-6",
-            belowThreshold ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"
+            "mt-3 rounded-md border p-3 text-sm font-medium leading-6",
+            belowThreshold ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"
           )}
         >
-          <p className="flex items-center gap-2 text-xs font-black">
+          <p className="flex items-center gap-2 text-xs font-semibold">
             {belowThreshold ? (
               <>
                 <XCircle className="size-4" />
@@ -488,7 +488,7 @@ export function OcrInspectionCard({
             )}
           </p>
           <OcrTextCompare
-            className="mt-2 text-slate-700"
+            className="mt-2 text-foreground"
             expectedText={shownExpected}
             expectedSource={expectedSource}
             recognizedText={shownRecognized}
@@ -500,12 +500,13 @@ export function OcrInspectionCard({
 
       {showFailureActions && (
         <div className="mt-3 grid grid-cols-2 gap-2">
-          <CloudButton tone="soft" disabled={cancelLoading} onClick={resetAll}>
+          <CloudButton tone="soft" className="min-h-12" disabled={cancelLoading} onClick={resetAll}>
             <RotateCcw className="size-4" />
             {belowThreshold ? "재촬영" : "재검수(재촬영)"}
           </CloudButton>
           <CloudButton
             tone={belowThreshold ? "warning" : "danger"}
+            className="min-h-12"
             disabled={cancelLoading}
             onClick={() => void (belowThreshold ? requestBelowThreshold() : requestCancel())}
           >
@@ -516,14 +517,14 @@ export function OcrInspectionCard({
       )}
 
       {inspection.status === "admin_requested" && (
-        <div className="mt-3 flex items-center gap-2 rounded-2xl bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-700">
+        <div className="mt-3 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs font-medium leading-5 text-amber-800">
           <AlertTriangle className="size-4 shrink-0" />
-          관리자 확인 대기 중입니다. 관리자 처리 결과를 기다려주세요.
+          관리자 확인 대기 중입니다. 관리자 처리 결과를 기다려 주세요.
         </div>
       )}
 
       {cancelError && (
-        <div className="mt-3 rounded-2xl bg-rose-50 p-3 text-sm font-bold leading-6 text-rose-700">{cancelError}</div>
+        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm font-medium leading-6 text-red-700">{cancelError}</div>
       )}
     </CuteCard>
   );

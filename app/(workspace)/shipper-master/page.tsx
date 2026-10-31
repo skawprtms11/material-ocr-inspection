@@ -89,7 +89,7 @@ export default function ShipperMasterPage() {
   };
 
   if (!departmentId) {
-    return <EmptyCloudState title="화주가 소속될 부서를 먼저 골라주세요." description="화주는 반드시 부서에 소속되어야 해요." />;
+    return <EmptyCloudState title="부서를 먼저 선택하세요." description="화주는 부서 단위로 관리됩니다." />;
   }
 
   return (
@@ -105,41 +105,41 @@ export default function ShipperMasterPage() {
         }
       />
 
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white/60 px-4 py-2 text-xs font-black text-slate-500 ring-1 ring-white/80">
-        <span>{isLoading ? "화주마스터를 불러오는 중이에요." : "선택된 부서 기준으로 화주를 조회합니다."}</span>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-card px-4 py-2 text-xs text-muted-foreground">
+        <span>{isLoading ? "화주마스터를 불러오는 중입니다." : "선택된 부서 기준으로 화주를 조회합니다."}</span>
         <div className="flex items-center gap-2">
-          <span className={`rounded-full px-3 py-1 ring-1 ${loadError ? "bg-rose-50 text-rose-700 ring-rose-100" : "bg-sky-50 text-sky-700 ring-sky-100"}`}>
+          <span className={`rounded-md px-2 py-0.5 font-medium ring-1 ring-inset ${loadError ? "bg-red-50 text-red-700 ring-red-600/20" : "bg-muted text-muted-foreground ring-border"}`}>
             데이터: {loadError ? "연결 오류" : dataSource === "supabase" ? "Supabase" : dataSource === "mock" ? "Mock/Fallback" : "연결 확인 중"}
           </span>
           {loadError && (
-            <button type="button" onClick={() => void loadShippers()} className="rounded-full bg-rose-100 px-3 py-1 text-rose-800">
+            <button type="button" onClick={() => void loadShippers()} className="rounded-md border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-100">
               다시 시도
             </button>
           )}
         </div>
       </div>
 
-      <CuteCard>
+      <CuteCard className="border-0 bg-transparent p-0 shadow-none">
         <DataTable
           headers={["화주코드", "화주명", "작업반장", "작업조장", "사용여부"]}
           rows={shipperRows.map((shipper) => {
             const crewLeaderNames = shipper.crew_leader_ids.map((id) => userNameById.get(id)).filter(Boolean);
 
             return [
-              <span key="code" className="font-black text-sky-700">
+              <span key="code" className="font-medium text-foreground">
                 {shipper.code}
               </span>,
-              <span key="name" className="font-black text-slate-800">
+              <span key="name" className="font-medium text-foreground">
                 {shipper.name}
               </span>,
-              <span key="foreman" className="font-bold text-slate-700">
+              <span key="foreman" className="font-medium text-foreground">
                 {shipper.foreman_name || "-"}
               </span>,
               <button
                 key="crew"
                 type="button"
                 onClick={() => setEditingShipper(shipper)}
-                className="inline-flex items-center gap-2 rounded-full bg-violet-50 px-3 py-1.5 text-xs font-black text-violet-700 shadow-sm ring-1 ring-violet-100 transition hover:bg-violet-100"
+                className="inline-flex h-8 items-center gap-2 rounded-md border border-input bg-card px-3 text-xs font-medium text-foreground shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground"
                 title={crewLeaderNames.length > 0 ? crewLeaderNames.join(", ") : "작업조장 등록"}
               >
                 <UserRound className="size-3.5" />
@@ -147,8 +147,8 @@ export default function ShipperMasterPage() {
               </button>,
               <span
                 key="active"
-                className={`rounded-full px-3 py-1 text-xs font-black ${
-                  shipper.is_active ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
+                className={`rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${
+                  shipper.is_active ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20" : "bg-slate-100 text-slate-700 ring-slate-500/20"
                 }`}
               >
                 {shipper.is_active ? "사용" : "중지"}
@@ -229,24 +229,24 @@ function AddShipperModal({
   };
 
   const inputClass =
-    "h-11 w-full rounded-2xl border border-sky-100 bg-white px-4 text-sm font-bold outline-none focus:ring-2 focus:ring-sky-200";
+    "h-9 w-full rounded-md border border-input bg-card px-3 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/40";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/35 px-4 py-8 backdrop-blur-sm">
-      <div role="dialog" aria-modal="true" aria-label="화주 추가" className="w-full max-w-md rounded-[1.5rem] border border-white/80 bg-[#f8fbff] p-5 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
-        <div className="mb-5 flex items-start justify-between gap-4">
+    <div className="fixed inset-0 z-50 flex items-center-safe justify-center overflow-y-auto bg-slate-950/50 px-4 py-8">
+      <div role="dialog" aria-modal="true" aria-label="화주 추가" className="w-full max-w-md rounded-lg border border-border bg-card p-5 shadow-lg">
+        <div className="mb-5 flex items-start justify-between gap-4 border-b border-border pb-4">
           <div>
-            <p className="text-xs font-black text-sky-600">화주마스터</p>
-            <h2 className="mt-1 text-2xl font-black text-slate-800">화주 추가</h2>
-            <p className="mt-2 text-sm font-semibold text-slate-500">현재 선택된 부서에 소속된 화주로 등록됩니다.</p>
+            <p className="text-xs font-medium text-muted-foreground">화주마스터</p>
+            <h2 className="mt-1 text-lg font-semibold text-foreground">화주 추가</h2>
+            <p className="mt-1 text-sm text-muted-foreground">현재 선택된 부서에 소속된 화주로 등록됩니다.</p>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="화주 추가 팝업 닫기"
-            className="inline-flex size-10 items-center justify-center rounded-full bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:bg-sky-50"
+            className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
-            <X className="size-5" />
+            <X className="size-4" />
           </button>
         </div>
 
@@ -258,27 +258,27 @@ function AddShipperModal({
           }}
         >
           <label className="block">
-            <span className="mb-1 block text-xs font-black text-slate-500">화주코드 (필수)</span>
+            <span className="mb-1 block text-sm font-medium text-foreground">화주코드 (필수)</span>
             <input value={code} onChange={(event) => setCode(event.target.value)} maxLength={30} autoFocus className={inputClass} placeholder="예: SHP-AB" />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs font-black text-slate-500">화주명 (필수)</span>
+            <span className="mb-1 block text-sm font-medium text-foreground">화주명 (필수)</span>
             <input value={name} onChange={(event) => setName(event.target.value)} maxLength={50} className={inputClass} placeholder="예: 민트하우스" />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs font-black text-slate-500">작업반장</span>
+            <span className="mb-1 block text-sm font-medium text-foreground">작업반장</span>
             <input value={foremanName} onChange={(event) => setForemanName(event.target.value)} maxLength={50} className={inputClass} placeholder="선택 입력" />
           </label>
-          <label className="flex items-center gap-2 text-sm font-black text-slate-600">
-            <input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} className="size-4 accent-sky-500" />
+          <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+            <input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} className="size-4 accent-primary" />
             사용
           </label>
-          {error && <p className="rounded-2xl bg-rose-50 p-3 text-sm font-bold text-rose-600">{error}</p>}
-          <div className="grid grid-cols-2 gap-2 pt-1">
-            <CloudButton type="button" tone="soft" onClick={onClose}>
+          {error && <p className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-xs font-medium text-red-700">{error}</p>}
+          <div className="mt-5 flex justify-end gap-2 border-t border-border pt-4">
+            <CloudButton type="button" tone="soft" className="min-w-24" onClick={onClose}>
               취소
             </CloudButton>
-            <CloudButton type="submit" disabled={isSaving}>
+            <CloudButton type="submit" className="min-w-24" disabled={isSaving}>
               <Check className="size-4" />
               {isSaving ? "저장 중..." : "저장"}
             </CloudButton>
@@ -307,13 +307,13 @@ function CrewLeaderModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/35 px-4 py-8 backdrop-blur-sm">
-      <div className="w-full max-w-3xl rounded-[1.5rem] border border-white/80 bg-[#f8fbff] p-5 shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
-        <div className="mb-5 flex items-start justify-between gap-4">
+    <div className="fixed inset-0 z-50 flex items-center-safe justify-center overflow-y-auto bg-slate-950/50 px-4 py-8">
+      <div className="w-full max-w-3xl rounded-lg border border-border bg-card p-5 shadow-lg">
+        <div className="mb-5 flex items-start justify-between gap-4 border-b border-border pb-4">
           <div>
-            <p className="text-xs font-black text-violet-600">작업조장 등록</p>
-            <h2 className="mt-1 text-2xl font-black text-slate-800">{shipper.name}</h2>
-            <p className="mt-2 text-sm font-semibold text-slate-500">
+            <p className="text-xs font-medium text-muted-foreground">작업조장 등록</p>
+            <h2 className="mt-1 text-lg font-semibold text-foreground">{shipper.name}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
               여러 작업자를 작업조장으로 선택할 수 있습니다. 표에는 선택된 인원이 명수로 표시됩니다.
             </p>
           </div>
@@ -321,51 +321,51 @@ function CrewLeaderModal({
             type="button"
             onClick={onClose}
             aria-label="작업조장 등록 팝업 닫기"
-            className="inline-flex size-10 items-center justify-center rounded-full bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:bg-sky-50"
+            className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
-            <X className="size-5" />
+            <X className="size-4" />
           </button>
         </div>
 
-        <div className="overflow-hidden rounded-[1.2rem] border border-white/80 bg-white/75">
+        <div className="overflow-hidden rounded-lg border border-border bg-card">
           <table className="w-full text-left text-sm">
-            <thead className="bg-violet-50/80 text-xs font-black text-violet-700">
+            <thead className="bg-muted/60 text-xs font-medium text-muted-foreground">
               <tr>
-                <th className="px-4 py-3">선택</th>
-                <th className="px-4 py-3">작업자명</th>
-                <th className="px-4 py-3">이메일</th>
-                <th className="px-4 py-3">역할</th>
+                <th className="h-10 px-4">선택</th>
+                <th className="h-10 px-4">작업자명</th>
+                <th className="h-10 px-4">이메일</th>
+                <th className="h-10 px-4">역할</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-border">
               {users.map((user) => {
                 const isSelected = selectedIds.includes(user.id);
 
                 return (
-                  <tr key={user.id} className="text-slate-600">
-                    <td className="px-4 py-3">
+                  <tr key={user.id} className="text-foreground">
+                    <td className="px-4 py-2.5">
                       <button
                         type="button"
                         onClick={() => toggleUser(user.id)}
                         aria-pressed={isSelected}
-                        className={`inline-flex size-8 items-center justify-center rounded-full text-xs font-black ring-1 transition ${
+                        className={`inline-flex size-8 items-center justify-center rounded-full text-xs font-medium ring-1 transition-colors ${
                           isSelected
-                            ? "bg-violet-500 text-white ring-violet-500"
-                            : "bg-white text-slate-400 ring-slate-200 hover:bg-violet-50 hover:text-violet-600"
+                            ? "bg-primary text-primary-foreground ring-primary"
+                            : "bg-card text-muted-foreground ring-input hover:bg-muted hover:text-foreground"
                         }`}
                       >
                         {isSelected && <Check className="size-4" />}
                       </button>
                     </td>
-                    <td className="px-4 py-3 font-black text-slate-800">{user.name}</td>
-                    <td className="px-4 py-3">{user.email}</td>
-                    <td className="px-4 py-3 uppercase">{user.role}</td>
+                    <td className="px-4 py-2.5 font-medium text-foreground">{user.name}</td>
+                    <td className="px-4 py-2.5">{user.email}</td>
+                    <td className="px-4 py-2.5 uppercase">{user.role}</td>
                   </tr>
                 );
               })}
               {users.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="px-4 py-10 text-center text-sm font-bold text-slate-400">
+                  <td colSpan={4} className="px-4 py-10 text-center text-sm font-medium text-muted-foreground">
                     선택 가능한 작업자가 없습니다.
                   </td>
                 </tr>
@@ -374,11 +374,11 @@ function CrewLeaderModal({
           </table>
         </div>
 
-        <div className="mt-5 grid grid-cols-2 gap-2">
-          <CloudButton type="button" tone="soft" onClick={onClose}>
+        <div className="mt-5 flex justify-end gap-2 border-t border-border pt-4">
+          <CloudButton type="button" tone="soft" className="min-w-24" onClick={onClose}>
             취소
           </CloudButton>
-          <CloudButton type="button" onClick={() => onSave(selectedIds)}>
+          <CloudButton type="button" className="min-w-24" onClick={() => onSave(selectedIds)}>
             <Check className="size-4" />
             저장
           </CloudButton>
